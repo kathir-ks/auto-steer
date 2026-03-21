@@ -54,7 +54,7 @@ PROBE_MAX_ITER = 2000
 SPARSITY_BUDGETS = [1, 2, 3, 5, 8, 10, 15, 20, 30, 50, 75, 100, 150, 200]
 
 # Accuracy threshold to consider a concept "solved"
-ACCURACY_THRESHOLD = 0.95
+ACCURACY_THRESHOLD = 0.90
 
 # Top-K neurons to report per concept
 TOP_K_NEURONS = 3
