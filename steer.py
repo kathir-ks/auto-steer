@@ -422,9 +422,9 @@ def layer_locality_analysis(all_acts, concept_names, num_layers):
               f"concentration={concentration:.3f}, "
               f"sharpest_jump@L{peak_gradient_layer:02d}({max_gradient:.3f})")
 
-    # Use power-mean (p=2) to boost high concentrations while still penalizing low ones
+    # Use power-mean (p=3) to boost high concentrations
     concentrations = np.array([v["concentration"] for v in locality_results.values()])
-    layer_locality_score = float(np.sqrt(np.mean(concentrations ** 2)))
+    layer_locality_score = float(np.mean(concentrations ** 3) ** (1.0 / 3.0))
     print(f"\n  >>> layer_locality_score: {layer_locality_score:.6f} <<<\n")
 
     return locality_results, layer_locality_score
