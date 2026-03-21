@@ -607,30 +607,39 @@ def activation_patching_analysis(all_acts, concept_names, sparse_results):
         src_layer = sparse_results[source]["best_layer"]
         tgt_layer = sparse_results[target]["best_layer"]
         src_neurons = sparse_results[source]["top_neurons"][:3]
+        tgt_neurons = sparse_results[target]["top_neurons"][:max(sparse_results[target]["min_neurons"], 3)]
 
-        # Train probe on target concept at target's best layer
-        pos_t = all_acts[target]["positive"][tgt_layer]
-        neg_t = all_acts[target]["negative"][tgt_layer]
+        # Use sparse probe on target's top neurons only (more sensitive to patching)
+        pos_t = all_acts[target]["positive"][tgt_layer][:, tgt_neurons]
+        neg_t = all_acts[target]["negative"][tgt_layer][:, tgt_neurons]
         X_t, y_t = make_dataset(pos_t, neg_t)
-        clf, scaler = fit_probe(X_t, y_t)
         base_acc = probe_accuracy(X_t, y_t)
 
-        # Now patch source's top neurons: replace target-negative activations
-        # at source neurons with source-positive activations
-        pos_s = all_acts[source]["positive"][tgt_layer]  # source at target's layer
-        neg_t_patched = neg_t.copy()
-        n_patch = min(len(pos_s), len(neg_t_patched))
-        for nidx in src_neurons:
-            if nidx < neg_t_patched.shape[1]:
-                neg_t_patched[:n_patch, nidx] = pos_s[:n_patch, nidx]
+        # Also measure: does adding the source concept's steering vector to
+        # negative examples flip the target probe's prediction?
+        pos_full = all_acts[target]["positive"][tgt_layer]
+        neg_full = all_acts[target]["negative"][tgt_layer]
+        pos_s = all_acts[source]["positive"][tgt_layer]
+        neg_s = all_acts[source]["negative"][tgt_layer]
 
-        X_patched, y_patched = make_dataset(pos_t, neg_t_patched)
-        patched_acc = probe_accuracy(X_patched, y_patched)
-        transfer = base_acc - patched_acc
+        # Compute source steering vector at target's layer
+        src_steer = pos_s.mean(axis=0) - neg_s.mean(axis=0)
+        # Add scaled steering vector to target negatives
+        neg_steered = neg_full + src_steer * 1.0  # full strength
+        neg_steered_sparse = neg_steered[:, tgt_neurons]
+
+        X_steered, y_steered = make_dataset(pos_t, neg_steered_sparse)
+        steered_acc = probe_accuracy(X_steered, y_steered)
+        transfer = base_acc - steered_acc
+
+        # Also check overlap: how many of source's top neurons are in target's set
+        src_set = set(src_neurons)
+        tgt_set = set(tgt_neurons)
+        overlap = len(src_set & tgt_set)
 
         print(f"  {source:20s} -> {target:20s}: "
-              f"base={base_acc:.3f}, patched={patched_acc:.3f}, "
-              f"transfer={transfer:+.3f} "
+              f"base={base_acc:.3f}, steered={steered_acc:.3f}, "
+              f"transfer={transfer:+.3f}, neuron_overlap={overlap} "
               f"({'INTERFERES' if transfer > 0.05 else 'independent'})")
 
     print()
