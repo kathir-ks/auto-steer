@@ -25,8 +25,10 @@ from pathlib import Path
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import cross_val_score, StratifiedKFold
 from sklearn.preprocessing import StandardScaler
-
 from sklearn.feature_selection import mutual_info_classif
+from sklearn.decomposition import FastICA
+from scipy.cluster.hierarchy import linkage, fcluster
+from scipy.spatial.distance import pdist
 
 from prepare_steer import (
     load_all_activations,
@@ -205,10 +207,11 @@ def sparse_probing(all_acts, concept_names, num_layers):
         print(f"    budget curve: {curve_str}")
 
     # Sparsity score: how few neurons needed, normalized
-    # Score = 1 - mean(min_neurons) / hidden_size
-    # A perfect score means each concept needs only 1 neuron
+    # Since min_neurons >= 1 (need at least one), normalize excess above 1:
+    # Score = 1 - (mean_min - 1) / (hidden_size - 1)
+    # This maps 1 neuron → 1.0 (perfect), hidden_size neurons → 0.0
     mean_min = np.mean([v["min_neurons"] for v in sparse_results.values()])
-    sparsity_score = 1.0 - (mean_min / hidden_size)
+    sparsity_score = 1.0 - (mean_min - 1.0) / (hidden_size - 1.0)
 
     print(f"\n  mean_min_neurons: {mean_min:.1f} / {hidden_size}")
     print(f"  >>> sparsity_score: {sparsity_score:.6f} <<<\n")
@@ -664,6 +667,180 @@ def activation_patching_analysis(all_acts, concept_names, sparse_results):
 
 
 # ---------------------------------------------------------------------------
+# PHASE 9: ICA Decomposition — independent component analysis
+# ---------------------------------------------------------------------------
+
+def ica_decomposition_analysis(all_acts, concept_names, sparse_results):
+    """
+    Apply ICA to find maximally independent components in the activation space
+    at each concept's best layer. Check if individual ICA components align
+    with specific concepts (i.e., can single ICA components classify concepts?).
+    """
+    print("=" * 70)
+    print("PHASE 9: ICA Decomposition — Independent Components")
+    print("=" * 70)
+
+    # Collect all activations at each concept's best layer
+    layer_concepts = {}  # layer -> list of concept names using that layer
+    for concept_name in concept_names:
+        layer = sparse_results[concept_name]["best_layer"]
+        layer_concepts.setdefault(layer, []).append(concept_name)
+
+    for layer_idx, concepts_at_layer in sorted(layer_concepts.items()):
+        # Build activation matrix from all concepts at this layer
+        all_X = []
+        all_labels = []
+        for concept_name in concepts_at_layer:
+            pos = all_acts[concept_name]["positive"][layer_idx]
+            neg = all_acts[concept_name]["negative"][layer_idx]
+            all_X.append(pos)
+            all_X.append(neg)
+            all_labels.extend([concept_name] * len(pos))
+            all_labels.extend([f"not_{concept_name}"] * len(neg))
+
+        X_all = np.vstack(all_X)
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X_all)
+
+        # Fit ICA with n_components = number of concepts at this layer
+        n_comp = min(len(concepts_at_layer) * 2, 20, X_scaled.shape[1])
+        try:
+            ica = FastICA(n_components=n_comp, random_state=42, max_iter=500)
+            S = ica.fit_transform(X_scaled)  # independent sources
+        except Exception:
+            print(f"  Layer {layer_idx}: ICA failed to converge, skipping")
+            continue
+
+        print(f"\n  Layer {layer_idx} ({', '.join(concepts_at_layer)}): "
+              f"{n_comp} ICA components")
+
+        # For each concept at this layer, find the most discriminative ICA component
+        offset = 0
+        for concept_name in concepts_at_layer:
+            n_pos = len(all_acts[concept_name]["positive"][layer_idx])
+            n_neg = len(all_acts[concept_name]["negative"][layer_idx])
+            pos_S = S[offset:offset + n_pos]
+            neg_S = S[offset + n_pos:offset + n_pos + n_neg]
+            offset += n_pos + n_neg
+
+            # Cohen's d for each ICA component
+            best_comp = -1
+            best_d = 0
+            for c in range(n_comp):
+                d = abs(pos_S[:, c].mean() - neg_S[:, c].mean()) / (
+                    np.sqrt((pos_S[:, c].var() + neg_S[:, c].var()) / 2) + 1e-8)
+                if d > best_d:
+                    best_d = d
+                    best_comp = c
+
+            # Check if this single component classifies the concept
+            X_comp = np.concatenate([pos_S[:, best_comp:best_comp+1],
+                                     neg_S[:, best_comp:best_comp+1]])
+            y_comp = np.concatenate([np.ones(n_pos), np.zeros(n_neg)])
+            acc_comp = probe_accuracy(X_comp, y_comp)
+
+            print(f"    {concept_name:20s}: best_ICA_comp={best_comp}, "
+                  f"d={best_d:.2f}, single_comp_acc={acc_comp:.3f}")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
+# PHASE 10: Hierarchical Clustering of Neuron Firing Patterns
+# ---------------------------------------------------------------------------
+
+def neuron_clustering_analysis(all_acts, concept_names, sparse_results):
+    """
+    Cluster neurons by their firing pattern similarity across all concept
+    conditions. Reveals functional groups of neurons and whether concept-
+    specific neurons cluster together or are distributed.
+    """
+    print("=" * 70)
+    print("PHASE 10: Hierarchical Clustering of Neuron Firing Patterns")
+    print("=" * 70)
+
+    # Build a neuron profile matrix: for each top neuron, its mean activation
+    # across all concept conditions (positive and negative)
+    neuron_profiles = {}  # (layer, neuron) -> profile vector
+    for concept_name in concept_names:
+        layer = sparse_results[concept_name]["best_layer"]
+        for nidx in sparse_results[concept_name]["top_neurons"][:TOP_K_NEURONS]:
+            key = (layer, nidx)
+            if key not in neuron_profiles:
+                neuron_profiles[key] = {}
+
+            pos = all_acts[concept_name]["positive"][layer][:, nidx]
+            neg = all_acts[concept_name]["negative"][layer][:, nidx]
+            neuron_profiles[key][f"{concept_name}_pos"] = float(pos.mean())
+            neuron_profiles[key][f"{concept_name}_neg"] = float(neg.mean())
+
+    if len(neuron_profiles) < 3:
+        print("  Too few neurons for clustering\n")
+        return
+
+    # Build profile matrix
+    keys = sorted(neuron_profiles.keys())
+    conditions = sorted(next(iter(neuron_profiles.values())).keys())
+    profile_matrix = np.array([[neuron_profiles[k].get(c, 0) for c in conditions]
+                                for k in keys])
+
+    # Standardize profiles
+    scaler = StandardScaler()
+    profile_std = scaler.fit_transform(profile_matrix)
+
+    # Hierarchical clustering using Ward's method
+    if len(keys) >= 2:
+        Z = linkage(profile_std, method='ward')
+        # Cut at different thresholds to see cluster structure
+        for n_clusters in [2, 3, 4, min(len(keys), 6)]:
+            if n_clusters > len(keys):
+                continue
+            labels = fcluster(Z, n_clusters, criterion='maxclust')
+            print(f"\n  {n_clusters} clusters:")
+            for c_id in range(1, n_clusters + 1):
+                members = [keys[i] for i in range(len(keys)) if labels[i] == c_id]
+                # Find which concepts these neurons belong to
+                member_concepts = set()
+                for layer, nidx in members:
+                    for concept_name in concept_names:
+                        if (sparse_results[concept_name]["best_layer"] == layer and
+                                nidx in sparse_results[concept_name]["top_neurons"][:TOP_K_NEURONS]):
+                            member_concepts.add(concept_name)
+                member_str = ", ".join(f"L{l}:N{n}" for l, n in members)
+                concept_str = ", ".join(sorted(member_concepts))
+                print(f"    Cluster {c_id}: [{member_str}] → concepts: {concept_str}")
+
+    # Also compute pairwise distances between concept neurons
+    print(f"\n  Neuron-neuron distances (Ward linkage):")
+    concept_neuron_map = {}
+    for concept_name in concept_names:
+        layer = sparse_results[concept_name]["best_layer"]
+        nidx = sparse_results[concept_name]["top_neurons"][0]
+        key = (layer, nidx)
+        if key in keys:
+            concept_neuron_map[concept_name] = keys.index(key)
+
+    for c1 in concept_names:
+        if c1 not in concept_neuron_map:
+            continue
+        closest = None
+        closest_dist = float('inf')
+        i = concept_neuron_map[c1]
+        for c2 in concept_names:
+            if c2 == c1 or c2 not in concept_neuron_map:
+                continue
+            j = concept_neuron_map[c2]
+            dist = np.linalg.norm(profile_std[i] - profile_std[j])
+            if dist < closest_dist:
+                closest_dist = dist
+                closest = c2
+        if closest:
+            print(f"    {c1:20s} closest to {closest:20s} (dist={closest_dist:.2f})")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Main Analysis Pipeline
 # ---------------------------------------------------------------------------
 
@@ -711,6 +888,12 @@ def run_analysis():
 
     # Phase 8: Activation patching (informational)
     activation_patching_analysis(all_acts, concept_names, sparse_results)
+
+    # Phase 9: ICA decomposition (informational)
+    ica_decomposition_analysis(all_acts, concept_names, sparse_results)
+
+    # Phase 10: Hierarchical clustering (informational)
+    neuron_clustering_analysis(all_acts, concept_names, sparse_results)
 
     # ---- Composite Score ----
     interpretability_score = (
