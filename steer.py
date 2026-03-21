@@ -313,7 +313,7 @@ def orthogonality_analysis(all_acts, concept_names, sparse_results):
         pos = all_acts[concept_name]["positive"][best_layer]
         neg = all_acts[concept_name]["negative"][best_layer]
         X, y = make_dataset(pos, neg)
-        clf, scaler = fit_probe(X, y, C=0.01)  # strong regularization for cleaner directions
+        clf, scaler = fit_probe(X, y, C=0.01, penalty="l1")  # L1 for sparse, cleaner directions
         # The weight vector in original space
         w = clf.coef_[0] / scaler.scale_
         norm = np.linalg.norm(w) + 1e-8
