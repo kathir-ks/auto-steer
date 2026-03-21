@@ -582,6 +582,61 @@ def causal_ablation_analysis(all_acts, concept_names, sparse_results):
 
 
 # ---------------------------------------------------------------------------
+# PHASE 8: Activation Patching — concept transfer between pairs
+# ---------------------------------------------------------------------------
+
+def activation_patching_analysis(all_acts, concept_names, sparse_results):
+    """
+    For select concept pairs, patch one concept's top neurons from positive
+    examples into another concept's negative examples, and measure how the
+    probe prediction changes. This reveals causal information flow.
+    """
+    print("=" * 70)
+    print("PHASE 8: Activation Patching — Concept Information Transfer")
+    print("=" * 70)
+
+    # Test the most interesting pairs (based on semantic overlap from Phase 6)
+    pairs = [
+        ("sentiment", "emotion_joy_anger"),  # high overlap (0.52)
+        ("formality", "complexity"),          # moderate overlap (0.34)
+        ("temporal", "instruction"),          # moderate overlap (0.19)
+        ("sentiment", "subjectivity"),        # low overlap (0.01)
+    ]
+
+    for source, target in pairs:
+        src_layer = sparse_results[source]["best_layer"]
+        tgt_layer = sparse_results[target]["best_layer"]
+        src_neurons = sparse_results[source]["top_neurons"][:3]
+
+        # Train probe on target concept at target's best layer
+        pos_t = all_acts[target]["positive"][tgt_layer]
+        neg_t = all_acts[target]["negative"][tgt_layer]
+        X_t, y_t = make_dataset(pos_t, neg_t)
+        clf, scaler = fit_probe(X_t, y_t)
+        base_acc = probe_accuracy(X_t, y_t)
+
+        # Now patch source's top neurons: replace target-negative activations
+        # at source neurons with source-positive activations
+        pos_s = all_acts[source]["positive"][tgt_layer]  # source at target's layer
+        neg_t_patched = neg_t.copy()
+        n_patch = min(len(pos_s), len(neg_t_patched))
+        for nidx in src_neurons:
+            if nidx < neg_t_patched.shape[1]:
+                neg_t_patched[:n_patch, nidx] = pos_s[:n_patch, nidx]
+
+        X_patched, y_patched = make_dataset(pos_t, neg_t_patched)
+        patched_acc = probe_accuracy(X_patched, y_patched)
+        transfer = base_acc - patched_acc
+
+        print(f"  {source:20s} -> {target:20s}: "
+              f"base={base_acc:.3f}, patched={patched_acc:.3f}, "
+              f"transfer={transfer:+.3f} "
+              f"({'INTERFERES' if transfer > 0.05 else 'independent'})")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Main Analysis Pipeline
 # ---------------------------------------------------------------------------
 
@@ -626,6 +681,9 @@ def run_analysis():
 
     # Phase 7: Causal ablation (informational)
     causal_ablation_analysis(all_acts, concept_names, sparse_results)
+
+    # Phase 8: Activation patching (informational)
+    activation_patching_analysis(all_acts, concept_names, sparse_results)
 
     # ---- Composite Score ----
     interpretability_score = (
