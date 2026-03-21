@@ -85,10 +85,12 @@ def probe_accuracy(X, y, C=1.0):
     return scores.mean()
 
 
-def fit_probe(X, y, C=1.0):
+def fit_probe(X, y, C=1.0, penalty="l2"):
     scaler = StandardScaler()
     X_s = scaler.fit_transform(X)
-    clf = LogisticRegression(C=C, max_iter=PROBE_MAX_ITER, solver="lbfgs", random_state=42)
+    solver = "saga" if penalty == "l1" else "lbfgs"
+    clf = LogisticRegression(C=C, penalty=penalty, max_iter=PROBE_MAX_ITER,
+                             solver=solver, random_state=42)
     clf.fit(X_s, y)
     return clf, scaler
 
@@ -137,7 +139,8 @@ def sparse_probing(all_acts, concept_names, num_layers):
         neg = all_acts[concept_name]["negative"][best_layer]
         hidden_size = pos.shape[1]
         X, y = make_dataset(pos, neg)
-        clf, scaler = fit_probe(X, y)
+        # Use L1 probe for sparse neuron ranking — selects cleaner features
+        clf, scaler = fit_probe(X, y, C=0.1, penalty="l1")
         ranked_neurons, weights = get_neuron_ranking(clf, scaler)
 
         # Sweep neuron budgets: use only top-k neurons
