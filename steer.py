@@ -26,6 +26,8 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import cross_val_score, StratifiedKFold
 from sklearn.preprocessing import StandardScaler
 
+from sklearn.feature_selection import mutual_info_classif
+
 from prepare_steer import (
     load_all_activations,
     get_extraction_meta,
@@ -138,22 +140,38 @@ def sparse_probing(all_acts, concept_names, num_layers):
             X_l, y_l = make_dataset(pos_l, neg_l)
             full_acc = probe_accuracy(X_l, y_l)
 
-            # Quick L1 probe for this layer
+            # Try two ranking strategies, keep the sparser result
+            # Strategy 1: L1 probe ranking
             clf_l, scaler_l = fit_probe(X_l, y_l, C=0.1, penalty="l1")
-            ranked_l, weights_l = get_neuron_ranking(clf_l, scaler_l)
+            ranked_l1, weights_l1 = get_neuron_ranking(clf_l, scaler_l)
 
-            # Quick sparse check: does top-1 or top-2 hit threshold?
+            # Strategy 2: Mutual information ranking
+            mi_scores = mutual_info_classif(X_l, y_l, random_state=42)
+            ranked_mi = np.argsort(mi_scores)[::-1]
+
+            # Evaluate both rankings, keep best
             layer_min = hidden_size
             layer_curve = {}
-            for budget in SPARSITY_BUDGETS:
-                if budget > hidden_size:
-                    break
-                top_k = ranked_l[:budget]
-                X_sp, y_sp = make_dataset(pos_l[:, top_k], neg_l[:, top_k])
-                acc_sp = probe_accuracy(X_sp, y_sp, C=1.0)
-                layer_curve[budget] = acc_sp
-                if acc_sp >= ACCURACY_THRESHOLD and budget < layer_min:
-                    layer_min = budget
+            ranked_l = ranked_l1
+            weights_l = weights_l1
+
+            for ranking, name in [(ranked_l1, "L1"), (ranked_mi, "MI")]:
+                r_min = hidden_size
+                r_curve = {}
+                for budget in SPARSITY_BUDGETS:
+                    if budget > hidden_size:
+                        break
+                    top_k = ranking[:budget]
+                    X_sp, y_sp = make_dataset(pos_l[:, top_k], neg_l[:, top_k])
+                    acc_sp = probe_accuracy(X_sp, y_sp, C=1.0)
+                    r_curve[budget] = acc_sp
+                    if acc_sp >= ACCURACY_THRESHOLD and budget < r_min:
+                        r_min = budget
+                if r_min < layer_min:
+                    layer_min = r_min
+                    layer_curve = r_curve
+                    ranked_l = ranking
+                    weights_l = weights_l1  # keep L1 weights for downstream
 
             # Prefer layer with fewer min_neurons; break ties by full accuracy
             if (layer_min < best_min_neurons or
