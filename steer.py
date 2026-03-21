@@ -122,41 +122,55 @@ def sparse_probing(all_acts, concept_names, num_layers):
     hidden_size = None
 
     for concept_name in concept_names:
-        # First find best layer with full probe
+        # Find the SPARSEST layer: for each layer, find min neurons needed
+        # to hit threshold. Pick the layer that needs the fewest.
         best_layer = 0
         best_acc = 0.0
-        for layer_idx in range(num_layers):
-            pos = all_acts[concept_name]["positive"][layer_idx]
-            neg = all_acts[concept_name]["negative"][layer_idx]
-            X, y = make_dataset(pos, neg)
-            acc = probe_accuracy(X, y)
-            if acc > best_acc:
-                best_acc = acc
-                best_layer = layer_idx
+        best_min_neurons = 99999
+        best_budget_curve = {}
+        best_ranked = None
+        best_weights = None
 
-        # At the best layer, get neuron ranking
+        for layer_idx in range(num_layers):
+            pos_l = all_acts[concept_name]["positive"][layer_idx]
+            neg_l = all_acts[concept_name]["negative"][layer_idx]
+            hidden_size = pos_l.shape[1]
+            X_l, y_l = make_dataset(pos_l, neg_l)
+            full_acc = probe_accuracy(X_l, y_l)
+
+            # Quick L1 probe for this layer
+            clf_l, scaler_l = fit_probe(X_l, y_l, C=0.1, penalty="l1")
+            ranked_l, weights_l = get_neuron_ranking(clf_l, scaler_l)
+
+            # Quick sparse check: does top-1 or top-2 hit threshold?
+            layer_min = hidden_size
+            layer_curve = {}
+            for budget in SPARSITY_BUDGETS:
+                if budget > hidden_size:
+                    break
+                top_k = ranked_l[:budget]
+                X_sp, y_sp = make_dataset(pos_l[:, top_k], neg_l[:, top_k])
+                acc_sp = probe_accuracy(X_sp, y_sp, C=0.1)
+                layer_curve[budget] = acc_sp
+                if acc_sp >= ACCURACY_THRESHOLD and budget < layer_min:
+                    layer_min = budget
+
+            # Prefer layer with fewer min_neurons; break ties by full accuracy
+            if (layer_min < best_min_neurons or
+                (layer_min == best_min_neurons and full_acc > best_acc)):
+                best_layer = layer_idx
+                best_acc = full_acc
+                best_min_neurons = layer_min
+                best_budget_curve = layer_curve
+                best_ranked = ranked_l
+                best_weights = weights_l
+
         pos = all_acts[concept_name]["positive"][best_layer]
         neg = all_acts[concept_name]["negative"][best_layer]
-        hidden_size = pos.shape[1]
-        X, y = make_dataset(pos, neg)
-        # Use L1 probe for sparse neuron ranking — selects cleaner features
-        clf, scaler = fit_probe(X, y, C=0.1, penalty="l1")
-        ranked_neurons, weights = get_neuron_ranking(clf, scaler)
-
-        # Sweep neuron budgets: use only top-k neurons
-        budget_curve = {}
-        min_neurons = hidden_size  # default: need all
-
-        for budget in SPARSITY_BUDGETS:
-            if budget > hidden_size:
-                break
-            top_k = ranked_neurons[:budget]
-            X_sparse, y_sparse = make_dataset(pos[:, top_k], neg[:, top_k])
-            acc_sparse = probe_accuracy(X_sparse, y_sparse, C=0.1)
-            budget_curve[budget] = acc_sparse
-
-            if acc_sparse >= ACCURACY_THRESHOLD and budget < min_neurons:
-                min_neurons = budget
+        ranked_neurons = best_ranked
+        weights = best_weights
+        budget_curve = best_budget_curve
+        min_neurons = best_min_neurons
 
         sparse_results[concept_name] = {
             "best_layer": best_layer,
