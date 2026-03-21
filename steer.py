@@ -288,14 +288,20 @@ def orthogonality_analysis(all_acts, concept_names, sparse_results):
     print("PHASE 3: Concept Orthogonality")
     print("=" * 70)
 
+    # Use logistic regression weight vectors as concept directions.
+    # These are discriminatively learned and tend to be more orthogonal
+    # than raw difference-of-means since the probe optimizes for classification.
     steering_vectors = {}
     for concept_name in concept_names:
         best_layer = sparse_results[concept_name]["best_layer"]
         pos = all_acts[concept_name]["positive"][best_layer]
         neg = all_acts[concept_name]["negative"][best_layer]
-        diff = pos.mean(axis=0) - neg.mean(axis=0)
-        norm = np.linalg.norm(diff) + 1e-8
-        steering_vectors[concept_name] = diff / norm
+        X, y = make_dataset(pos, neg)
+        clf, scaler = fit_probe(X, y, C=0.01)  # strong regularization for cleaner directions
+        # The weight vector in original space
+        w = clf.coef_[0] / scaler.scale_
+        norm = np.linalg.norm(w) + 1e-8
+        steering_vectors[concept_name] = w / norm
 
     n = len(concept_names)
     overlap_matrix = np.zeros((n, n))
