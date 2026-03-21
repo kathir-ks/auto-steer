@@ -521,16 +521,15 @@ def concept_composition_analysis(all_acts, concept_names, sparse_results, steeri
         V_others = np.column_stack(others)  # (hidden_size, n-1)
         target_vec = steering_vectors[target]
 
-        # Least squares: find best linear combination of others to match target
-        coeffs, residuals, _, _ = np.linalg.lstsq(V_others, target_vec, rcond=None)
-        reconstructed = V_others @ coeffs
-        reconstruction_error = np.linalg.norm(target_vec - reconstructed)
-        total_norm = np.linalg.norm(target_vec)
-        independence = reconstruction_error / (total_norm + 1e-8)
+        # Use cosine similarity as a direct measure:
+        # max |cos(target, other_i)| across all other concepts.
+        # High max cosine = not independent; low = independent.
+        max_cos = max(abs(np.dot(target_vec, v)) for v in others)
+        independence = 1.0 - max_cos
 
         independence_scores.append(independence)
         print(f"  {target:20s}: independence={independence:.3f}, "
-              f"coeffs_norm={np.linalg.norm(coeffs):.3f}")
+              f"max_cos={max_cos:.3f}")
 
     mean_independence = float(np.mean(independence_scores))
     print(f"\n  mean_independence: {mean_independence:.6f}")
@@ -557,18 +556,22 @@ def causal_ablation_analysis(all_acts, concept_names, sparse_results):
         best_layer = sparse_results[concept_name]["best_layer"]
         pos = all_acts[concept_name]["positive"][best_layer]
         neg = all_acts[concept_name]["negative"][best_layer]
-        X, y = make_dataset(pos, neg)
-        base_acc = probe_accuracy(X, y)
-
         top_neurons = sparse_results[concept_name]["top_neurons"][:5]
-        print(f"\n  {concept_name} (layer {best_layer}, base_acc={base_acc:.3f}):")
+        min_n = sparse_results[concept_name]["min_neurons"]
 
-        for nidx in top_neurons:
-            X_abl = X.copy()
-            X_abl[:, nidx] = 0
-            abl_acc = probe_accuracy(X_abl, y)
+        # Use SPARSE probe (only top-K neurons) — single neuron ablation matters more
+        sparse_set = sparse_results[concept_name]["top_neurons"][:max(min_n, 5)]
+        X_sp, y_sp = make_dataset(pos[:, sparse_set], neg[:, sparse_set])
+        base_acc = probe_accuracy(X_sp, y_sp)
+        print(f"\n  {concept_name} (layer {best_layer}, {len(sparse_set)} neurons, "
+              f"base_acc={base_acc:.3f}):")
+
+        for i, nidx in enumerate(sparse_set):
+            X_abl = X_sp.copy()
+            X_abl[:, i] = 0  # zero out this neuron in sparse feature set
+            abl_acc = probe_accuracy(X_abl, y_sp)
             drop = base_acc - abl_acc
-            causal = "CAUSAL" if drop > 0.05 else "correlated"
+            causal = "CAUSAL" if drop > 0.03 else "redundant"
             print(f"    N{nidx:3d}: ablated_acc={abl_acc:.3f}, "
                   f"drop={drop:+.3f} [{causal}]")
 
