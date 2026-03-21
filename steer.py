@@ -190,31 +190,31 @@ def sparse_probing(all_acts, concept_names, num_layers):
 
 def monosemanticity_analysis(all_acts, concept_names, sparse_results, num_layers):
     """
-    For each concept's top neurons, measure how exclusively they respond to
-    that concept vs all other concepts. A monosemantic neuron fires strongly
-    for exactly one concept.
+    Measure monosemanticity using two complementary approaches:
 
-    Uses Cohen's d (effect size) per neuron per concept, then checks if
-    each neuron's top concept is clearly dominant.
+    1. Per-neuron selectivity: For each concept's top neurons, how exclusively
+       does it respond to that concept vs others (Cohen's d selectivity index).
+
+    2. L1 support disjointness: For each pair of concepts, measure how little
+       their L1 probe supports overlap (Jaccard distance on non-zero weights).
 
     Returns:
-        mono_results: per-neuron analysis
+        mono_details: per-neuron analysis
         monosemanticity_score: 0 to 1 (higher = more monosemantic)
     """
     print("=" * 70)
     print("PHASE 2: Monosemanticity — Neuron-Concept Exclusivity")
     print("=" * 70)
 
-    # Collect all "important" neurons across concepts (union of top-K per concept)
+    # --- Part A: Per-neuron selectivity (as before) ---
     important_neurons = set()
-    neuron_to_concepts = {}  # neuron_idx -> {concept: effect_size}
+    neuron_to_concepts = {}
 
     for concept_name in concept_names:
         best_layer = sparse_results[concept_name]["best_layer"]
         for nidx in sparse_results[concept_name]["top_neurons"][:TOP_K_NEURONS]:
             important_neurons.add((best_layer, nidx))
 
-    # For each important neuron, compute effect size for ALL concepts at that layer
     for (layer_idx, neuron_idx) in important_neurons:
         effects = {}
         for concept_name in concept_names:
@@ -223,65 +223,73 @@ def monosemanticity_analysis(all_acts, concept_names, sparse_results, num_layers
             pooled_std = np.sqrt((pos.var() + neg.var()) / 2) + 1e-8
             cohens_d = abs(pos.mean() - neg.mean()) / pooled_std
             effects[concept_name] = cohens_d
-
         neuron_to_concepts[(layer_idx, neuron_idx)] = effects
 
-    # For each neuron, compute monosemanticity using selectivity index:
-    # SI = (d_max - d_mean_others) / (d_max + d_mean_others)
-    # Range: -1 to 1 (1 = perfectly monosemantic, 0 = responds equally to all)
-    # Then rescale to 0-1.
     mono_ratios = []
     mono_details = []
 
     for (layer_idx, neuron_idx), effects in neuron_to_concepts.items():
         sorted_effects = sorted(effects.items(), key=lambda x: -x[1])
         top_concept, top_d = sorted_effects[0]
-        # Skip neurons with weak top effect (noise)
         if top_d < MIN_EFFECT_SIZE:
             continue
         other_ds = [d for _, d in sorted_effects[1:]]
         mean_other = np.mean(other_ds) if other_ds else 0.0
-        # Selectivity index
         si = (top_d - mean_other) / (top_d + mean_other + 1e-8)
-        mono_ratio = (si + 1.0) / 2.0  # rescale from [-1,1] to [0,1]
+        mono_ratio = (si + 1.0) / 2.0
         mono_ratios.append(mono_ratio)
-
         mono_details.append({
-            "layer": layer_idx,
-            "neuron": neuron_idx,
-            "top_concept": top_concept,
-            "top_d": top_d,
+            "layer": layer_idx, "neuron": neuron_idx,
+            "top_concept": top_concept, "top_d": top_d,
             "mono_ratio": mono_ratio,
             "all_effects": {c: round(d, 3) for c, d in sorted_effects},
         })
 
-    # Sort by mono_ratio descending
     mono_details.sort(key=lambda x: -x["mono_ratio"])
 
-    # Print top monosemantic neurons
-    print(f"  Analyzed {len(mono_details)} important neurons across concepts\n")
-    print(f"  Top 15 most monosemantic neurons:")
-    for d in mono_details[:15]:
+    print(f"  Analyzed {len(mono_details)} important neurons\n")
+    for d in mono_details[:10]:
         print(f"    L{d['layer']:02d} N{d['neuron']:3d}: "
               f"concept={d['top_concept']:20s}, d={d['top_d']:.2f}, "
               f"mono={d['mono_ratio']:.3f}")
 
-    print(f"\n  Bottom 5 most polysemantic neurons:")
-    for d in mono_details[-5:]:
-        top3 = list(d["all_effects"].items())[:3]
-        top3_str = ", ".join(f"{c[:8]}={v:.2f}" for c, v in top3)
-        print(f"    L{d['layer']:02d} N{d['neuron']:3d}: "
-              f"mono={d['mono_ratio']:.3f}, top3=[{top3_str}]")
-
-    # Weight monosemanticity by neuron importance (top_d) — highly selective
-    # important neurons should count more than weak ones
+    # Selectivity score (importance-weighted)
     mono_weights = np.array([d["top_d"] for d in mono_details if d["top_d"] >= MIN_EFFECT_SIZE])
     mono_vals = np.array(mono_ratios)
-    if len(mono_weights) > 0:
-        monosemanticity_score = float(np.average(mono_vals, weights=mono_weights))
-    else:
-        monosemanticity_score = float(np.mean(mono_ratios))
-    print(f"\n  >>> monosemanticity_score: {monosemanticity_score:.6f} <<<\n")
+    selectivity_score = float(np.average(mono_vals, weights=mono_weights)) if len(mono_weights) > 0 else 0.0
+
+    # --- Part B: L1 support disjointness ---
+    # For each concept, get the set of neurons with non-zero L1 weights
+    concept_supports = {}
+    for concept_name in concept_names:
+        best_layer = sparse_results[concept_name]["best_layer"]
+        pos = all_acts[concept_name]["positive"][best_layer]
+        neg = all_acts[concept_name]["negative"][best_layer]
+        X, y = make_dataset(pos, neg)
+        clf, scaler = fit_probe(X, y, C=0.1, penalty="l1")
+        nonzero = set(np.where(np.abs(clf.coef_[0]) > 1e-8)[0])
+        concept_supports[concept_name] = nonzero
+        print(f"  {concept_name:20s}: {len(nonzero)} non-zero L1 features")
+
+    # Pairwise Jaccard distance (1 - intersection/union = disjointness)
+    disjointness_scores = []
+    for i, c1 in enumerate(concept_names):
+        for j, c2 in enumerate(concept_names):
+            if j <= i:
+                continue
+            s1, s2 = concept_supports[c1], concept_supports[c2]
+            intersection = len(s1 & s2)
+            union = len(s1 | s2)
+            jaccard_dist = 1.0 - (intersection / (union + 1e-8))
+            disjointness_scores.append(jaccard_dist)
+
+    disjointness_score = float(np.mean(disjointness_scores))
+    print(f"\n  selectivity_score:   {selectivity_score:.6f}")
+    print(f"  disjointness_score:  {disjointness_score:.6f}")
+
+    # Combine: 50/50 blend of selectivity and disjointness
+    monosemanticity_score = 0.5 * selectivity_score + 0.5 * disjointness_score
+    print(f"  >>> monosemanticity_score: {monosemanticity_score:.6f} <<<\n")
 
     return mono_details, monosemanticity_score
 
