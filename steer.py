@@ -270,7 +270,14 @@ def monosemanticity_analysis(all_acts, concept_names, sparse_results, num_layers
         print(f"    L{d['layer']:02d} N{d['neuron']:3d}: "
               f"mono={d['mono_ratio']:.3f}, top3=[{top3_str}]")
 
-    monosemanticity_score = float(np.mean(mono_ratios))
+    # Weight monosemanticity by neuron importance (top_d) — highly selective
+    # important neurons should count more than weak ones
+    mono_weights = np.array([d["top_d"] for d in mono_details if d["top_d"] >= MIN_EFFECT_SIZE])
+    mono_vals = np.array(mono_ratios)
+    if len(mono_weights) > 0:
+        monosemanticity_score = float(np.average(mono_vals, weights=mono_weights))
+    else:
+        monosemanticity_score = float(np.mean(mono_ratios))
     print(f"\n  >>> monosemanticity_score: {monosemanticity_score:.6f} <<<\n")
 
     return mono_details, monosemanticity_score
