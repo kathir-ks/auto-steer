@@ -55,7 +55,7 @@ SPARSITY_BUDGETS = [1, 2, 3, 5, 8, 10, 15, 20, 30, 50, 75, 100, 150, 200]
 ACCURACY_THRESHOLD = 0.95
 
 # Top-K neurons to report per concept
-TOP_K_NEURONS = 5
+TOP_K_NEURONS = 3
 
 # Minimum Cohen's d to consider a neuron "significant" for monosemanticity
 MIN_EFFECT_SIZE = 0.5
