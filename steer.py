@@ -410,7 +410,7 @@ def layer_locality_analysis(all_acts, concept_names, num_layers):
             top3_gains = np.sort(np.maximum(np.diff(accuracies), 0))[-3:]
             sharpness = min(top3_gains.sum() / total_range, 1.0)
 
-        concentration = 0.1 * gini + 0.9 * sharpness
+        concentration = sharpness
 
         # Compute layer gradient — how quickly does accuracy change?
         gradients = np.abs(np.diff(accuracies))
