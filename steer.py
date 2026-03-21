@@ -841,6 +841,53 @@ def neuron_clustering_analysis(all_acts, concept_names, sparse_results):
 
 
 # ---------------------------------------------------------------------------
+# PHASE 11: Information-Theoretic Analysis — MI between neurons and concepts
+# ---------------------------------------------------------------------------
+
+def information_theoretic_analysis(all_acts, concept_names, sparse_results):
+    """
+    Compute mutual information between individual neurons and concept labels.
+    Compare MI-based importance with L1 probe importance to see if linear probes
+    miss any nonlinear neuron-concept relationships.
+    """
+    print("=" * 70)
+    print("PHASE 11: Information-Theoretic Analysis — Neuron-Concept MI")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        layer = sparse_results[concept_name]["best_layer"]
+        pos = all_acts[concept_name]["positive"][layer]
+        neg = all_acts[concept_name]["negative"][layer]
+        X, y = make_dataset(pos, neg)
+
+        # Compute MI for all neurons
+        mi = mutual_info_classif(X, y, random_state=42)
+        top_mi = np.argsort(mi)[::-1][:5]
+
+        # Compare with L1 probe ranking
+        l1_top = sparse_results[concept_name]["top_neurons"][:5]
+
+        # Check overlap
+        mi_set = set(top_mi.tolist())
+        l1_set = set(l1_top)
+        overlap = len(mi_set & l1_set)
+
+        # Find neurons high in MI but low in L1 (potential nonlinear signals)
+        mi_only = mi_set - l1_set
+
+        print(f"  {concept_name:20s} (layer {layer}):")
+        print(f"    MI top-5:  {list(top_mi)} (MI: {[f'{mi[n]:.3f}' for n in top_mi]})")
+        print(f"    L1 top-5:  {l1_top}")
+        print(f"    Overlap:   {overlap}/5")
+        if mi_only:
+            for nidx in mi_only:
+                print(f"    MI-only N{nidx}: MI={mi[nidx]:.3f} "
+                      f"(potential nonlinear signal)")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Main Analysis Pipeline
 # ---------------------------------------------------------------------------
 
@@ -894,6 +941,9 @@ def run_analysis():
 
     # Phase 10: Hierarchical clustering (informational)
     neuron_clustering_analysis(all_acts, concept_names, sparse_results)
+
+    # Phase 11: Information-theoretic analysis (informational)
+    information_theoretic_analysis(all_acts, concept_names, sparse_results)
 
     # ---- Composite Score ----
     interpretability_score = (
