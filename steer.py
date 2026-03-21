@@ -150,7 +150,7 @@ def sparse_probing(all_acts, concept_names, num_layers):
                     break
                 top_k = ranked_l[:budget]
                 X_sp, y_sp = make_dataset(pos_l[:, top_k], neg_l[:, top_k])
-                acc_sp = probe_accuracy(X_sp, y_sp, C=0.1)
+                acc_sp = probe_accuracy(X_sp, y_sp, C=1.0)
                 layer_curve[budget] = acc_sp
                 if acc_sp >= ACCURACY_THRESHOLD and budget < layer_min:
                     layer_min = budget
