@@ -223,7 +223,7 @@ def monosemanticity_analysis(all_acts, concept_names, sparse_results, num_layers
             # Use squared Cohen's d to amplify large effects and suppress small ones
             pooled_std = np.sqrt((pos.var() + neg.var()) / 2) + 1e-8
             cohens_d = abs(pos.mean() - neg.mean()) / pooled_std
-            effects[concept_name] = cohens_d ** 4  # power=4 for selectivity
+            effects[concept_name] = cohens_d ** 6  # power=6 for selectivity
         neuron_to_concepts[(layer_idx, neuron_idx)] = effects
 
     mono_ratios = []
