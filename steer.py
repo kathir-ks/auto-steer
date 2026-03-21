@@ -392,19 +392,25 @@ def layer_locality_analysis(all_acts, concept_names, num_layers):
         emergence_layer = int(above_threshold[0]) if len(above_threshold) > 0 else num_layers - 1
 
         # Compute "concentration" using Gini coefficient on accuracy gains.
-        # Idea: if accuracy jumps sharply at one layer, the gains are concentrated
-        # (high Gini = high locality). If accuracy rises uniformly, Gini is low.
-        gains = np.maximum(np.diff(accuracies), 0)  # per-layer accuracy gains
+        gains = np.maximum(np.diff(accuracies), 0)
         gains_sorted = np.sort(gains)
         n_gains = len(gains_sorted)
         if gains_sorted.sum() < 1e-8:
-            # No gains at all (accuracy is flat / already high at layer 0)
-            # This means the concept is immediately available — treat as maximally local
-            concentration = 1.0
+            gini = 1.0
         else:
             cumulative = np.cumsum(gains_sorted)
-            # Gini = 1 - 2 * area under Lorenz curve
-            concentration = 1.0 - 2.0 * cumulative.sum() / (n_gains * cumulative[-1])
+            gini = 1.0 - 2.0 * cumulative.sum() / (n_gains * cumulative[-1])
+
+        # Also compute "transition sharpness": what fraction of the accuracy range
+        # (from min to max) is covered in the top-3 layers by gain?
+        total_range = accuracies.max() - accuracies.min()
+        if total_range < 1e-8:
+            sharpness = 1.0  # flat = immediately available = local
+        else:
+            top3_gains = np.sort(np.maximum(np.diff(accuracies), 0))[-3:]
+            sharpness = min(top3_gains.sum() / total_range, 1.0)
+
+        concentration = 0.6 * gini + 0.4 * sharpness
 
         # Compute layer gradient — how quickly does accuracy change?
         gradients = np.abs(np.diff(accuracies))
