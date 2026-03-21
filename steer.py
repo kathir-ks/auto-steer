@@ -266,7 +266,7 @@ def monosemanticity_analysis(all_acts, concept_names, sparse_results, num_layers
         pos = all_acts[concept_name]["positive"][best_layer]
         neg = all_acts[concept_name]["negative"][best_layer]
         X, y = make_dataset(pos, neg)
-        clf, scaler = fit_probe(X, y, C=0.1, penalty="l1")
+        clf, scaler = fit_probe(X, y, C=0.01, penalty="l1")
         nonzero = set(np.where(np.abs(clf.coef_[0]) > 1e-8)[0])
         concept_supports[concept_name] = nonzero
         print(f"  {concept_name:20s}: {len(nonzero)} non-zero L1 features")
