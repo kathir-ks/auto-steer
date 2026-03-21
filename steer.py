@@ -504,38 +504,43 @@ def neuron_role_summary(all_acts, concept_names, sparse_results):
 
 def concept_composition_analysis(all_acts, concept_names, sparse_results, steering_vectors):
     """
-    For each concept, measure whether its steering vector can be reconstructed
-    from other concepts' steering vectors. High reconstruction = shared structure.
-    Low reconstruction = truly independent concept.
+    For each concept, measure independence using both:
+    1. Raw difference-of-means directions (to see real semantic overlap)
+    2. L1 probe directions (to show analysis quality)
     """
     print("=" * 70)
     print("PHASE 6: Concept Composition — Concept Independence")
     print("=" * 70)
 
-    n = len(concept_names)
-    independence_scores = []
+    # Compute raw difference-of-means directions for comparison
+    raw_vectors = {}
+    for concept_name in concept_names:
+        best_layer = sparse_results[concept_name]["best_layer"]
+        pos = all_acts[concept_name]["positive"][best_layer]
+        neg = all_acts[concept_name]["negative"][best_layer]
+        diff = pos.mean(axis=0) - neg.mean(axis=0)
+        norm = np.linalg.norm(diff) + 1e-8
+        raw_vectors[concept_name] = diff / norm
 
+    print("  --- Raw difference-of-means (semantic overlap) ---")
     for i, target in enumerate(concept_names):
-        # Try to reconstruct target's steering vector from all others
+        others_raw = [raw_vectors[c] for j, c in enumerate(concept_names) if j != i]
+        max_cos_raw = max(abs(np.dot(raw_vectors[target], v)) for v in others_raw)
+        closest = max(
+            ((c, abs(np.dot(raw_vectors[target], raw_vectors[c])))
+             for c in concept_names if c != target),
+            key=lambda x: x[1]
+        )
+        print(f"  {target:20s}: max_cos={max_cos_raw:.3f} "
+              f"(closest: {closest[0]}, cos={closest[1]:.3f})")
+
+    print("\n  --- L1 probe directions (analysis quality) ---")
+    for i, target in enumerate(concept_names):
         others = [steering_vectors[c] for j, c in enumerate(concept_names) if j != i]
-        V_others = np.column_stack(others)  # (hidden_size, n-1)
-        target_vec = steering_vectors[target]
+        max_cos = max(abs(np.dot(steering_vectors[target], v)) for v in others)
+        print(f"  {target:20s}: max_cos={max_cos:.3f}")
 
-        # Use cosine similarity as a direct measure:
-        # max |cos(target, other_i)| across all other concepts.
-        # High max cosine = not independent; low = independent.
-        max_cos = max(abs(np.dot(target_vec, v)) for v in others)
-        independence = 1.0 - max_cos
-
-        independence_scores.append(independence)
-        print(f"  {target:20s}: independence={independence:.3f}, "
-              f"max_cos={max_cos:.3f}")
-
-    mean_independence = float(np.mean(independence_scores))
-    print(f"\n  mean_independence: {mean_independence:.6f}")
-    print(f"  (1.0 = fully independent, 0.0 = fully reconstructable)\n")
-
-    return independence_scores
+    print()
 
 
 # ---------------------------------------------------------------------------
