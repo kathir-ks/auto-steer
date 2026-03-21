@@ -220,16 +220,21 @@ def monosemanticity_analysis(all_acts, concept_names, sparse_results, num_layers
 
         neuron_to_concepts[(layer_idx, neuron_idx)] = effects
 
-    # For each neuron, compute monosemanticity = max_effect / sum_of_effects
-    # A perfectly monosemantic neuron has ratio = 1.0 (all effect in one concept)
+    # For each neuron, compute monosemanticity using selectivity index:
+    # SI = (d_max - d_mean_others) / (d_max + d_mean_others)
+    # Range: -1 to 1 (1 = perfectly monosemantic, 0 = responds equally to all)
+    # Then rescale to 0-1.
     mono_ratios = []
     mono_details = []
 
     for (layer_idx, neuron_idx), effects in neuron_to_concepts.items():
         sorted_effects = sorted(effects.items(), key=lambda x: -x[1])
         top_concept, top_d = sorted_effects[0]
-        total_d = sum(d for _, d in sorted_effects) + 1e-8
-        mono_ratio = top_d / total_d
+        other_ds = [d for _, d in sorted_effects[1:]]
+        mean_other = np.mean(other_ds) if other_ds else 0.0
+        # Selectivity index
+        si = (top_d - mean_other) / (top_d + mean_other + 1e-8)
+        mono_ratio = (si + 1.0) / 2.0  # rescale from [-1,1] to [0,1]
         mono_ratios.append(mono_ratio)
 
         mono_details.append({
