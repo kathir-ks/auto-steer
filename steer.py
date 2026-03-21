@@ -499,6 +499,81 @@ def neuron_role_summary(all_acts, concept_names, sparse_results):
 
 
 # ---------------------------------------------------------------------------
+# PHASE 6: Concept Composition — can concepts be predicted from others?
+# ---------------------------------------------------------------------------
+
+def concept_composition_analysis(all_acts, concept_names, sparse_results, steering_vectors):
+    """
+    For each concept, measure whether its steering vector can be reconstructed
+    from other concepts' steering vectors. High reconstruction = shared structure.
+    Low reconstruction = truly independent concept.
+    """
+    print("=" * 70)
+    print("PHASE 6: Concept Composition — Concept Independence")
+    print("=" * 70)
+
+    n = len(concept_names)
+    independence_scores = []
+
+    for i, target in enumerate(concept_names):
+        # Try to reconstruct target's steering vector from all others
+        others = [steering_vectors[c] for j, c in enumerate(concept_names) if j != i]
+        V_others = np.column_stack(others)  # (hidden_size, n-1)
+        target_vec = steering_vectors[target]
+
+        # Least squares: find best linear combination of others to match target
+        coeffs, residuals, _, _ = np.linalg.lstsq(V_others, target_vec, rcond=None)
+        reconstructed = V_others @ coeffs
+        reconstruction_error = np.linalg.norm(target_vec - reconstructed)
+        total_norm = np.linalg.norm(target_vec)
+        independence = reconstruction_error / (total_norm + 1e-8)
+
+        independence_scores.append(independence)
+        print(f"  {target:20s}: independence={independence:.3f}, "
+              f"coeffs_norm={np.linalg.norm(coeffs):.3f}")
+
+    mean_independence = float(np.mean(independence_scores))
+    print(f"\n  mean_independence: {mean_independence:.6f}")
+    print(f"  (1.0 = fully independent, 0.0 = fully reconstructable)\n")
+
+    return independence_scores
+
+
+# ---------------------------------------------------------------------------
+# PHASE 7: Causal Ablation — which neurons are causally important?
+# ---------------------------------------------------------------------------
+
+def causal_ablation_analysis(all_acts, concept_names, sparse_results):
+    """
+    For each concept's top neurons, measure the accuracy drop when each
+    neuron is zeroed out. Neurons with high causal importance are truly
+    necessary (not just correlated).
+    """
+    print("=" * 70)
+    print("PHASE 7: Causal Ablation — Neuron Necessity")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        best_layer = sparse_results[concept_name]["best_layer"]
+        pos = all_acts[concept_name]["positive"][best_layer]
+        neg = all_acts[concept_name]["negative"][best_layer]
+        X, y = make_dataset(pos, neg)
+        base_acc = probe_accuracy(X, y)
+
+        top_neurons = sparse_results[concept_name]["top_neurons"][:5]
+        print(f"\n  {concept_name} (layer {best_layer}, base_acc={base_acc:.3f}):")
+
+        for nidx in top_neurons:
+            X_abl = X.copy()
+            X_abl[:, nidx] = 0
+            abl_acc = probe_accuracy(X_abl, y)
+            drop = base_acc - abl_acc
+            causal = "CAUSAL" if drop > 0.05 else "correlated"
+            print(f"    N{nidx:3d}: ablated_acc={abl_acc:.3f}, "
+                  f"drop={drop:+.3f} [{causal}]")
+
+
+# ---------------------------------------------------------------------------
 # Main Analysis Pipeline
 # ---------------------------------------------------------------------------
 
@@ -537,6 +612,12 @@ def run_analysis():
 
     # Phase 5: Neuron role summary (informational, no score)
     neuron_role_summary(all_acts, concept_names, sparse_results)
+
+    # Phase 6: Concept composition (informational)
+    concept_composition_analysis(all_acts, concept_names, sparse_results, steering_vectors)
+
+    # Phase 7: Causal ablation (informational)
+    causal_ablation_analysis(all_acts, concept_names, sparse_results)
 
     # ---- Composite Score ----
     interpretability_score = (
