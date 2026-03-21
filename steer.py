@@ -355,14 +355,20 @@ def layer_locality_analysis(all_acts, concept_names, num_layers):
         above_threshold = np.where(accuracies >= ACCURACY_THRESHOLD)[0]
         emergence_layer = int(above_threshold[0]) if len(above_threshold) > 0 else num_layers - 1
 
-        # Compute "concentration" — how sharp is the transition?
-        # Use entropy of the accuracy distribution (normalized to sum to 1)
-        acc_dist = accuracies - 0.5  # shift so random = 0
-        acc_dist = np.maximum(acc_dist, 0)
-        acc_dist = acc_dist / (acc_dist.sum() + 1e-8)
-        entropy = -np.sum(acc_dist * np.log(acc_dist + 1e-8))
-        max_entropy = np.log(num_layers)
-        concentration = 1.0 - (entropy / max_entropy)
+        # Compute "concentration" using Gini coefficient on accuracy gains.
+        # Idea: if accuracy jumps sharply at one layer, the gains are concentrated
+        # (high Gini = high locality). If accuracy rises uniformly, Gini is low.
+        gains = np.maximum(np.diff(accuracies), 0)  # per-layer accuracy gains
+        gains_sorted = np.sort(gains)
+        n_gains = len(gains_sorted)
+        if gains_sorted.sum() < 1e-8:
+            # No gains at all (accuracy is flat / already high at layer 0)
+            # This means the concept is immediately available — treat as maximally local
+            concentration = 1.0
+        else:
+            cumulative = np.cumsum(gains_sorted)
+            # Gini = 1 - 2 * area under Lorenz curve
+            concentration = 1.0 - 2.0 * cumulative.sum() / (n_gains * cumulative[-1])
 
         # Compute layer gradient — how quickly does accuracy change?
         gradients = np.abs(np.diff(accuracies))
