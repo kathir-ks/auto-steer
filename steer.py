@@ -55,7 +55,10 @@ SPARSITY_BUDGETS = [1, 2, 3, 5, 8, 10, 15, 20, 30, 50, 75, 100, 150, 200]
 ACCURACY_THRESHOLD = 0.95
 
 # Top-K neurons to report per concept
-TOP_K_NEURONS = 20
+TOP_K_NEURONS = 10
+
+# Minimum Cohen's d to consider a neuron "significant" for monosemanticity
+MIN_EFFECT_SIZE = 0.5
 
 # Composite score weights
 W_SPARSITY = 0.30
@@ -230,6 +233,9 @@ def monosemanticity_analysis(all_acts, concept_names, sparse_results, num_layers
     for (layer_idx, neuron_idx), effects in neuron_to_concepts.items():
         sorted_effects = sorted(effects.items(), key=lambda x: -x[1])
         top_concept, top_d = sorted_effects[0]
+        # Skip neurons with weak top effect (noise)
+        if top_d < MIN_EFFECT_SIZE:
+            continue
         other_ds = [d for _, d in sorted_effects[1:]]
         mean_other = np.mean(other_ds) if other_ds else 0.0
         # Selectivity index
