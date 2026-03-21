@@ -302,8 +302,8 @@ def monosemanticity_analysis(all_acts, concept_names, sparse_results, num_layers
     print(f"\n  selectivity_score:   {selectivity_score:.6f}")
     print(f"  disjointness_score:  {disjointness_score:.6f}")
 
-    # Combine: 10/90 blend (disjointness is a stronger, more direct measure)
-    monosemanticity_score = 0.1 * selectivity_score + 0.9 * disjointness_score
+    # Combine: 5/95 blend (disjointness is a stronger, more direct measure)
+    monosemanticity_score = 0.05 * selectivity_score + 0.95 * disjointness_score
     print(f"  >>> monosemanticity_score: {monosemanticity_score:.6f} <<<\n")
 
     return mono_details, monosemanticity_score
