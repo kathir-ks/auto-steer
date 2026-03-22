@@ -1209,6 +1209,80 @@ def concept_geometry_analysis(all_acts, concept_names, sparse_results):
 
 
 # ---------------------------------------------------------------------------
+# PHASE 16: RSA — Representational Similarity Analysis across layers
+# ---------------------------------------------------------------------------
+
+def rsa_analysis(all_acts, concept_names, num_layers):
+    """
+    Compare concept representational dissimilarity matrices (RDMs) across
+    layers. Shows how the network's concept space reorganizes through layers.
+    Uses Spearman correlation between layer RDMs.
+    """
+    print("=" * 70)
+    print("PHASE 16: RSA — Representational Similarity Across Layers")
+    print("=" * 70)
+
+    # Compute RDM at each layer: pairwise cosine distance between concept centroids
+    layer_rdms = []
+    sample_layers = list(range(0, num_layers, 3))  # sample every 3rd layer for speed
+    if (num_layers - 1) not in sample_layers:
+        sample_layers.append(num_layers - 1)
+
+    for layer_idx in sample_layers:
+        centroids = []
+        for concept_name in concept_names:
+            pos = all_acts[concept_name]["positive"][layer_idx]
+            neg = all_acts[concept_name]["negative"][layer_idx]
+            # Concept centroid = mean(positive) - mean(negative)
+            centroid = pos.mean(axis=0) - neg.mean(axis=0)
+            norm = np.linalg.norm(centroid) + 1e-8
+            centroids.append(centroid / norm)
+
+        centroids = np.array(centroids)
+        # RDM: 1 - cosine similarity
+        rdm = 1.0 - centroids @ centroids.T
+        layer_rdms.append(rdm)
+
+    # Compute Spearman correlation between consecutive layer RDMs
+    print(f"  Layer-to-layer RDM correlation (concept structure stability):")
+    from scipy.stats import spearmanr
+    for i in range(len(sample_layers) - 1):
+        l1, l2 = sample_layers[i], sample_layers[i + 1]
+        # Upper triangle of RDMs
+        n = len(concept_names)
+        triu_idx = np.triu_indices(n, k=1)
+        rdm1_flat = layer_rdms[i][triu_idx]
+        rdm2_flat = layer_rdms[i + 1][triu_idx]
+        rho, _ = spearmanr(rdm1_flat, rdm2_flat)
+        stability = "STABLE" if rho > 0.8 else ("shifting" if rho > 0.5 else "REORGANIZING")
+        print(f"    L{l1:2d} → L{l2:2d}: ρ={rho:.3f} [{stability}]")
+
+    # Compare first vs last layer RDM
+    rdm1_flat = layer_rdms[0][np.triu_indices(len(concept_names), k=1)]
+    rdm_last_flat = layer_rdms[-1][np.triu_indices(len(concept_names), k=1)]
+    rho_fl, _ = spearmanr(rdm1_flat, rdm_last_flat)
+    print(f"\n    L{sample_layers[0]:2d} → L{sample_layers[-1]:2d} (first→last): ρ={rho_fl:.3f}")
+
+    # Show which concept pairs change most between layers
+    rdm_change = np.abs(layer_rdms[-1] - layer_rdms[0])
+    n = len(concept_names)
+    print(f"\n  Most changed concept pairs (first→last layer):")
+    pairs = []
+    for i in range(n):
+        for j in range(i + 1, n):
+            pairs.append((concept_names[i], concept_names[j], rdm_change[i, j]))
+    pairs.sort(key=lambda x: -x[2])
+    for c1, c2, change in pairs[:5]:
+        d_first = layer_rdms[0][concept_names.index(c1), concept_names.index(c2)]
+        d_last = layer_rdms[-1][concept_names.index(c1), concept_names.index(c2)]
+        print(f"    {c1:15s} - {c2:15s}: "
+              f"d_L0={d_first:.3f} → d_L{sample_layers[-1]}={d_last:.3f} "
+              f"(Δ={change:.3f})")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Main Analysis Pipeline
 # ---------------------------------------------------------------------------
 
@@ -1277,6 +1351,9 @@ def run_analysis():
 
     # Phase 15: Concept geometry (informational)
     concept_geometry_analysis(all_acts, concept_names, sparse_results)
+
+    # Phase 16: RSA (informational)
+    rsa_analysis(all_acts, concept_names, num_layers)
 
     # ---- Composite Score ----
     interpretability_score = (
