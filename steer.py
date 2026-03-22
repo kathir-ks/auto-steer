@@ -6941,6 +6941,96 @@ def neuron_firing_rate_correlation(all_acts, concept_names, sparse_results):
     print()
 
 
+def concept_superposition_angle(all_acts, concept_names):
+    """
+    If N concepts are packed into D effective dimensions, the expected angle
+    between random unit vectors is arccos(1/sqrt(D)). Compare actual angles
+    to this theoretical minimum to detect superposition.
+    """
+    print("=" * 70)
+    print("PHASE 127: Concept Superposition Analysis")
+    print("=" * 70)
+
+    target_layer = 10
+    directions = []
+    for cn in concept_names:
+        pos = all_acts[cn]["positive"][target_layer]
+        neg = all_acts[cn]["negative"][target_layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        directions.append(d / (np.linalg.norm(d) + 1e-12))
+
+    D = np.array(directions)
+
+    # Actual pairwise angles
+    actual_angles = []
+    for i in range(len(concept_names)):
+        for j in range(i+1, len(concept_names)):
+            cos = np.dot(directions[i], directions[j])
+            angle = np.degrees(np.arccos(np.clip(cos, -1, 1)))
+            actual_angles.append(angle)
+
+    mean_actual = np.mean(actual_angles)
+
+    # Effective dimensionality of concept subspace
+    U, S, Vt = np.linalg.svd(D, full_matrices=False)
+    pr = np.sum(S**2)**2 / (np.sum(S**4) + 1e-12)
+
+    # Theoretical random angle in pr-dimensional space
+    # For random unit vectors in d dimensions: E[cos] ≈ 0, E[|cos|] ≈ sqrt(2/(pi*d))
+    theoretical_mean_angle = 90.0  # random vectors are orthogonal on average
+    superposition_ratio = pr / len(concept_names)
+
+    print(f"  At L{target_layer}:")
+    print(f"    Effective concept dimensions: {pr:.1f}")
+    print(f"    Number of concepts: {len(concept_names)}")
+    print(f"    Superposition ratio: {superposition_ratio:.2f} "
+          f"({'superposed' if superposition_ratio < 1 else 'sufficient space'})")
+    print(f"    Mean pairwise angle: {mean_actual:.1f}° (theoretical ~90°)")
+    print(f"    Min pairwise angle: {min(actual_angles):.1f}°")
+    print(f"    Max pairwise angle: {max(actual_angles):.1f}°")
+
+    print()
+
+
+def neuron_ablation_impact(all_acts, concept_names, sparse_results):
+    """
+    Zero out each concept's top neuron and measure accuracy drop.
+    True causal importance — does removing this neuron actually hurt?
+    """
+    print("=" * 70)
+    print("PHASE 128: Neuron Ablation Impact")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        sr = sparse_results[concept_name]
+        best_layer = sr["best_layer"]
+        top_neurons = sr["top_neurons"][:3]
+
+        pos = all_acts[concept_name]["positive"][best_layer]
+        neg = all_acts[concept_name]["negative"][best_layer]
+        X = np.vstack([pos, neg])
+        y = np.array([1]*len(pos) + [0]*len(neg))
+
+        # Train full probe
+        clf = LogisticRegression(C=1.0, max_iter=200, random_state=42)
+        clf.fit(X, y)
+        full_acc = clf.score(X, y)
+
+        # Ablate each top neuron
+        impacts = []
+        for n_idx in top_neurons:
+            X_ablated = X.copy()
+            X_ablated[:, n_idx] = 0.0
+            ablated_acc = clf.score(X_ablated, y)
+            impact = full_acc - ablated_acc
+            impacts.append((n_idx, impact, ablated_acc))
+
+        impact_str = " ".join(f"N{n}(Δ={imp:+.3f})" for n, imp, _ in impacts)
+        print(f"  {concept_name:20s}: full={full_acc:.3f} ablate=[{impact_str}]")
+
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -7393,6 +7483,12 @@ def run_analysis():
 
     # Phase 126: Neuron firing rate comparison (informational)
     neuron_firing_rate_correlation(all_acts, concept_names, sparse_results)
+
+    # Phase 127: Concept superposition analysis (informational)
+    concept_superposition_angle(all_acts, concept_names)
+
+    # Phase 128: Neuron ablation impact (informational)
+    neuron_ablation_impact(all_acts, concept_names, sparse_results)
 
     # ---- Composite Score ----
     interpretability_score = (
