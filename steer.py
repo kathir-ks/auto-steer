@@ -1485,6 +1485,88 @@ def sparse_dictionary_analysis(all_acts, concept_names, sparse_results):
 
 
 # ---------------------------------------------------------------------------
+# PHASE 20: Concept Interaction Network — facilitation and inhibition
+# ---------------------------------------------------------------------------
+
+def concept_interaction_network(all_acts, concept_names, sparse_results):
+    """
+    Build a concept interaction graph. For each concept pair, measure:
+    1. Whether knowing one concept's label helps predict the other
+       (conditional accuracy improvement)
+    2. Whether one concept's top neuron activations correlate with
+       the other concept's positive/negative direction
+    This reveals facilitation (+) and inhibition (-) relationships.
+    """
+    print("=" * 70)
+    print("PHASE 20: Concept Interaction Network")
+    print("=" * 70)
+
+    # For each concept pair, compute correlation between their steering vectors
+    # at a common layer (layer 12 — middle of network)
+    mid_layer = 12
+
+    # Compute mean difference vectors at mid layer
+    diff_vectors = {}
+    for concept_name in concept_names:
+        pos = all_acts[concept_name]["positive"][mid_layer]
+        neg = all_acts[concept_name]["negative"][mid_layer]
+        diff = pos.mean(axis=0) - neg.mean(axis=0)
+        diff_vectors[concept_name] = diff
+
+    # Also check: for concept A's top neuron, does it fire more for
+    # concept B positive or negative?
+    print("  Concept interaction graph (at L12):")
+    print("    + = facilitates, - = inhibits, . = neutral\n")
+
+    # Build interaction matrix
+    n = len(concept_names)
+    interactions = np.zeros((n, n))
+
+    for i, c1 in enumerate(concept_names):
+        layer1 = sparse_results[c1]["best_layer"]
+        top_n1 = sparse_results[c1]["top_neurons"][0]
+
+        for j, c2 in enumerate(concept_names):
+            if i == j:
+                continue
+            # Does c1's top neuron differentiate c2?
+            pos2 = all_acts[c2]["positive"][layer1][:, top_n1]
+            neg2 = all_acts[c2]["negative"][layer1][:, top_n1]
+            # Positive = c1's neuron fires more for c2-positive
+            diff = pos2.mean() - neg2.mean()
+            std = np.sqrt((pos2.var() + neg2.var()) / 2) + 1e-8
+            interactions[i, j] = diff / std  # Cohen's d
+
+    # Print compact interaction matrix
+    header = "                " + "".join(f"{c[:6]:>8s}" for c in concept_names)
+    print(header)
+    for i, c1 in enumerate(concept_names):
+        row = f"  {c1[:14]:14s}"
+        for j in range(n):
+            if i == j:
+                row += "       ."
+            else:
+                d = interactions[i, j]
+                sym = "+" if d > 0.5 else ("-" if d < -0.5 else ".")
+                row += f"  {d:+5.2f}{sym}"
+        print(row)
+
+    # Strongest interactions
+    print(f"\n  Strongest interactions:")
+    pairs = []
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                pairs.append((concept_names[i], concept_names[j], interactions[i, j]))
+    pairs.sort(key=lambda x: -abs(x[2]))
+    for c1, c2, d in pairs[:8]:
+        direction = "FACILITATES" if d > 0 else "INHIBITS"
+        print(f"    {c1:15s} → {c2:15s}: d={d:+.2f} [{direction}]")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Main Analysis Pipeline
 # ---------------------------------------------------------------------------
 
@@ -1565,6 +1647,9 @@ def run_analysis():
 
     # Phase 19: Sparse dictionary learning (informational)
     sparse_dictionary_analysis(all_acts, concept_names, sparse_results)
+
+    # Phase 20: Concept interaction network (informational)
+    concept_interaction_network(all_acts, concept_names, sparse_results)
 
     # ---- Composite Score ----
     interpretability_score = (
