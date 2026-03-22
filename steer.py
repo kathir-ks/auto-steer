@@ -5121,6 +5121,105 @@ def feature_interaction_effects(all_acts, concept_names, sparse_results):
     print()
 
 
+def concept_clustering_dendrogram(all_acts, concept_names, sparse_results):
+    """
+    Hierarchical clustering of concepts based on their activation signatures.
+    Which concepts are most similar in how the model represents them?
+    """
+    print("=" * 70)
+    print("PHASE 87: Concept Clustering (Activation Signatures)")
+    print("=" * 70)
+
+    target_layer = 10
+    # Build concept signature matrix: mean activation difference per concept
+    signatures = []
+    for concept_name in concept_names:
+        pos = all_acts[concept_name]["positive"][target_layer]
+        neg = all_acts[concept_name]["negative"][target_layer]
+        sig = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        signatures.append(sig)
+
+    sig_matrix = np.array(signatures)
+
+    # Compute pairwise distances (cosine)
+    from scipy.spatial.distance import pdist, squareform
+    cos_dists = pdist(sig_matrix, metric='cosine')
+    dist_matrix = squareform(cos_dists)
+
+    # Hierarchical clustering
+    Z = linkage(cos_dists, method='ward')
+
+    # Report nearest concept pairs
+    pairs = []
+    for i in range(len(concept_names)):
+        for j in range(i+1, len(concept_names)):
+            pairs.append((dist_matrix[i, j], concept_names[i], concept_names[j]))
+    pairs.sort()
+
+    print("  Concept similarity (cosine distance, lower = more similar):")
+    for dist, c1, c2 in pairs[:5]:
+        print(f"    {c1:20s} vs {c2:20s}: {dist:.4f}")
+    print("  ...")
+    for dist, c1, c2 in pairs[-3:]:
+        print(f"    {c1:20s} vs {c2:20s}: {dist:.4f}")
+
+    # Cluster assignments at 2-cluster and 4-cluster levels
+    for n_clust in [2, 4]:
+        labels = fcluster(Z, n_clust, criterion='maxclust')
+        print(f"\n  {n_clust}-cluster grouping:")
+        for cl in range(1, n_clust + 1):
+            members = [concept_names[i] for i in range(len(concept_names)) if labels[i] == cl]
+            print(f"    Cluster {cl}: {', '.join(members)}")
+
+    print()
+
+
+def neuron_importance_gradient(all_acts, concept_names, sparse_results):
+    """
+    How sharply does accuracy drop as you remove neurons in importance order?
+    Steep gradient = concentrated representation; shallow = distributed.
+    """
+    print("=" * 70)
+    print("PHASE 88: Neuron Importance Gradient")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        sr = sparse_results[concept_name]
+        best_layer = sr["best_layer"]
+        pos = all_acts[concept_name]["positive"][best_layer]
+        neg = all_acts[concept_name]["negative"][best_layer]
+        X = np.vstack([pos, neg])
+        y = np.array([1] * len(pos) + [0] * len(neg))
+
+        # Cohen's d for each neuron (fast importance metric)
+        mu_p, mu_n = np.mean(pos, axis=0), np.mean(neg, axis=0)
+        std_p, std_n = np.std(pos, axis=0), np.std(neg, axis=0)
+        pooled = np.sqrt((std_p**2 + std_n**2) / 2.0 + 1e-12)
+        d_all = np.abs(mu_p - mu_n) / pooled
+
+        # Sort by importance
+        ranked = np.argsort(d_all)[::-1]
+
+        # Cumulative accuracy using top-K neurons: K=1,3,5,10,20,50
+        budgets = [1, 3, 5, 10, 20, 50]
+        accs = []
+        for k in budgets:
+            top_k = ranked[:k]
+            X_k = X[:, top_k]
+            clf = LogisticRegression(C=1.0, max_iter=200, random_state=42)
+            clf.fit(X_k, y)
+            accs.append(clf.score(X_k, y))
+
+        # Gradient: how much does adding neurons 2-50 improve over neuron 1?
+        gradient = accs[-1] - accs[0]
+
+        acc_str = " ".join(f"{a:.2f}" for a in accs)
+        print(f"  {concept_name:20s}: K=[{','.join(str(b) for b in budgets)}] "
+              f"acc=[{acc_str}] Δ(1→50)={gradient:+.3f}")
+
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -5453,6 +5552,12 @@ def run_analysis():
 
     # Phase 86: Feature interaction effects (informational)
     feature_interaction_effects(all_acts, concept_names, sparse_results)
+
+    # Phase 87: Concept clustering dendrogram (informational)
+    concept_clustering_dendrogram(all_acts, concept_names, sparse_results)
+
+    # Phase 88: Neuron importance gradient (informational)
+    neuron_importance_gradient(all_acts, concept_names, sparse_results)
 
     # ---- Composite Score ----
     interpretability_score = (
