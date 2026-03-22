@@ -5349,7 +5349,7 @@ def concept_embedding_distance(all_acts, concept_names, num_layers):
     print()
 
 
-def neuron_specificity_spectrum(all_acts, concept_names, sparse_results, hidden_size):
+def neuron_specificity_spectrum_full(all_acts, concept_names, sparse_results, hidden_size):
     """
     Distribution of concept specificity across all neurons.
     How many neurons serve 0, 1, 2, ... concepts?
@@ -5738,7 +5738,7 @@ def run_analysis():
     concept_embedding_distance(all_acts, concept_names, num_layers)
 
     # Phase 92: Neuron specificity spectrum (informational)
-    neuron_specificity_spectrum(all_acts, concept_names, sparse_results, hidden_size)
+    neuron_specificity_spectrum_full(all_acts, concept_names, sparse_results, hidden_size)
 
     # ---- Composite Score ----
     interpretability_score = (
