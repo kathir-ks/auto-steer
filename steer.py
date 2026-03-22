@@ -1129,6 +1129,86 @@ def inlp_analysis(all_acts, concept_names, sparse_results):
 
 
 # ---------------------------------------------------------------------------
+# PHASE 15: Concept Geometry — intrinsic dimensionality and structure
+# ---------------------------------------------------------------------------
+
+def concept_geometry_analysis(all_acts, concept_names, sparse_results):
+    """
+    Analyze the geometric structure of concept representations:
+    - Intrinsic dimensionality via PCA variance explained
+    - Cluster separation (Fisher's criterion)
+    - Concept subspace angles between pairs
+    """
+    print("=" * 70)
+    print("PHASE 15: Concept Geometry — Representation Structure")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        layer = sparse_results[concept_name]["best_layer"]
+        pos = all_acts[concept_name]["positive"][layer]
+        neg = all_acts[concept_name]["negative"][layer]
+        X, y = make_dataset(pos, neg)
+
+        # Center data
+        X_c = X - X.mean(axis=0)
+
+        # PCA variance explained
+        cov = np.cov(X_c.T)
+        eigvals = np.linalg.eigvalsh(cov)[::-1]
+        eigvals = np.maximum(eigvals, 0)
+        total_var = eigvals.sum()
+        cumvar = np.cumsum(eigvals) / (total_var + 1e-8)
+
+        # Intrinsic dimensionality: how many PCs for 90% and 95% variance
+        dim_90 = int(np.searchsorted(cumvar, 0.90)) + 1
+        dim_95 = int(np.searchsorted(cumvar, 0.95)) + 1
+
+        # Fisher's criterion: between-class / within-class scatter
+        pos_mean = pos.mean(axis=0)
+        neg_mean = neg.mean(axis=0)
+        between = np.linalg.norm(pos_mean - neg_mean) ** 2
+        within = pos.var(axis=0).sum() + neg.var(axis=0).sum()
+        fisher = between / (within + 1e-8)
+
+        # Effective rank (exponential of spectral entropy)
+        p = eigvals / (total_var + 1e-8)
+        p = p[p > 1e-10]
+        spectral_entropy = -np.sum(p * np.log(p + 1e-15))
+        effective_rank = np.exp(spectral_entropy)
+
+        print(f"  {concept_name:20s} (L{layer}): "
+              f"dim_90%={dim_90}, dim_95%={dim_95}, "
+              f"eff_rank={effective_rank:.0f}, fisher={fisher:.3f}")
+
+    # Subspace angles between concept pairs
+    print(f"\n  Concept subspace angles (top-5 PCA, degrees):")
+    concept_bases = {}
+    for concept_name in concept_names:
+        layer = sparse_results[concept_name]["best_layer"]
+        pos = all_acts[concept_name]["positive"][layer]
+        neg = all_acts[concept_name]["negative"][layer]
+        diff = pos - neg  # contrastive activations
+        U, S, Vt = np.linalg.svd(diff - diff.mean(axis=0), full_matrices=False)
+        concept_bases[concept_name] = Vt[:5]  # top-5 principal directions
+
+    for i, c1 in enumerate(concept_names):
+        for j, c2 in enumerate(concept_names):
+            if j <= i:
+                continue
+            # Principal angle between subspaces
+            cos_angles = np.linalg.svd(
+                concept_bases[c1] @ concept_bases[c2].T, compute_uv=False)
+            cos_angles = np.clip(cos_angles, -1, 1)
+            angles_deg = np.degrees(np.arccos(np.abs(cos_angles)))
+            min_angle = angles_deg.min()
+            if min_angle < 30:  # only report close pairs
+                print(f"    {c1:15s} - {c2:15s}: "
+                      f"min_angle={min_angle:.1f}°")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Main Analysis Pipeline
 # ---------------------------------------------------------------------------
 
@@ -1194,6 +1274,9 @@ def run_analysis():
 
     # Phase 14: INLP (informational)
     inlp_analysis(all_acts, concept_names, sparse_results)
+
+    # Phase 15: Concept geometry (informational)
+    concept_geometry_analysis(all_acts, concept_names, sparse_results)
 
     # ---- Composite Score ----
     interpretability_score = (
