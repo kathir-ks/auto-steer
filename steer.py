@@ -5850,6 +5850,105 @@ def neuron_response_curves(all_acts, concept_names, sparse_results):
     print()
 
 
+def layerwise_concept_interference(all_acts, concept_names, num_layers):
+    """
+    At L0, L10, L23: how much does each concept direction project onto others?
+    Measures cross-talk at different depths.
+    """
+    print("=" * 70)
+    print("PHASE 103: Layer-wise Concept Interference")
+    print("=" * 70)
+
+    for layer_idx in [0, 10, 23]:
+        # Compute concept directions
+        directions = {}
+        for cn in concept_names:
+            pos = all_acts[cn]["positive"][layer_idx]
+            neg = all_acts[cn]["negative"][layer_idx]
+            d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+            directions[cn] = d / (np.linalg.norm(d) + 1e-12)
+
+        # Mean absolute cosine (interference)
+        cosines = []
+        for i, c1 in enumerate(concept_names):
+            for j, c2 in enumerate(concept_names):
+                if j > i:
+                    cos = abs(np.dot(directions[c1], directions[c2]))
+                    cosines.append(cos)
+
+        mean_interf = np.mean(cosines)
+        max_interf = np.max(cosines)
+        max_pair = None
+        idx = 0
+        for i, c1 in enumerate(concept_names):
+            for j, c2 in enumerate(concept_names):
+                if j > i:
+                    cos = abs(np.dot(directions[c1], directions[c2]))
+                    if cos == max_interf:
+                        max_pair = (c1[:8], c2[:8])
+                    idx += 1
+
+        print(f"  L{layer_idx:2d}: mean|cos|={mean_interf:.4f} "
+              f"max|cos|={max_interf:.4f} "
+              f"({max_pair[0] if max_pair else '?'}↔{max_pair[1] if max_pair else '?'})")
+
+    print()
+
+
+def activation_geometry_pca(all_acts, concept_names):
+    """
+    Project all concept samples into 2D PCA space at L10 to characterize
+    global geometry: cluster separation, overlap, and spread.
+    """
+    print("=" * 70)
+    print("PHASE 104: Activation Geometry (2D PCA at L10)")
+    print("=" * 70)
+
+    target_layer = 10
+
+    # Gather all samples
+    all_X = []
+    labels = []
+    classes = []
+    for ci, concept_name in enumerate(concept_names):
+        pos = all_acts[concept_name]["positive"][target_layer]
+        neg = all_acts[concept_name]["negative"][target_layer]
+        all_X.append(pos)
+        labels.extend([f"{concept_name}_pos"] * len(pos))
+        classes.extend([ci * 2] * len(pos))
+        all_X.append(neg)
+        labels.extend([f"{concept_name}_neg"] * len(neg))
+        classes.extend([ci * 2 + 1] * len(neg))
+
+    X = np.vstack(all_X)
+    centered = X - np.mean(X, axis=0)
+    U, S, Vt = np.linalg.svd(centered, full_matrices=False)
+
+    # Project to 2D
+    proj = centered @ Vt[:2].T
+
+    # Variance explained
+    var_exp = S**2 / (np.sum(S**2) + 1e-12)
+
+    print(f"  PC1: {var_exp[0]:.1%} variance, PC2: {var_exp[1]:.1%} variance")
+    print(f"  Top-2 PCs capture {var_exp[0]+var_exp[1]:.1%} of total variance")
+
+    # Per-concept centroid in 2D space
+    print(f"\n  Concept centroids in PCA space:")
+    centroids_2d = {}
+    for ci, concept_name in enumerate(concept_names):
+        mask_pos = np.array(classes) == ci * 2
+        mask_neg = np.array(classes) == ci * 2 + 1
+        cent_pos = np.mean(proj[mask_pos], axis=0)
+        cent_neg = np.mean(proj[mask_neg], axis=0)
+        sep = np.linalg.norm(cent_pos - cent_neg)
+        centroids_2d[concept_name] = (cent_pos + cent_neg) / 2
+        print(f"    {concept_name:20s}: pos({cent_pos[0]:+.2f},{cent_pos[1]:+.2f}) "
+              f"neg({cent_neg[0]:+.2f},{cent_neg[1]:+.2f}) sep={sep:.3f}")
+
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -6230,6 +6329,12 @@ def run_analysis():
 
     # Phase 102: Neuron response curves (informational)
     neuron_response_curves(all_acts, concept_names, sparse_results)
+
+    # Phase 103: Layer-wise concept interference (informational)
+    layerwise_concept_interference(all_acts, concept_names, num_layers)
+
+    # Phase 104: Activation geometry PCA (informational)
+    activation_geometry_pca(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
