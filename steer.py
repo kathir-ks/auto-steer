@@ -6319,6 +6319,90 @@ def neuron_uniqueness_index(all_acts, concept_names, sparse_results, hidden_size
     print()
 
 
+def concept_hierarchy_detection(all_acts, concept_names, sparse_results):
+    """
+    Are some concepts more fundamental? Measure how well predicting concept A
+    helps predict concept B (predictive hierarchy).
+    """
+    print("=" * 70)
+    print("PHASE 113: Concept Hierarchy (Predictive Relationships)")
+    print("=" * 70)
+
+    target_layer = 10
+    n = len(concept_names)
+
+    # For each concept pair: train on A's labels, test on B's task
+    pred_matrix = np.zeros((n, n))
+    for i, ci in enumerate(concept_names):
+        pos_i = all_acts[ci]["positive"][target_layer]
+        neg_i = all_acts[ci]["negative"][target_layer]
+        X_i = np.vstack([pos_i, neg_i])
+        y_i = np.array([1]*len(pos_i) + [0]*len(neg_i))
+
+        # Train probe on concept i
+        clf = LogisticRegression(C=1.0, max_iter=200, random_state=42)
+        clf.fit(X_i, y_i)
+
+        for j, cj in enumerate(concept_names):
+            if i == j:
+                pred_matrix[i, j] = 1.0
+                continue
+            # Apply concept i's probe to concept j's data
+            pos_j = all_acts[cj]["positive"][target_layer]
+            neg_j = all_acts[cj]["negative"][target_layer]
+            X_j = np.vstack([pos_j, neg_j])
+            y_j = np.array([1]*len(pos_j) + [0]*len(neg_j))
+            pred_matrix[i, j] = clf.score(X_j, y_j)
+
+    # Most predictive concept (highest mean transfer accuracy)
+    mean_transfer = np.mean(pred_matrix, axis=1) - 1.0/n  # subtract self
+    best_predictor_idx = np.argmax(mean_transfer)
+
+    # Most predicted-by others
+    mean_predicted = np.mean(pred_matrix, axis=0) - 1.0/n
+
+    print("  Transfer accuracy (row probe → column concept):")
+    for i, ci in enumerate(concept_names):
+        transfers = [f"{pred_matrix[i,j]:.2f}" if i != j else " ---" for j in range(n)]
+        print(f"    {ci[:14]:14s}: {' '.join(transfers)}")
+
+    print(f"\n  Most predictive: {concept_names[best_predictor_idx]} "
+          f"(mean transfer={mean_transfer[best_predictor_idx]+1.0/n:.3f})")
+
+    print()
+
+
+def steering_vector_norm_profile(all_acts, concept_names, num_layers):
+    """
+    How does the L2 norm of each concept's steering vector evolve across layers?
+    """
+    print("=" * 70)
+    print("PHASE 114: Steering Vector Norm Profile")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        norms = []
+        for layer_idx in range(num_layers):
+            pos = all_acts[concept_name]["positive"][layer_idx]
+            neg = all_acts[concept_name]["negative"][layer_idx]
+            sv = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+            norms.append(np.linalg.norm(sv))
+
+        n_arr = np.array(norms)
+        peak_layer = np.argmax(n_arr)
+        growth = n_arr[-1] / (n_arr[0] + 1e-12)
+
+        # Sparkline
+        n_norm = n_arr / (np.max(n_arr) + 1e-12)
+        spark_chars = " ▁▂▃▄▅▆▇█"
+        sparkline = "".join(spark_chars[min(8, int(v * 8))] for v in n_norm)
+
+        print(f"  {concept_name:20s}: peak@L{peak_layer} norm={n_arr[peak_layer]:.2f} "
+              f"growth={growth:.1f}x [{sparkline}]")
+
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -6729,6 +6813,12 @@ def run_analysis():
 
     # Phase 112: Neuron uniqueness index (informational)
     neuron_uniqueness_index(all_acts, concept_names, sparse_results, hidden_size)
+
+    # Phase 113: Concept hierarchy detection (informational)
+    concept_hierarchy_detection(all_acts, concept_names, sparse_results)
+
+    # Phase 114: Steering vector norm profile (informational)
+    steering_vector_norm_profile(all_acts, concept_names, num_layers)
 
     # ---- Composite Score ----
     interpretability_score = (
