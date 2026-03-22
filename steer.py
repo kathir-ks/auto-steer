@@ -1334,6 +1334,74 @@ def probing_robustness_analysis(all_acts, concept_names, sparse_results):
 
 
 # ---------------------------------------------------------------------------
+# PHASE 18: Superposition Analysis — feature packing density
+# ---------------------------------------------------------------------------
+
+def superposition_analysis(all_acts, concept_names, sparse_results):
+    """
+    Measure superposition: how many concepts share the same neurons?
+    Compute the "packing ratio" — number of linearly separable concepts
+    relative to the number of neurons they use. High packing = superposition.
+    Also measure per-neuron polysemanticity (how many concepts activate it).
+    """
+    print("=" * 70)
+    print("PHASE 18: Superposition Analysis — Feature Packing")
+    print("=" * 70)
+
+    # Collect which neurons are important for each concept
+    concept_neurons = {}  # concept -> set of important neurons (layer, idx)
+    for concept_name in concept_names:
+        layer = sparse_results[concept_name]["best_layer"]
+        pos = all_acts[concept_name]["positive"][layer]
+        neg = all_acts[concept_name]["negative"][layer]
+        X, y = make_dataset(pos, neg)
+        clf, scaler = fit_probe(X, y, C=0.1, penalty="l1")
+        nonzero = np.where(np.abs(clf.coef_[0]) > 1e-8)[0]
+        concept_neurons[concept_name] = {(layer, int(n)) for n in nonzero}
+
+    # Neuron polysemanticity: how many concepts use each neuron?
+    neuron_concepts = {}  # (layer, idx) -> set of concepts
+    for concept_name, neurons in concept_neurons.items():
+        for n in neurons:
+            neuron_concepts.setdefault(n, set()).add(concept_name)
+
+    poly_counts = [len(concepts) for concepts in neuron_concepts.values()]
+    mono_neurons = sum(1 for c in poly_counts if c == 1)
+    poly_neurons = sum(1 for c in poly_counts if c > 1)
+    max_poly = max(poly_counts) if poly_counts else 0
+
+    total_neurons = len(neuron_concepts)
+    n_concepts = len(concept_names)
+
+    # Packing ratio: concepts / unique neurons used
+    packing = n_concepts / (total_neurons + 1e-8)
+
+    print(f"  Total unique neurons used: {total_neurons}")
+    print(f"  Monosemantic neurons: {mono_neurons} ({100*mono_neurons/(total_neurons+1e-8):.0f}%)")
+    print(f"  Polysemantic neurons: {poly_neurons} ({100*poly_neurons/(total_neurons+1e-8):.0f}%)")
+    print(f"  Max polysemanticity: {max_poly} concepts/neuron")
+    print(f"  Packing ratio: {packing:.3f} concepts/neuron")
+    print(f"  Superposition level: {'HIGH' if packing > 0.5 else ('MODERATE' if packing > 0.2 else 'LOW')}")
+
+    # Show most polysemantic neurons
+    if poly_neurons > 0:
+        print(f"\n  Most polysemantic neurons:")
+        sorted_neurons = sorted(neuron_concepts.items(), key=lambda x: -len(x[1]))
+        for (layer, nidx), concepts in sorted_neurons[:5]:
+            if len(concepts) > 1:
+                print(f"    L{layer}:N{nidx}: {', '.join(sorted(concepts))}")
+
+    # Per-concept neuron count and overlap
+    print(f"\n  Per-concept L1 feature counts:")
+    for concept_name in concept_names:
+        n = len(concept_neurons[concept_name])
+        layer = sparse_results[concept_name]["best_layer"]
+        print(f"    {concept_name:20s} (L{layer}): {n} non-zero features")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Main Analysis Pipeline
 # ---------------------------------------------------------------------------
 
@@ -1408,6 +1476,9 @@ def run_analysis():
 
     # Phase 17: Probing robustness (informational)
     probing_robustness_analysis(all_acts, concept_names, sparse_results)
+
+    # Phase 18: Superposition analysis (informational)
+    superposition_analysis(all_acts, concept_names, sparse_results)
 
     # ---- Composite Score ----
     interpretability_score = (
