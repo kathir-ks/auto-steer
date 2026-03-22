@@ -18240,6 +18240,282 @@ def grand_milestone_530():
     print()
 
 
+def concept_activation_mean_shift_trajectory(all_acts, concept_names):
+    """Phase 531: Track how concept centroid shifts across layers."""
+    print("=" * 70)
+    print("PHASE 531: Concept Centroid Shift Trajectory Across Layers")
+    print("=" * 70)
+    num_layers = len(all_acts[concept_names[0]]["positive"])
+    for cname in concept_names:
+        shifts = []
+        for l in range(num_layers - 1):
+            mu_curr = np.concatenate([all_acts[cname]["positive"][l], all_acts[cname]["negative"][l]]).mean(0)
+            mu_next = np.concatenate([all_acts[cname]["positive"][l+1], all_acts[cname]["negative"][l+1]]).mean(0)
+            shifts.append(np.linalg.norm(mu_next - mu_curr))
+        total_shift = sum(shifts)
+        max_l = int(np.argmax(shifts))
+        print(f"  {cname:20s} total shift: {total_shift:.2f}, max at L{max_l}->L{max_l+1}: {shifts[max_l]:.2f}")
+    print()
+
+
+def concept_neuron_top_k_overlap_across_concepts(all_acts, concept_names):
+    """Phase 532: Overlap of top-K most important neurons across concepts."""
+    print("=" * 70)
+    print("PHASE 532: Top-K Neuron Overlap Across Concepts")
+    print("=" * 70)
+    layer = 10
+    K = 20
+    top_k_sets = {}
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        importance = np.abs(pos.mean(0) - neg.mean(0))
+        top_k = set(np.argsort(importance)[-K:])
+        top_k_sets[cname] = top_k
+    # Pairwise Jaccard
+    pairs_shown = 0
+    for i, c1 in enumerate(concept_names):
+        for c2 in concept_names[i+1:]:
+            if pairs_shown >= 5:
+                break
+            overlap = len(top_k_sets[c1] & top_k_sets[c2])
+            jaccard = overlap / len(top_k_sets[c1] | top_k_sets[c2])
+            print(f"  {c1:15s} & {c2:15s}: {overlap}/{K} overlap, Jaccard={jaccard:.3f}")
+            pairs_shown += 1
+        if pairs_shown >= 5:
+            break
+    print()
+
+
+def concept_direction_angle_histogram(all_acts, concept_names):
+    """Phase 533: Histogram of angles between concept directions and random directions."""
+    print("=" * 70)
+    print("PHASE 533: Concept vs Random Direction Angles")
+    print("=" * 70)
+    layer = 10
+    hidden = all_acts[concept_names[0]]["positive"][layer].shape[1]
+    dirs = []
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = pos.mean(0) - neg.mean(0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        dirs.append(d)
+    # Compare pairwise concept angles to random angles
+    concept_angles = []
+    for i in range(len(dirs)):
+        for j in range(i+1, len(dirs)):
+            concept_angles.append(np.degrees(np.arccos(np.clip(abs(np.dot(dirs[i], dirs[j])), 0, 1))))
+    # Random pairs
+    np.random.seed(42)
+    random_angles = []
+    for _ in range(100):
+        r1 = np.random.randn(hidden); r1 /= np.linalg.norm(r1)
+        r2 = np.random.randn(hidden); r2 /= np.linalg.norm(r2)
+        random_angles.append(np.degrees(np.arccos(np.clip(abs(np.dot(r1, r2)), 0, 1))))
+    print(f"  Concept pair angles: mean={np.mean(concept_angles):.1f}° std={np.std(concept_angles):.1f}°")
+    print(f"  Random pair angles:  mean={np.mean(random_angles):.1f}° std={np.std(random_angles):.1f}°")
+    print(f"  (In {hidden}-dim space, random vectors ~90° apart)")
+    print()
+
+
+def concept_activation_lda_projection(all_acts, concept_names):
+    """Phase 534: LDA projection quality — how well LDA separates concepts."""
+    print("=" * 70)
+    print("PHASE 534: LDA Projection Quality")
+    print("=" * 70)
+    layer = 10
+    all_data = []
+    labels = []
+    for i, cname in enumerate(concept_names):
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        all_data.append(np.vstack([pos, neg]))
+        labels.extend([i] * (len(pos) + len(neg)))
+    all_data = np.vstack(all_data)
+    labels = np.array(labels)
+    # Compute between and within scatter
+    grand_mean = all_data.mean(0)
+    Sw = np.zeros((all_data.shape[1], all_data.shape[1]))
+    Sb = np.zeros_like(Sw)
+    for i in range(len(concept_names)):
+        Xi = all_data[labels == i]
+        mi = Xi.mean(0)
+        Sw += (Xi - mi).T @ (Xi - mi)
+        ni = len(Xi)
+        Sb += ni * np.outer(mi - grand_mean, mi - grand_mean)
+    # Ratio of traces
+    trace_ratio = np.trace(Sb) / (np.trace(Sw) + 1e-10)
+    print(f"  LDA trace ratio (Sb/Sw): {trace_ratio:.4f}")
+    print(f"  (Higher = better concept separation)")
+    print()
+
+
+def concept_neuron_activation_distribution_test(all_acts, concept_names, sparse_results):
+    """Phase 535: Test if top neuron activations are normally distributed."""
+    print("=" * 70)
+    print("PHASE 535: Top Neuron Normality Test")
+    print("=" * 70)
+    from scipy.stats import shapiro
+    for cname in concept_names:
+        sr = sparse_results.get(cname, {})
+        best_layer = sr.get("best_layer", 10)
+        top_ns = sr.get("top_neurons", [0, 1, 2])[:1]
+        pos = all_acts[cname]["positive"][best_layer]
+        neg = all_acts[cname]["negative"][best_layer]
+        acts = np.concatenate([pos, neg], axis=0)
+        for n in top_ns:
+            vals = acts[:, n]
+            stat, p = shapiro(vals)
+            print(f"  {cname:20s} N{n:3d}: Shapiro W={stat:.4f} p={p:.4f} {'(normal)' if p > 0.05 else '(non-normal)'}")
+    print()
+
+
+def concept_direction_ablation_effect(all_acts, concept_names):
+    """Phase 536: Effect of ablating concept direction from activations."""
+    print("=" * 70)
+    print("PHASE 536: Concept Direction Ablation Effect")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = pos.mean(0) - neg.mean(0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        # Original accuracy (linear direction threshold)
+        proj_p = pos @ d
+        proj_n = neg @ d
+        threshold = (proj_p.mean() + proj_n.mean()) / 2
+        orig_acc = ((proj_p > threshold).sum() + (proj_n <= threshold).sum()) / (len(pos) + len(neg))
+        # Ablate direction: project out
+        pos_abl = pos - np.outer(pos @ d, d)
+        neg_abl = neg - np.outer(neg @ d, d)
+        # Can we still classify?
+        d2 = pos_abl.mean(0) - neg_abl.mean(0)
+        d2_norm = np.linalg.norm(d2)
+        if d2_norm > 1e-10:
+            d2 = d2 / d2_norm
+            proj_p2 = pos_abl @ d2
+            proj_n2 = neg_abl @ d2
+            threshold2 = (proj_p2.mean() + proj_n2.mean()) / 2
+            abl_acc = ((proj_p2 > threshold2).sum() + (proj_n2 <= threshold2).sum()) / (len(pos) + len(neg))
+        else:
+            abl_acc = 0.5
+        print(f"  {cname:20s} orig_acc={orig_acc:.3f} after_ablation={abl_acc:.3f} drop={orig_acc-abl_acc:.3f}")
+    print()
+
+
+def concept_activation_tsne_separability(all_acts, concept_names):
+    """Phase 537: Check concept separability using PCA 2D projection."""
+    print("=" * 70)
+    print("PHASE 537: 2D PCA Projection Separability")
+    print("=" * 70)
+    layer = 10
+    all_data = []
+    labels = []
+    for i, cname in enumerate(concept_names):
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        all_data.append(np.vstack([pos, neg]))
+        labels.extend([i] * (len(pos) + len(neg)))
+    all_data = np.vstack(all_data)
+    labels = np.array(labels)
+    # PCA to 2D
+    all_data_c = all_data - all_data.mean(0)
+    U, S, Vt = np.linalg.svd(all_data_c, full_matrices=False)
+    proj2d = all_data_c @ Vt[:2].T
+    # Nearest-neighbor accuracy in 2D
+    from sklearn.neighbors import KNeighborsClassifier
+    knn = KNeighborsClassifier(n_neighbors=5)
+    from sklearn.model_selection import cross_val_score
+    acc = cross_val_score(knn, proj2d, labels, cv=3, scoring='accuracy').mean()
+    print(f"  5-NN accuracy in 2D PCA space: {acc:.4f}")
+    print(f"  (Chance = {1/len(concept_names):.4f})")
+    print()
+
+
+def concept_neuron_activation_effect_size(all_acts, concept_names, sparse_results):
+    """Phase 538: Cohen's d effect size for top neurons."""
+    print("=" * 70)
+    print("PHASE 538: Top Neuron Cohen's d Effect Size")
+    print("=" * 70)
+    for cname in concept_names:
+        sr = sparse_results.get(cname, {})
+        best_layer = sr.get("best_layer", 10)
+        top_ns = sr.get("top_neurons", [0, 1, 2])[:3]
+        pos = all_acts[cname]["positive"][best_layer]
+        neg = all_acts[cname]["negative"][best_layer]
+        for n in top_ns:
+            mean_diff = pos[:, n].mean() - neg[:, n].mean()
+            pooled_std = np.sqrt((pos[:, n].var() + neg[:, n].var()) / 2)
+            d = mean_diff / (pooled_std + 1e-10)
+            size = "large" if abs(d) > 0.8 else "medium" if abs(d) > 0.5 else "small"
+            print(f"  {cname:20s} N{n:3d}: d={d:.3f} ({size})")
+    print()
+
+
+def concept_direction_gaussian_noise_robustness(all_acts, concept_names):
+    """Phase 539: How robust are concept directions to Gaussian noise."""
+    print("=" * 70)
+    print("PHASE 539: Concept Direction Robustness to Gaussian Noise")
+    print("=" * 70)
+    layer = 10
+    noise_levels = [0.01, 0.1, 0.5]
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        base_d = pos.mean(0) - neg.mean(0)
+        base_d = base_d / (np.linalg.norm(base_d) + 1e-10)
+        act_scale = np.std(np.vstack([pos, neg]))
+        parts = []
+        for nl in noise_levels:
+            noisy_pos = pos + np.random.randn(*pos.shape) * act_scale * nl
+            noisy_neg = neg + np.random.randn(*neg.shape) * act_scale * nl
+            noisy_d = noisy_pos.mean(0) - noisy_neg.mean(0)
+            noisy_d = noisy_d / (np.linalg.norm(noisy_d) + 1e-10)
+            cos = np.dot(base_d, noisy_d)
+            parts.append(f"σ={nl}: {cos:.4f}")
+        print(f"  {cname:20s} " + " | ".join(parts))
+    print()
+
+
+def concept_activation_multiclass_confusion(all_acts, concept_names):
+    """Phase 540: Multi-class classification confusion matrix summary."""
+    print("=" * 70)
+    print("PHASE 540: Multi-Class Concept Confusion Summary")
+    print("=" * 70)
+    layer = 10
+    from sklearn.linear_model import LogisticRegression
+    all_data = []
+    labels = []
+    for i, cname in enumerate(concept_names):
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        all_data.append(np.vstack([pos, neg]))
+        labels.extend([i] * (len(pos) + len(neg)))
+    all_data = np.vstack(all_data)
+    labels = np.array(labels)
+    clf = LogisticRegression(max_iter=500, C=1.0, multi_class='multinomial')
+    from sklearn.model_selection import cross_val_predict
+    preds = cross_val_predict(clf, all_data, labels, cv=3)
+    acc = (preds == labels).mean()
+    # Most confused pairs
+    from collections import Counter
+    mistakes = Counter()
+    for true, pred in zip(labels, preds):
+        if true != pred:
+            pair = (concept_names[true], concept_names[pred])
+            mistakes[pair] += 1
+    print(f"  Multi-class accuracy: {acc:.4f}")
+    if mistakes:
+        print("  Most confused pairs:")
+        for (c1, c2), count in mistakes.most_common(3):
+            print(f"    {c1:15s} -> {c2:15s}: {count} mistakes")
+    else:
+        print("  No misclassifications!")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -19904,6 +20180,36 @@ def run_analysis():
 
     # Phase 530: 530-phase milestone (informational)
     grand_milestone_530()
+
+    # Phase 531: Concept centroid shift trajectory (informational)
+    concept_activation_mean_shift_trajectory(all_acts, concept_names)
+
+    # Phase 532: Top-K neuron overlap across concepts (informational)
+    concept_neuron_top_k_overlap_across_concepts(all_acts, concept_names)
+
+    # Phase 533: Concept vs random direction angles (informational)
+    concept_direction_angle_histogram(all_acts, concept_names)
+
+    # Phase 534: LDA projection quality (informational)
+    concept_activation_lda_projection(all_acts, concept_names)
+
+    # Phase 535: Top neuron normality test (informational)
+    concept_neuron_activation_distribution_test(all_acts, concept_names, sparse_results)
+
+    # Phase 536: Concept direction ablation effect (informational)
+    concept_direction_ablation_effect(all_acts, concept_names)
+
+    # Phase 537: 2D PCA projection separability (informational)
+    concept_activation_tsne_separability(all_acts, concept_names)
+
+    # Phase 538: Top neuron Cohen's d effect size (informational)
+    concept_neuron_activation_effect_size(all_acts, concept_names, sparse_results)
+
+    # Phase 539: Concept direction robustness to Gaussian noise (informational)
+    concept_direction_gaussian_noise_robustness(all_acts, concept_names)
+
+    # Phase 540: Multi-class concept confusion summary (informational)
+    concept_activation_multiclass_confusion(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
