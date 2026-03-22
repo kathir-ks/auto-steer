@@ -31667,7 +31667,7 @@ def concept_direction_concept_direction_direction_cosine_stability_test(all_acts
         for _ in range(100):
             idx = rng.permutation(len(combined))
             perm_pos = combined[idx[:len(pos)]]
-            perm_neg = combined[idx[len(pos):]:]
+            perm_neg = combined[idx[len(pos):]]
             perm_dir = perm_pos.mean(0) - perm_neg.mean(0)
             perm_norms.append(np.linalg.norm(perm_dir))
         p_value = np.mean(np.array(perm_norms) >= real_norm)
