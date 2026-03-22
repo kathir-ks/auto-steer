@@ -4480,6 +4480,112 @@ def concept_mutual_exclusivity(all_acts, concept_names, sparse_results):
 
 
 # ---------------------------------------------------------------------------
+# PHASE 73: Neuron Functional Types
+# ---------------------------------------------------------------------------
+
+def neuron_functional_types(all_acts, concept_names, sparse_results, hidden_size):
+    """
+    Classify neurons into functional types based on their concept selectivity:
+    - Specialist: high d for exactly 1 concept
+    - Generalist: moderate d for many concepts
+    - Hub: high d for 2-3 concepts
+    - Silent: low d for all concepts
+    """
+    print("=" * 70)
+    print("PHASE 73: Neuron Functional Types")
+    print("=" * 70)
+
+    # Compute importance matrix at bottleneck
+    target_layer = 10
+    importance = np.zeros((len(concept_names), hidden_size))
+    for i, concept_name in enumerate(concept_names):
+        pos = all_acts[concept_name]["positive"][target_layer]
+        neg = all_acts[concept_name]["negative"][target_layer]
+        mean_diff = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+        pooled_std = np.sqrt((np.var(pos, axis=0) + np.var(neg, axis=0)) / 2.0) + 1e-12
+        importance[i] = mean_diff / pooled_std
+
+    # Classify
+    max_d = np.max(importance, axis=0)
+    n_important = np.sum(importance > 1.0, axis=0)
+
+    specialists = np.sum((n_important == 1) & (max_d > 1.5))
+    hubs = np.sum((n_important >= 2) & (max_d > 1.0))
+    generalists = np.sum((n_important >= 3) & (max_d <= 1.5))
+    silent = np.sum(max_d < 0.5)
+    moderate = hidden_size - specialists - hubs - generalists - silent
+
+    print(f"  At L{target_layer}:")
+    print(f"    Specialists (1 concept, d>1.5): {specialists:3d} ({specialists/hidden_size:.1%})")
+    print(f"    Hubs (2+ concepts, d>1.0):      {hubs:3d} ({hubs/hidden_size:.1%})")
+    print(f"    Generalists (3+, d≤1.5):        {generalists:3d} ({generalists/hidden_size:.1%})")
+    print(f"    Silent (max d<0.5):             {silent:3d} ({silent/hidden_size:.1%})")
+    print(f"    Moderate:                       {moderate:3d} ({moderate/hidden_size:.1%})")
+
+    # Per-concept specialist count
+    print(f"\n  Specialists per concept:")
+    for i, concept_name in enumerate(concept_names):
+        n_spec = np.sum((n_important == 1) & (importance[i] > 1.5))
+        print(f"    {concept_name:20s}: {n_spec} specialists")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
+# PHASE 74: Concept Alignment with Random Directions
+# ---------------------------------------------------------------------------
+
+def concept_alignment_random(all_acts, concept_names, sparse_results):
+    """
+    How aligned are concept directions with random directions in activation space?
+    If alignment is no better than random, concepts are "generic" features.
+    """
+    print("=" * 70)
+    print("PHASE 74: Concept Alignment with Random Directions")
+    print("=" * 70)
+
+    rng = np.random.RandomState(42)
+    target_layer = 10
+    N_RANDOM = 100
+
+    for concept_name in concept_names:
+        pos = all_acts[concept_name]["positive"][target_layer]
+        neg = all_acts[concept_name]["negative"][target_layer]
+        y = np.array([1] * len(pos) + [0] * len(neg))
+
+        # Concept direction
+        dom = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        dom_norm = dom / (np.linalg.norm(dom) + 1e-12)
+
+        # Accuracy along concept direction
+        X = np.vstack([pos, neg])
+        proj_concept = (X @ dom_norm).reshape(-1, 1)
+        clf = LogisticRegression(C=1.0, max_iter=200, random_state=42)
+        clf.fit(proj_concept, y)
+        acc_concept = clf.score(proj_concept, y)
+
+        # Accuracy along random directions
+        random_accs = []
+        for _ in range(N_RANDOM):
+            rand_dir = rng.randn(X.shape[1])
+            rand_dir /= np.linalg.norm(rand_dir)
+            proj_rand = (X @ rand_dir).reshape(-1, 1)
+            clf_r = LogisticRegression(C=1.0, max_iter=100, random_state=42)
+            clf_r.fit(proj_rand, y)
+            random_accs.append(clf_r.score(proj_rand, y))
+
+        mean_rand = np.mean(random_accs)
+        max_rand = np.max(random_accs)
+        z_score = (acc_concept - mean_rand) / (np.std(random_accs) + 1e-12)
+
+        print(f"  {concept_name:20s}: concept={acc_concept:.3f} "
+              f"rand={mean_rand:.3f}±{np.std(random_accs):.3f} "
+              f"max_rand={max_rand:.3f} z={z_score:.1f}σ")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Main Analysis Pipeline
 # ---------------------------------------------------------------------------
 
@@ -4721,6 +4827,12 @@ def run_analysis():
 
     # Phase 72: Mutual exclusivity (informational)
     concept_mutual_exclusivity(all_acts, concept_names, sparse_results)
+
+    # Phase 73: Neuron functional types (informational)
+    neuron_functional_types(all_acts, concept_names, sparse_results, hidden_size)
+
+    # Phase 74: Concept alignment with random (informational)
+    concept_alignment_random(all_acts, concept_names, sparse_results)
 
     # ---- Composite Score ----
     interpretability_score = (
