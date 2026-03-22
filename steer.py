@@ -32419,6 +32419,241 @@ def concept_layer_transition_mutual_info(all_acts, concept_names):
     print()
 
 
+def concept_direction_leave_one_out_cosine_stability(all_acts, concept_names):
+    """Phase 1171: Leave-one-out stability of concept directions."""
+    print("=" * 70)
+    print("PHASE 1171: LEAVE-ONE-OUT COSINE STABILITY")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        full_dir = pos.mean(0) - neg.mean(0)
+        full_dir = full_dir / (np.linalg.norm(full_dir) + 1e-10)
+        cos_sims = []
+        for i in range(len(pos)):
+            loo_pos = np.delete(pos, i, axis=0)
+            loo_dir = loo_pos.mean(0) - neg.mean(0)
+            loo_dir = loo_dir / (np.linalg.norm(loo_dir) + 1e-10)
+            cos_sims.append(float(full_dir @ loo_dir))
+        print(f"  {cname:20s} | mean LOO cosine: {np.mean(cos_sims):.6f} | min: {np.min(cos_sims):.6f} | std: {np.std(cos_sims):.6f}")
+    print()
+
+
+def concept_activation_percentile_profile(all_acts, concept_names):
+    """Phase 1172: Percentile profile of concept activations."""
+    print("=" * 70)
+    print("PHASE 1172: ACTIVATION PERCENTILE PROFILE")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        pos_norms = np.linalg.norm(pos, axis=1)
+        neg_norms = np.linalg.norm(neg, axis=1)
+        p25_pos, p50_pos, p75_pos = np.percentile(pos_norms, [25, 50, 75])
+        p25_neg, p50_neg, p75_neg = np.percentile(neg_norms, [25, 50, 75])
+        print(f"  {cname:20s} | pos [p25={p25_pos:.1f}, p50={p50_pos:.1f}, p75={p75_pos:.1f}] | neg [p25={p25_neg:.1f}, p50={p50_neg:.1f}, p75={p75_neg:.1f}]")
+    print()
+
+
+def concept_neuron_concept_specificity_entropy_distribution(all_acts, concept_names):
+    """Phase 1173: Entropy of concept specificity per neuron."""
+    print("=" * 70)
+    print("PHASE 1173: NEURON CONCEPT SPECIFICITY ENTROPY DISTRIBUTION")
+    print("=" * 70)
+    layer = 10
+    n_neurons = all_acts[concept_names[0]]["positive"][layer].shape[1]
+    entropies = np.zeros(n_neurons)
+    for j in range(n_neurons):
+        responses = []
+        for cname in concept_names:
+            pos_mean = all_acts[cname]["positive"][layer][:, j].mean()
+            neg_mean = all_acts[cname]["negative"][layer][:, j].mean()
+            responses.append(abs(pos_mean - neg_mean))
+        responses = np.array(responses)
+        probs = responses / (responses.sum() + 1e-10)
+        ent = -np.sum(probs * np.log(probs + 1e-10))
+        entropies[j] = ent
+    max_ent = np.log(len(concept_names))
+    low_ent = (entropies < 0.5 * max_ent).sum()
+    high_ent = (entropies > 0.9 * max_ent).sum()
+    print(f"  Max possible entropy: {max_ent:.3f}")
+    print(f"  Specific neurons (ent < 50% max): {low_ent}/{n_neurons}")
+    print(f"  Generalist neurons (ent > 90% max): {high_ent}/{n_neurons}")
+    print(f"  Mean entropy: {entropies.mean():.3f} ({entropies.mean()/max_ent*100:.1f}% of max)")
+    print()
+
+
+def concept_direction_angle_distribution_shape(all_acts, concept_names):
+    """Phase 1174: Shape of the pairwise angle distribution."""
+    print("=" * 70)
+    print("PHASE 1174: PAIRWISE ANGLE DISTRIBUTION SHAPE")
+    print("=" * 70)
+    layer = 10
+    dirs = {}
+    for cname in concept_names:
+        d = all_acts[cname]["positive"][layer].mean(0) - all_acts[cname]["negative"][layer].mean(0)
+        dirs[cname] = d / (np.linalg.norm(d) + 1e-10)
+    angles = []
+    for i in range(len(concept_names)):
+        for j in range(i+1, len(concept_names)):
+            cos = abs(float(dirs[concept_names[i]] @ dirs[concept_names[j]]))
+            angles.append(np.degrees(np.arccos(np.clip(cos, 0, 1))))
+    angles = np.array(angles)
+    from scipy.stats import kurtosis as sp_kurtosis, skew as sp_skew
+    print(f"  N pairs: {len(angles)}")
+    print(f"  Mean angle: {angles.mean():.1f}° | Std: {angles.std():.1f}°")
+    print(f"  Min: {angles.min():.1f}° | Max: {angles.max():.1f}°")
+    print(f"  Skewness: {sp_skew(angles):.3f} | Kurtosis: {sp_kurtosis(angles, fisher=True):.3f}")
+    print()
+
+
+def concept_activation_norm_ratio_pos_neg(all_acts, concept_names):
+    """Phase 1175: Ratio of activation norms between positive and negative samples."""
+    print("=" * 70)
+    print("PHASE 1175: ACTIVATION NORM RATIO (POS/NEG)")
+    print("=" * 70)
+    for cname in concept_names:
+        ratios = []
+        for l in range(24):
+            pos_norm = np.mean(np.linalg.norm(all_acts[cname]["positive"][l], axis=1))
+            neg_norm = np.mean(np.linalg.norm(all_acts[cname]["negative"][l], axis=1))
+            ratios.append(pos_norm / (neg_norm + 1e-10))
+        max_ratio_l = int(np.argmax(np.abs(np.array(ratios) - 1)))
+        print(f"  {cname:20s} | max deviation from 1: L{max_ratio_l} (ratio={ratios[max_ratio_l]:.4f}) | mean ratio: {np.mean(ratios):.4f}")
+    print()
+
+
+def concept_neuron_activation_cv_profile(all_acts, concept_names):
+    """Phase 1176: Coefficient of variation of neuron activations per concept."""
+    print("=" * 70)
+    print("PHASE 1176: NEURON CV PROFILE")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        combined = np.vstack([pos, neg])
+        means = np.abs(combined.mean(0)) + 1e-10
+        stds = combined.std(0)
+        cvs = stds / means
+        print(f"  {cname:20s} | mean CV: {cvs.mean():.3f} | min CV: {cvs.min():.3f} | max CV: {cvs.max():.3f} | low CV neurons (<0.5): {(cvs < 0.5).sum()}")
+    print()
+
+
+def concept_direction_geodesic_vs_euclidean(all_acts, concept_names):
+    """Phase 1177: Compare geodesic and Euclidean distances between concept centroids."""
+    print("=" * 70)
+    print("PHASE 1177: GEODESIC vs EUCLIDEAN DISTANCE")
+    print("=" * 70)
+    layer = 10
+    centroids = {}
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        centroids[cname] = {
+            "pos": pos.mean(0),
+            "neg": neg.mean(0)
+        }
+    for cname in concept_names[:4]:
+        pos_c = centroids[cname]["pos"]
+        neg_c = centroids[cname]["neg"]
+        euclid = np.linalg.norm(pos_c - neg_c)
+        # Geodesic on sphere (using normalized vectors)
+        pos_n = pos_c / (np.linalg.norm(pos_c) + 1e-10)
+        neg_n = neg_c / (np.linalg.norm(neg_c) + 1e-10)
+        cos_angle = np.clip(float(pos_n @ neg_n), -1, 1)
+        geodesic = np.arccos(cos_angle)
+        print(f"  {cname:20s} | Euclidean: {euclid:.3f} | Geodesic: {geodesic:.4f} rad ({np.degrees(geodesic):.1f}°)")
+    print()
+
+
+def concept_activation_layer_signal_autocorrelation(all_acts, concept_names):
+    """Phase 1178: Correlation of concept signal across layers."""
+    print("=" * 70)
+    print("PHASE 1178: CROSS-LAYER SIGNAL AUTOCORRELATION")
+    print("=" * 70)
+    for cname in concept_names[:3]:
+        signals = []
+        for l in range(24):
+            pos = all_acts[cname]["positive"][l]
+            neg = all_acts[cname]["negative"][l]
+            d = pos.mean(0) - neg.mean(0)
+            signals.append(np.linalg.norm(d))
+        signals = np.array(signals)
+        # Autocorrelation at various lags
+        s_centered = signals - signals.mean()
+        var = np.var(signals)
+        if var > 1e-10:
+            ac = [np.mean(s_centered[:-lag] * s_centered[lag:]) / var if lag > 0 else 1.0 for lag in range(5)]
+        else:
+            ac = [1.0, 0, 0, 0, 0]
+        print(f"  {cname:20s} | autocorr lags 0-4: {' '.join(f'{a:.3f}' for a in ac)}")
+    print()
+
+
+def concept_direction_whitened_cosine_analysis(all_acts, concept_names):
+    """Phase 1179: Cosine analysis after whitening transformation."""
+    print("=" * 70)
+    print("PHASE 1179: WHITENED COSINE ANALYSIS")
+    print("=" * 70)
+    layer = 10
+    # Collect all activations to compute whitening
+    all_data = []
+    for cname in concept_names:
+        all_data.append(all_acts[cname]["positive"][layer])
+        all_data.append(all_acts[cname]["negative"][layer])
+    all_data = np.vstack(all_data)
+    mean = all_data.mean(0)
+    cov = np.cov((all_data - mean).T)
+    eigvals, eigvecs = np.linalg.eigh(cov)
+    eigvals = np.maximum(eigvals, 1e-10)
+    W = eigvecs @ np.diag(1.0 / np.sqrt(eigvals)) @ eigvecs.T
+    # Compute whitened directions
+    dirs_w = {}
+    for cname in concept_names:
+        pos_w = (all_acts[cname]["positive"][layer] - mean) @ W
+        neg_w = (all_acts[cname]["negative"][layer] - mean) @ W
+        d = pos_w.mean(0) - neg_w.mean(0)
+        dirs_w[cname] = d / (np.linalg.norm(d) + 1e-10)
+    max_cos = 0.0
+    max_pair = ("", "")
+    for i in range(len(concept_names)):
+        for j in range(i+1, len(concept_names)):
+            cos = abs(float(dirs_w[concept_names[i]] @ dirs_w[concept_names[j]]))
+            if cos > max_cos:
+                max_cos = cos
+                max_pair = (concept_names[i], concept_names[j])
+    print(f"  Max whitened cosine: {max_cos:.6f} ({max_pair[0]} vs {max_pair[1]})")
+    print(f"  (Lower is better — 0 means perfectly orthogonal after whitening)")
+    print()
+
+
+def concept_activation_cluster_silhouette_score(all_acts, concept_names):
+    """Phase 1180: Silhouette score for concept clustering."""
+    print("=" * 70)
+    print("PHASE 1180: CONCEPT CLUSTER SILHOUETTE SCORE")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        combined = np.vstack([pos, neg])
+        labels = np.array([1]*len(pos) + [0]*len(neg))
+        # Simplified silhouette: for each point, compare mean intra-cluster dist to mean inter-cluster dist
+        sil_scores = []
+        for i in range(len(combined)):
+            same = combined[labels == labels[i]]
+            diff = combined[labels != labels[i]]
+            a = np.mean(np.linalg.norm(same - combined[i], axis=1))
+            b = np.mean(np.linalg.norm(diff - combined[i], axis=1))
+            sil_scores.append((b - a) / (max(a, b) + 1e-10))
+        mean_sil = np.mean(sil_scores)
+        print(f"  {cname:20s} | silhouette: {mean_sil:.4f} (1=perfect, 0=overlapping, -1=misassigned)")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -36003,6 +36238,36 @@ def run_analysis():
 
     # Phase 1170: Layer transition mutual information (informational)
     concept_layer_transition_mutual_info(all_acts, concept_names)
+
+    # Phase 1171: Leave-one-out cosine stability (informational)
+    concept_direction_leave_one_out_cosine_stability(all_acts, concept_names)
+
+    # Phase 1172: Activation percentile profile (informational)
+    concept_activation_percentile_profile(all_acts, concept_names)
+
+    # Phase 1173: Neuron concept specificity entropy distribution (informational)
+    concept_neuron_concept_specificity_entropy_distribution(all_acts, concept_names)
+
+    # Phase 1174: Pairwise angle distribution shape (informational)
+    concept_direction_angle_distribution_shape(all_acts, concept_names)
+
+    # Phase 1175: Activation norm ratio pos/neg (informational)
+    concept_activation_norm_ratio_pos_neg(all_acts, concept_names)
+
+    # Phase 1176: Neuron CV profile (informational)
+    concept_neuron_activation_cv_profile(all_acts, concept_names)
+
+    # Phase 1177: Geodesic vs Euclidean distance (informational)
+    concept_direction_geodesic_vs_euclidean(all_acts, concept_names)
+
+    # Phase 1178: Cross-layer signal autocorrelation (informational)
+    concept_activation_layer_signal_autocorrelation(all_acts, concept_names)
+
+    # Phase 1179: Whitened cosine analysis (informational)
+    concept_direction_whitened_cosine_analysis(all_acts, concept_names)
+
+    # Phase 1180: Concept cluster silhouette score (informational)
+    concept_activation_cluster_silhouette_score(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
