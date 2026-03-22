@@ -1283,6 +1283,57 @@ def rsa_analysis(all_acts, concept_names, num_layers):
 
 
 # ---------------------------------------------------------------------------
+# PHASE 17: Probing Robustness — sensitivity to random neuron dropout
+# ---------------------------------------------------------------------------
+
+def probing_robustness_analysis(all_acts, concept_names, sparse_results):
+    """
+    Test how robust concept classification is to random neuron dropout.
+    For each concept, randomly mask 10%, 25%, 50% of neurons at the best
+    layer and measure accuracy degradation. Reveals which concepts have
+    fragile vs distributed/robust representations.
+    """
+    print("=" * 70)
+    print("PHASE 17: Probing Robustness — Random Dropout Sensitivity")
+    print("=" * 70)
+
+    rng = np.random.RandomState(42)
+    dropout_rates = [0.1, 0.25, 0.50]
+    n_trials = 5  # average over multiple dropout masks
+
+    for concept_name in concept_names:
+        layer = sparse_results[concept_name]["best_layer"]
+        pos = all_acts[concept_name]["positive"][layer]
+        neg = all_acts[concept_name]["negative"][layer]
+        X, y = make_dataset(pos, neg)
+        base_acc = probe_accuracy(X, y)
+        hidden_size = X.shape[1]
+
+        results = []
+        for rate in dropout_rates:
+            accs = []
+            for trial in range(n_trials):
+                mask = rng.random(hidden_size) > rate
+                if mask.sum() == 0:
+                    mask[0] = True  # keep at least one
+                X_drop = X[:, mask]
+                acc = probe_accuracy(X_drop, y)
+                accs.append(acc)
+            mean_acc = np.mean(accs)
+            results.append((rate, mean_acc))
+
+        # Robustness = how well accuracy is maintained at 50% dropout
+        robust_50 = results[-1][1] / (base_acc + 1e-8)
+        label = "ROBUST" if robust_50 > 0.95 else ("fragile" if robust_50 < 0.85 else "moderate")
+
+        dropout_str = ", ".join(f"{int(r*100)}%:{a:.3f}" for r, a in results)
+        print(f"  {concept_name:20s} (L{layer}, base={base_acc:.3f}): "
+              f"[{dropout_str}] → {label}")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Main Analysis Pipeline
 # ---------------------------------------------------------------------------
 
@@ -1354,6 +1405,9 @@ def run_analysis():
 
     # Phase 16: RSA (informational)
     rsa_analysis(all_acts, concept_names, num_layers)
+
+    # Phase 17: Probing robustness (informational)
+    probing_robustness_analysis(all_acts, concept_names, sparse_results)
 
     # ---- Composite Score ----
     interpretability_score = (
