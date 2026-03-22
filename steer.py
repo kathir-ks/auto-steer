@@ -7357,7 +7357,7 @@ def run_analysis():
     norm_controlled_probing(all_acts, concept_names, sparse_results)
 
     # Phase 52: Concept difficulty ranking (informational)
-    concept_difficulty_ranking(all_acts, concept_names, sparse_results)
+    concept_difficulty_ranking(all_acts, concept_names, sparse_results, num_layers)
 
     # Phase 53: Concept suppression (informational)
     concept_suppression_analysis(all_acts, concept_names, sparse_results)
