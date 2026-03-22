@@ -8183,6 +8183,180 @@ def representation_compression(all_acts, concept_names, num_layers, hidden_size)
     print()
 
 
+def concept_pc_alignment(all_acts, concept_names, sparse_results):
+    """Are concept directions aligned with principal components of the data?"""
+    print("=" * 70)
+    print("PHASE 157: Concept Direction vs Principal Components")
+    print("=" * 70)
+
+    # Pool all data at L10
+    all_data = []
+    for cname in concept_names:
+        all_data.append(all_acts[cname]["positive"][10])
+        all_data.append(all_acts[cname]["negative"][10])
+    all_data = np.vstack(all_data)
+    centered = all_data - np.mean(all_data, axis=0)
+    _, _, Vt = np.linalg.svd(centered, full_matrices=False)
+
+    for cname in concept_names:
+        info = sparse_results[cname]
+        best_layer = info["best_layer"]
+        pos = all_acts[cname]["positive"][best_layer]
+        neg = all_acts[cname]["negative"][best_layer]
+        direction = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        direction = direction / (np.linalg.norm(direction) + 1e-10)
+
+        # Cosine with top PCs
+        cosines = [abs(np.dot(direction, Vt[i])) for i in range(min(10, len(Vt)))]
+        best_pc = int(np.argmax(cosines))
+        best_cos = cosines[best_pc]
+
+        # Cumulative alignment with top-K PCs
+        cum5 = sum(c**2 for c in cosines[:5])
+
+        print(f"  {cname:20s} best_PC={best_pc} cos={best_cos:.3f} "
+              f"cum_top5={cum5:.3f}")
+
+    print()
+
+
+def neuron_polarity_consistency(all_acts, concept_names, sparse_results):
+    """Does each top neuron consistently fire higher for one class?"""
+    print("=" * 70)
+    print("PHASE 158: Neuron Polarity Consistency")
+    print("=" * 70)
+
+    for cname in concept_names:
+        info = sparse_results[cname]
+        best_layer = info["best_layer"]
+        pos = all_acts[cname]["positive"][best_layer]
+        neg = all_acts[cname]["negative"][best_layer]
+        top_n = info["top_neurons"][0]
+
+        pos_vals = pos[:, top_n]
+        neg_vals = neg[:, top_n]
+
+        # What fraction of positive samples have higher activation than negative?
+        pos_higher = np.mean(pos_vals[:, None] > neg_vals[None, :])
+        # Consistency: how often does the neuron correctly indicate class
+        consistency = max(pos_higher, 1 - pos_higher)
+
+        # Is it a positive or negative indicator?
+        direction = "pos>neg" if np.mean(pos_vals) > np.mean(neg_vals) else "neg>pos"
+
+        print(f"  {cname:20s} N{top_n:3d}: consistency={consistency:.3f} "
+              f"({direction}) mean_diff={np.mean(pos_vals)-np.mean(neg_vals):+.4f}")
+
+    print()
+
+
+def layerwise_information_gain(all_acts, concept_names, num_layers):
+    """Proxy for mutual information gain per layer using Cohen's d."""
+    print("=" * 70)
+    print("PHASE 159: Layer-wise Information Gain")
+    print("=" * 70)
+
+    for cname in concept_names:
+        d_per_layer = []
+        for layer in range(num_layers):
+            pos = all_acts[cname]["positive"][layer]
+            neg = all_acts[cname]["negative"][layer]
+            diff = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+            pooled = np.sqrt((np.var(pos, axis=0) + np.var(neg, axis=0)) / 2)
+            d = np.abs(diff) / np.maximum(pooled, 1e-10)
+            d_per_layer.append(np.mean(np.sort(d)[-10:]))  # mean top-10
+
+        # Layer-to-layer info gain
+        gains = [d_per_layer[i+1] - d_per_layer[i] for i in range(len(d_per_layer)-1)]
+        total_gain = d_per_layer[-1] - d_per_layer[0]
+        biggest_gain_layer = int(np.argmax(gains))
+        biggest_loss_layer = int(np.argmin(gains))
+
+        print(f"  {cname:20s} total_gain={total_gain:+.2f} "
+              f"biggest_gain=L{biggest_gain_layer}→L{biggest_gain_layer+1}({gains[biggest_gain_layer]:+.2f}) "
+              f"biggest_loss=L{biggest_loss_layer}→L{biggest_loss_layer+1}({gains[biggest_loss_layer]:+.2f})")
+
+    print()
+
+
+def concept_margin_evolution(all_acts, concept_names, num_layers):
+    """How the decision margin grows across layers."""
+    print("=" * 70)
+    print("PHASE 160: Concept Margin Evolution")
+    print("=" * 70)
+
+    for cname in concept_names:
+        margins = []
+        for layer in range(num_layers):
+            pos = all_acts[cname]["positive"][layer]
+            neg = all_acts[cname]["negative"][layer]
+            direction = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+            norm = np.linalg.norm(direction)
+            if norm < 1e-10:
+                margins.append(0)
+                continue
+            direction = direction / norm
+            pos_proj = pos @ direction
+            neg_proj = neg @ direction
+            margin = np.mean(pos_proj) - np.mean(neg_proj)
+            margins.append(margin)
+
+        # Sparkline
+        max_m = max(abs(m) for m in margins) if margins else 1
+        bars = "▁▂▃▄▅▆▇█"
+        spark = ""
+        for m in margins:
+            idx = min(int(abs(m) / max_m * 8), 7) if max_m > 0 else 0
+            spark += bars[idx]
+
+        print(f"  {cname:20s} [{spark}] "
+              f"L0={margins[0]:.2f} L10={margins[10]:.2f} L23={margins[23]:.2f}")
+
+    print()
+
+
+def neuron_functional_clustering(all_acts, concept_names, sparse_results):
+    """Cluster neurons by their response profiles across all concepts."""
+    print("=" * 70)
+    print("PHASE 161: Neuron Functional Clustering")
+    print("=" * 70)
+
+    # Build response profile: for each neuron, Cohen's d per concept at L10
+    n_neurons = 896
+    profile = np.zeros((n_neurons, len(concept_names)))
+
+    for j, cname in enumerate(concept_names):
+        pos = all_acts[cname]["positive"][10]
+        neg = all_acts[cname]["negative"][10]
+        diff = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        pooled = np.sqrt((np.var(pos, axis=0) + np.var(neg, axis=0)) / 2)
+        d = diff / np.maximum(pooled, 1e-10)
+        profile[:, j] = d
+
+    # Cluster using Ward linkage
+    from scipy.cluster.hierarchy import linkage, fcluster
+    # Only cluster neurons with at least one notable d
+    active_mask = np.any(np.abs(profile) > 1.0, axis=1)
+    active_idx = np.where(active_mask)[0]
+    print(f"  Active neurons (|d|>1 for any concept): {len(active_idx)}/{n_neurons}")
+
+    if len(active_idx) > 2:
+        active_profiles = profile[active_idx]
+        Z = linkage(active_profiles, method='ward', metric='euclidean')
+        # Cut at k=8 clusters (matching number of concepts)
+        labels = fcluster(Z, t=8, criterion='maxclust')
+
+        for k in range(1, 9):
+            cluster_neurons = active_idx[labels == k]
+            mean_profile = profile[cluster_neurons].mean(axis=0)
+            dominant = concept_names[np.argmax(np.abs(mean_profile))]
+            print(f"  Cluster {k}: {len(cluster_neurons):3d} neurons, "
+                  f"dominant={dominant[:12]:12s} "
+                  f"mean_d=[{', '.join(f'{d:.1f}' for d in mean_profile)}]")
+
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -8725,6 +8899,21 @@ def run_analysis():
 
     # Phase 156: Representation compression ratio (informational)
     representation_compression(all_acts, concept_names, num_layers, hidden_size)
+
+    # Phase 157: Concept PC alignment (informational)
+    concept_pc_alignment(all_acts, concept_names, sparse_results)
+
+    # Phase 158: Neuron polarity consistency (informational)
+    neuron_polarity_consistency(all_acts, concept_names, sparse_results)
+
+    # Phase 159: Layer-wise information gain (informational)
+    layerwise_information_gain(all_acts, concept_names, num_layers)
+
+    # Phase 160: Concept margin evolution (informational)
+    concept_margin_evolution(all_acts, concept_names, num_layers)
+
+    # Phase 161: Neuron functional clustering (informational)
+    neuron_functional_clustering(all_acts, concept_names, sparse_results)
 
     # ---- Composite Score ----
     interpretability_score = (
