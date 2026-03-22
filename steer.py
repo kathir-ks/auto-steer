@@ -7129,6 +7129,101 @@ def concept_difficulty_ranking(all_acts, concept_names, sparse_results, num_laye
     print()
 
 
+def concept_confusion_analysis(all_acts, concept_names, sparse_results):
+    """
+    Which samples get misclassified by the 1-neuron probe?
+    Analyze the properties of hard/misclassified examples.
+    """
+    print("=" * 70)
+    print("PHASE 131: Concept Confusion Analysis")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        sr = sparse_results[concept_name]
+        best_layer = sr["best_layer"]
+        top_neuron = sr["top_neurons"][0]
+
+        pos = all_acts[concept_name]["positive"][best_layer]
+        neg = all_acts[concept_name]["negative"][best_layer]
+        X = np.vstack([pos, neg])
+        y = np.array([1]*len(pos) + [0]*len(neg))
+
+        # 1-neuron probe
+        clf = LogisticRegression(C=1.0, max_iter=200, random_state=42)
+        clf.fit(X[:, top_neuron:top_neuron+1], y)
+        preds = clf.predict(X[:, top_neuron:top_neuron+1])
+
+        # Misclassified indices
+        wrong = preds != y
+        n_wrong = np.sum(wrong)
+
+        if n_wrong > 0:
+            # Properties of misclassified samples
+            wrong_norms = np.linalg.norm(X[wrong], axis=1)
+            correct_norms = np.linalg.norm(X[~wrong], axis=1)
+
+            # Neuron values for wrong vs correct
+            wrong_vals = X[wrong, top_neuron]
+            correct_vals = X[~wrong, top_neuron]
+
+            print(f"  {concept_name:20s}: {n_wrong:2d} wrong "
+                  f"(wrong_norm={np.mean(wrong_norms):.2f} vs "
+                  f"correct_norm={np.mean(correct_norms):.2f} "
+                  f"wrong_N{top_neuron}={np.mean(wrong_vals):.3f} "
+                  f"correct_N{top_neuron}={np.mean(correct_vals):.3f})")
+        else:
+            print(f"  {concept_name:20s}: 0 wrong (perfect 1-neuron classification)")
+
+    print()
+
+
+def neuron_phase_space(all_acts, concept_names, sparse_results):
+    """
+    For each concept's top-2 neurons, characterize the 2D activation phase space.
+    Are pos/neg samples linearly separable in this 2D space?
+    """
+    print("=" * 70)
+    print("PHASE 132: Neuron Phase Space (Top-2 Neurons)")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        sr = sparse_results[concept_name]
+        best_layer = sr["best_layer"]
+        top_neurons = sr["top_neurons"][:2]
+        if len(top_neurons) < 2:
+            continue
+
+        pos = all_acts[concept_name]["positive"][best_layer]
+        neg = all_acts[concept_name]["negative"][best_layer]
+        X = np.vstack([pos, neg])
+        y = np.array([1]*len(pos) + [0]*len(neg))
+
+        n1, n2 = top_neurons
+        X_2d = X[:, [n1, n2]]
+
+        # 2D probe accuracy
+        clf = LogisticRegression(C=1.0, max_iter=200, random_state=42)
+        clf.fit(X_2d, y)
+        acc_2d = clf.score(X_2d, y)
+
+        # Centroid separation in 2D
+        pos_cent = np.mean(X_2d[y==1], axis=0)
+        neg_cent = np.mean(X_2d[y==0], axis=0)
+        sep = np.linalg.norm(pos_cent - neg_cent)
+
+        # Correlation between the two neurons
+        r = np.corrcoef(X[:, n1], X[:, n2])[0, 1]
+
+        # Angle of decision boundary
+        w = clf.coef_[0]
+        angle = np.degrees(np.arctan2(w[1], w[0]))
+
+        print(f"  {concept_name:20s} N{n1}×N{n2}: 2D-acc={acc_2d:.3f} "
+              f"sep={sep:.3f} r={r:+.3f} boundary_angle={angle:.1f}°")
+
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -7593,6 +7688,12 @@ def run_analysis():
 
     # Phase 130: Concept difficulty ranking (informational)
     concept_difficulty_ranking(all_acts, concept_names, sparse_results, num_layers)
+
+    # Phase 131: Concept confusion analysis (informational)
+    concept_confusion_analysis(all_acts, concept_names, sparse_results)
+
+    # Phase 132: Neuron phase space (informational)
+    neuron_phase_space(all_acts, concept_names, sparse_results)
 
     # ---- Composite Score ----
     interpretability_score = (
