@@ -5949,6 +5949,106 @@ def activation_geometry_pca(all_acts, concept_names):
     print()
 
 
+def concept_distinguishability_matrix(all_acts, concept_names):
+    """
+    Can we distinguish the positive class of concept A from positive class of concept B?
+    Full pairwise probe accuracy at L10.
+    """
+    print("=" * 70)
+    print("PHASE 105: Concept Distinguishability Matrix")
+    print("=" * 70)
+
+    target_layer = 10
+
+    # Build matrix
+    n_concepts = len(concept_names)
+    matrix = np.ones((n_concepts, n_concepts))  # 1.0 on diagonal
+
+    for i in range(n_concepts):
+        for j in range(i+1, n_concepts):
+            # Use positive examples from each concept
+            X_i = all_acts[concept_names[i]]["positive"][target_layer]
+            X_j = all_acts[concept_names[j]]["positive"][target_layer]
+            X = np.vstack([X_i, X_j])
+            y = np.array([0] * len(X_i) + [1] * len(X_j))
+
+            # Simple diff-of-means classifier
+            dom = np.mean(X_j, axis=0) - np.mean(X_i, axis=0)
+            dom_norm = dom / (np.linalg.norm(dom) + 1e-12)
+            proj = X @ dom_norm
+            threshold = np.mean(proj)
+            pred = (proj > threshold).astype(int)
+            acc = np.mean(pred == y)
+            matrix[i, j] = acc
+            matrix[j, i] = acc
+
+    # Print matrix header
+    short_names = [c[:6] for c in concept_names]
+    header = "  " + " " * 12 + " ".join(f"{s:>6s}" for s in short_names)
+    print(header)
+    for i, cn in enumerate(concept_names):
+        row = f"  {cn[:12]:12s}"
+        for j in range(n_concepts):
+            if i == j:
+                row += "   --- "
+            else:
+                row += f" {matrix[i,j]:5.2f} "
+        print(row)
+
+    # Most confusable pair
+    min_acc = 1.0
+    min_pair = ("", "")
+    for i in range(n_concepts):
+        for j in range(i+1, n_concepts):
+            if matrix[i, j] < min_acc:
+                min_acc = matrix[i, j]
+                min_pair = (concept_names[i], concept_names[j])
+
+    print(f"\n  Most confusable: {min_pair[0]} vs {min_pair[1]} ({min_acc:.2f})")
+
+    print()
+
+
+def neuron_activation_dynamics(all_acts, concept_names, sparse_results, num_layers):
+    """
+    How does each concept's top neuron activation evolve across layers?
+    Track the same neuron index through all layers.
+    """
+    print("=" * 70)
+    print("PHASE 106: Neuron Activation Dynamics (Top Neuron Across Layers)")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        sr = sparse_results[concept_name]
+        top_neuron = sr["top_neurons"][0]
+
+        # Track this neuron's discriminative power across all layers
+        d_per_layer = []
+        for layer_idx in range(num_layers):
+            pos = all_acts[concept_name]["positive"][layer_idx]
+            neg = all_acts[concept_name]["negative"][layer_idx]
+            mu_p = np.mean(pos[:, top_neuron])
+            mu_n = np.mean(neg[:, top_neuron])
+            std_p = np.std(pos[:, top_neuron])
+            std_n = np.std(neg[:, top_neuron])
+            pooled = np.sqrt((std_p**2 + std_n**2) / 2.0 + 1e-12)
+            d_per_layer.append(abs(mu_p - mu_n) / pooled)
+
+        d_arr = np.array(d_per_layer)
+        peak_layer = np.argmax(d_arr)
+        best_layer = sr["best_layer"]
+
+        # Sparkline
+        d_norm = d_arr / (np.max(d_arr) + 1e-12)
+        spark_chars = " ▁▂▃▄▅▆▇█"
+        sparkline = "".join(spark_chars[min(8, int(v * 8))] for v in d_norm)
+
+        print(f"  {concept_name:20s} N{top_neuron:3d}: peak@L{peak_layer} "
+              f"(best@L{best_layer}) d_max={d_arr[peak_layer]:.2f} [{sparkline}]")
+
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -6335,6 +6435,12 @@ def run_analysis():
 
     # Phase 104: Activation geometry PCA (informational)
     activation_geometry_pca(all_acts, concept_names)
+
+    # Phase 105: Concept distinguishability matrix (informational)
+    concept_distinguishability_matrix(all_acts, concept_names)
+
+    # Phase 106: Neuron activation dynamics (informational)
+    neuron_activation_dynamics(all_acts, concept_names, sparse_results, num_layers)
 
     # ---- Composite Score ----
     interpretability_score = (
