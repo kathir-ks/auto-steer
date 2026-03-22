@@ -1676,6 +1676,59 @@ def gram_schmidt_analysis(all_acts, concept_names, sparse_results):
 
 
 # ---------------------------------------------------------------------------
+# PHASE 23: Activation Distribution — statistical properties of concept neurons
+# ---------------------------------------------------------------------------
+
+def activation_distribution_analysis(all_acts, concept_names, sparse_results):
+    """
+    Characterize the statistical distribution of activations for each concept's
+    top neuron. Measures bimodality, skewness, kurtosis, and separation
+    between positive/negative distributions. Reveals how concepts are encoded:
+    as binary switches (bimodal) or graded signals (unimodal shift).
+    """
+    print("=" * 70)
+    print("PHASE 23: Activation Distribution — Concept Neuron Statistics")
+    print("=" * 70)
+
+    from scipy.stats import skew, kurtosis
+
+    for concept_name in concept_names:
+        layer = sparse_results[concept_name]["best_layer"]
+        top_neuron = sparse_results[concept_name]["top_neurons"][0]
+        pos = all_acts[concept_name]["positive"][layer][:, top_neuron]
+        neg = all_acts[concept_name]["negative"][layer][:, top_neuron]
+        all_vals = np.concatenate([pos, neg])
+
+        # Basic statistics
+        pos_mean, neg_mean = pos.mean(), neg.mean()
+        pos_std, neg_std = pos.std(), neg.std()
+
+        # Skewness and kurtosis of combined distribution
+        sk = skew(all_vals)
+        kurt = kurtosis(all_vals)
+
+        # Bimodality coefficient: BC = (skewness^2 + 1) / (kurtosis + 3)
+        # BC > 5/9 ≈ 0.555 suggests bimodality
+        bc = (sk ** 2 + 1) / (kurt + 3 + 1e-8)
+
+        # Distribution overlap: fraction of values in the overlap region
+        threshold = (pos_mean + neg_mean) / 2
+        pos_below = (pos < threshold).mean()
+        neg_above = (neg >= threshold).mean()
+        overlap = (pos_below + neg_above) / 2
+
+        encoding = "SWITCH" if bc > 0.555 and overlap < 0.2 else (
+            "graded" if overlap > 0.3 else "sharp")
+
+        print(f"  {concept_name:20s} (L{layer}:N{top_neuron}): "
+              f"pos={pos_mean:+.2f}±{pos_std:.2f}, "
+              f"neg={neg_mean:+.2f}±{neg_std:.2f}, "
+              f"BC={bc:.3f}, overlap={overlap:.2f} [{encoding}]")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Main Analysis Pipeline
 # ---------------------------------------------------------------------------
 
@@ -1765,6 +1818,9 @@ def run_analysis():
 
     # Phase 22: Gram-Schmidt orthogonalization (informational)
     gram_schmidt_analysis(all_acts, concept_names, sparse_results)
+
+    # Phase 23: Activation distributions (informational)
+    activation_distribution_analysis(all_acts, concept_names, sparse_results)
 
     # ---- Composite Score ----
     interpretability_score = (
