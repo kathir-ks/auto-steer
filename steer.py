@@ -7855,7 +7855,7 @@ def concept_snr_analysis(all_acts, concept_names, sparse_results):
     for cname in concept_names:
         info = sparse_results[cname]
         best_layer = info["best_layer"]
-        layer_key = f"layer_{best_layer}"
+        layer_key = best_layer
         pos = all_acts[cname]["positive"][layer_key]
         neg = all_acts[cname]["negative"][layer_key]
 
@@ -7890,7 +7890,7 @@ def concept_emergence_profile(all_acts, concept_names, num_layers):
     for cname in concept_names:
         ds = []
         for layer in range(num_layers):
-            layer_key = f"layer_{layer}"
+            layer_key = layer
             pos = all_acts[cname]["positive"][layer_key]
             neg = all_acts[cname]["negative"][layer_key]
             # Max Cohen's d across neurons
@@ -7961,6 +7961,225 @@ def grand_milestone_150(all_acts, concept_names, sparse_results, num_layers, hid
   ║                                                                  ║
   ╚══════════════════════════════════════════════════════════════════╝
 """)
+    print()
+
+
+def concept_hyperplane_angles(all_acts, concept_names, sparse_results):
+    """Angles between logistic regression decision hyperplanes at best layers."""
+    print("=" * 70)
+    print("PHASE 151: Concept Decision Hyperplane Angles")
+    print("=" * 70)
+
+    # Fit probes and extract weight vectors
+    weight_vectors = {}
+    for cname in concept_names:
+        info = sparse_results[cname]
+        best_layer = info["best_layer"]
+        layer_key = best_layer
+        pos = all_acts[cname]["positive"][layer_key]
+        neg = all_acts[cname]["negative"][layer_key]
+        X = np.vstack([pos, neg])
+        y = np.array([1]*len(pos) + [0]*len(neg))
+        clf = LogisticRegression(C=1.0, max_iter=200, random_state=42)
+        clf.fit(X, y)
+        weight_vectors[cname] = clf.coef_[0]
+
+    # Pairwise angles
+    names = list(concept_names)
+    angles = []
+    for i in range(len(names)):
+        for j in range(i+1, len(names)):
+            w1 = weight_vectors[names[i]]
+            w2 = weight_vectors[names[j]]
+            cos = np.dot(w1, w2) / (np.linalg.norm(w1) * np.linalg.norm(w2) + 1e-10)
+            angle = np.degrees(np.arccos(np.clip(cos, -1, 1)))
+            angles.append(angle)
+            if abs(angle - 90) > 15:  # only print notably non-orthogonal
+                print(f"  {names[i][:12]:12s} ↔ {names[j][:12]:12s}: {angle:.1f}°")
+
+    print(f"\n  Mean hyperplane angle: {np.mean(angles):.1f}° (ideal=90°)")
+    print(f"  Min: {np.min(angles):.1f}°  Max: {np.max(angles):.1f}°")
+    print()
+
+
+def neuron_activation_shape(all_acts, concept_names, num_layers):
+    """Distribution shape of neuron activations (kurtosis, skewness) at L10."""
+    print("=" * 70)
+    print("PHASE 152: Neuron Activation Distribution Shape (L10)")
+    print("=" * 70)
+    from scipy.stats import skew, kurtosis as kurt
+
+    layer_key = 10
+    all_data = []
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer_key]
+        neg = all_acts[cname]["negative"][layer_key]
+        all_data.append(pos)
+        all_data.append(neg)
+    all_data = np.vstack(all_data)
+
+    skews = skew(all_data, axis=0)
+    kurts = kurt(all_data, axis=0)  # excess kurtosis
+
+    print(f"  Skewness:  mean={np.mean(skews):.3f}  std={np.std(skews):.3f}  "
+          f"range=[{np.min(skews):.2f}, {np.max(skews):.2f}]")
+    print(f"  Kurtosis:  mean={np.mean(kurts):.3f}  std={np.std(kurts):.3f}  "
+          f"range=[{np.min(kurts):.2f}, {np.max(kurts):.2f}]")
+
+    # Classify distribution types
+    gaussian_like = np.sum(np.abs(kurts) < 1.0)
+    heavy_tailed = np.sum(kurts > 3.0)
+    light_tailed = np.sum(kurts < -1.0)
+    highly_skewed = np.sum(np.abs(skews) > 1.0)
+
+    print(f"\n  Gaussian-like (|kurt|<1): {gaussian_like}/896 ({gaussian_like/896*100:.1f}%)")
+    print(f"  Heavy-tailed (kurt>3):    {heavy_tailed}/896 ({heavy_tailed/896*100:.1f}%)")
+    print(f"  Light-tailed (kurt<-1):   {light_tailed}/896 ({light_tailed/896*100:.1f}%)")
+    print(f"  Highly skewed (|skew|>1): {highly_skewed}/896 ({highly_skewed/896*100:.1f}%)")
+    print()
+
+
+def concept_signal_propagation(all_acts, concept_names, num_layers):
+    """How fast does concept signal grow layer-to-layer?"""
+    print("=" * 70)
+    print("PHASE 153: Concept Signal Propagation Speed")
+    print("=" * 70)
+
+    for cname in concept_names:
+        max_ds = []
+        for layer in range(num_layers):
+            layer_key = layer
+            pos = all_acts[cname]["positive"][layer_key]
+            neg = all_acts[cname]["negative"][layer_key]
+            diff = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+            pooled = np.sqrt((np.var(pos, axis=0) + np.var(neg, axis=0)) / 2)
+            d = np.abs(diff) / np.maximum(pooled, 1e-10)
+            max_ds.append(np.max(d))
+
+        # Compute layer-to-layer gains
+        gains = [max_ds[i+1] - max_ds[i] for i in range(len(max_ds)-1)]
+        max_gain_layer = int(np.argmax(gains))
+        max_gain = gains[max_gain_layer]
+
+        # Growth phases: acceleration (increasing gains) vs deceleration
+        accel_layers = sum(1 for i in range(1, len(gains)) if gains[i] > gains[i-1])
+
+        print(f"  {cname:20s} max_gain=L{max_gain_layer}→L{max_gain_layer+1} "
+              f"(Δd={max_gain:+.2f})  accel_phases={accel_layers}/{num_layers-2}")
+
+    print()
+
+
+def cross_layer_neuron_consistency(all_acts, concept_names, sparse_results, num_layers):
+    """Are the same neurons important across multiple layers?"""
+    print("=" * 70)
+    print("PHASE 154: Cross-Layer Neuron Consistency")
+    print("=" * 70)
+
+    for cname in concept_names:
+        info = sparse_results[cname]
+        best_layer = info["best_layer"]
+
+        # Get top-10 neurons at best layer
+        layer_key = best_layer
+        pos = all_acts[cname]["positive"][layer_key]
+        neg = all_acts[cname]["negative"][layer_key]
+        diff = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        pooled = np.sqrt((np.var(pos, axis=0) + np.var(neg, axis=0)) / 2)
+        d = np.abs(diff) / np.maximum(pooled, 1e-10)
+        top10 = set(np.argsort(d)[-10:])
+
+        # Check overlap at other layers
+        overlaps = []
+        for layer in range(num_layers):
+            if layer == best_layer:
+                continue
+            lk = layer
+            p = all_acts[cname]["positive"][lk]
+            n = all_acts[cname]["negative"][lk]
+            dd = np.abs(np.mean(p, axis=0) - np.mean(n, axis=0))
+            pp = np.sqrt((np.var(p, axis=0) + np.var(n, axis=0)) / 2)
+            dl = np.abs(dd) / np.maximum(pp, 1e-10)
+            top10_l = set(np.argsort(dl)[-10:])
+            overlap = len(top10 & top10_l)
+            overlaps.append(overlap)
+
+        mean_overlap = np.mean(overlaps)
+        max_overlap = np.max(overlaps)
+        print(f"  {cname:20s} L{best_layer:2d}: mean_overlap={mean_overlap:.1f}/10 "
+              f"max_overlap={max_overlap}/10")
+
+    print()
+
+
+def concept_encoding_redundancy(all_acts, concept_names, sparse_results):
+    """How many of the top-10 neurons can be removed before accuracy drops below 0.90?"""
+    print("=" * 70)
+    print("PHASE 155: Concept Encoding Redundancy")
+    print("=" * 70)
+
+    for cname in concept_names:
+        info = sparse_results[cname]
+        best_layer = info["best_layer"]
+        layer_key = best_layer
+        pos = all_acts[cname]["positive"][layer_key]
+        neg = all_acts[cname]["negative"][layer_key]
+
+        # Get top-10 neurons by Cohen's d
+        diff = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        pooled = np.sqrt((np.var(pos, axis=0) + np.var(neg, axis=0)) / 2)
+        d = np.abs(diff) / np.maximum(pooled, 1e-10)
+        top10 = list(np.argsort(d)[-10:][::-1])
+
+        X = np.vstack([pos[:, top10], neg[:, top10]])
+        y = np.array([1]*len(pos) + [0]*len(neg))
+
+        # Progressively remove neurons (from least to most important)
+        removable = 0
+        for k in range(len(top10)-1, 0, -1):
+            subset = top10[:k]
+            Xs = np.vstack([pos[:, subset], neg[:, subset]])
+            clf = LogisticRegression(C=1.0, max_iter=200, random_state=42)
+            scores = cross_val_score(clf, Xs, y, cv=3, scoring='accuracy')
+            if scores.mean() >= 0.90:
+                removable = 10 - k
+            else:
+                break
+
+        print(f"  {cname:20s} L{best_layer:2d}: {removable}/10 neurons removable "
+              f"(redundancy={removable/10:.0%})")
+
+    print()
+
+
+def representation_compression(all_acts, concept_names, num_layers, hidden_size):
+    """Information per dimension — how efficiently are concepts encoded?"""
+    print("=" * 70)
+    print("PHASE 156: Representation Compression Ratio")
+    print("=" * 70)
+
+    for layer in [0, 10, 23]:
+        layer_key = layer
+        all_data = []
+        for cname in concept_names:
+            pos = all_acts[cname]["positive"][layer_key]
+            neg = all_acts[cname]["negative"][layer_key]
+            all_data.append(pos)
+            all_data.append(neg)
+        all_data = np.vstack(all_data)
+
+        # SVD for effective rank
+        centered = all_data - np.mean(all_data, axis=0)
+        _, S, _ = np.linalg.svd(centered, full_matrices=False)
+        S_norm = S / S.sum()
+        eff_rank = np.exp(-np.sum(S_norm * np.log(S_norm + 1e-10)))
+
+        # Compression ratio: 8 concepts encoded in eff_rank dimensions out of hidden_size
+        compression = hidden_size / eff_rank
+
+        print(f"  L{layer:2d}: eff_rank={eff_rank:.1f}  compression={compression:.1f}x  "
+              f"top1_var={S[0]**2/np.sum(S**2)*100:.1f}%  top5_var={np.sum(S[:5]**2)/np.sum(S**2)*100:.1f}%")
+
     print()
 
 
@@ -8488,6 +8707,24 @@ def run_analysis():
 
     # Phase 150: Grand milestone summary (informational)
     grand_milestone_150(all_acts, concept_names, sparse_results, num_layers, hidden_size)
+
+    # Phase 151: Concept decision hyperplane angles (informational)
+    concept_hyperplane_angles(all_acts, concept_names, sparse_results)
+
+    # Phase 152: Neuron activation distribution shape (informational)
+    neuron_activation_shape(all_acts, concept_names, num_layers)
+
+    # Phase 153: Concept signal propagation speed (informational)
+    concept_signal_propagation(all_acts, concept_names, num_layers)
+
+    # Phase 154: Cross-layer neuron consistency (informational)
+    cross_layer_neuron_consistency(all_acts, concept_names, sparse_results, num_layers)
+
+    # Phase 155: Concept encoding redundancy (informational)
+    concept_encoding_redundancy(all_acts, concept_names, sparse_results)
+
+    # Phase 156: Representation compression ratio (informational)
+    representation_compression(all_acts, concept_names, num_layers, hidden_size)
 
     # ---- Composite Score ----
     interpretability_score = (
