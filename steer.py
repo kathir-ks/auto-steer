@@ -2124,6 +2124,130 @@ def concept_dimensionality_reduction(all_acts, concept_names, sparse_results):
 
 
 # ---------------------------------------------------------------------------
+# PHASE 30: Concept Polarity — symmetric vs asymmetric activation patterns
+# ---------------------------------------------------------------------------
+
+def concept_polarity_analysis(all_acts, concept_names, sparse_results):
+    """
+    Examine whether concept neurons use symmetric (push/pull) or asymmetric
+    (presence/absence) coding. Symmetric = neuron activates high for pos AND
+    low for neg. Asymmetric = neuron activates for one side, baseline for other.
+    """
+    print("=" * 70)
+    print("PHASE 30: Concept Polarity — Symmetric vs Asymmetric Coding")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        best_layer = sparse_results[concept_name]["best_layer"]
+        top_neuron = sparse_results[concept_name]["top_neurons"][0]
+
+        pos_acts = all_acts[concept_name]["positive"][best_layer][:, top_neuron]
+        neg_acts = all_acts[concept_name]["negative"][best_layer][:, top_neuron]
+
+        # Compute polarity metrics
+        mean_pos = np.mean(pos_acts)
+        mean_neg = np.mean(neg_acts)
+        std_all = np.std(np.concatenate([pos_acts, neg_acts]))
+
+        # Asymmetry: how far from zero is the midpoint?
+        # If midpoint ≈ 0, coding is symmetric (push/pull around zero)
+        # If midpoint >> 0, one side is at baseline
+        midpoint = (mean_pos + mean_neg) / 2.0
+        contrast = abs(mean_pos - mean_neg)
+        asymmetry = abs(midpoint) / (contrast + 1e-12)
+
+        # Effect size for each direction from baseline (0)
+        d_pos = abs(mean_pos) / (np.std(pos_acts) + 1e-12)
+        d_neg = abs(mean_neg) / (np.std(neg_acts) + 1e-12)
+
+        # Classification: symmetric if both sides have strong signal
+        if min(d_pos, d_neg) > 0.5 and asymmetry < 0.5:
+            coding = "symmetric"
+        elif max(d_pos, d_neg) > 1.0 and min(d_pos, d_neg) < 0.3:
+            coding = "one-sided"
+        else:
+            coding = "mixed"
+
+        print(f"  {concept_name:20s} N{top_neuron:3d}@L{best_layer:2d}: "
+              f"μ+={mean_pos:+.2f} μ-={mean_neg:+.2f} "
+              f"asym={asymmetry:.2f} d+={d_pos:.2f} d-={d_neg:.2f} → {coding}")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
+# PHASE 31: Layer Transition Dynamics — rate of representational change
+# ---------------------------------------------------------------------------
+
+def layer_transition_dynamics(all_acts, concept_names, num_layers):
+    """
+    Measure how much concept representations change between adjacent layers.
+    Large transitions = processing happening; small = passing through.
+    Identifies "decision layers" where concepts crystallize.
+    """
+    print("=" * 70)
+    print("PHASE 31: Layer Transition Dynamics — Where Concepts Crystallize")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        # Compute steering vector at each layer
+        svs = []
+        for l in range(num_layers):
+            pos = all_acts[concept_name]["positive"][l]
+            neg = all_acts[concept_name]["negative"][l]
+            sv = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+            sv_norm = sv / (np.linalg.norm(sv) + 1e-12)
+            svs.append(sv_norm)
+
+        # Compute cosine similarity between adjacent layers
+        transitions = []
+        for l in range(num_layers - 1):
+            cos_sim = np.dot(svs[l], svs[l + 1])
+            transitions.append(1.0 - cos_sim)  # transition magnitude
+
+        # Find peak transition (biggest direction change)
+        peak_layer = int(np.argmax(transitions))
+        peak_mag = transitions[peak_layer]
+
+        # Cumulative transition (total direction drift)
+        cumulative = sum(transitions)
+
+        # Sparkline of transition magnitudes
+        max_t = max(transitions) if max(transitions) > 0 else 1
+        blocks = " ▁▂▃▄▅▆▇█"
+        spark = ""
+        for t in transitions:
+            idx = min(int(t / max_t * 8), 8)
+            spark += blocks[idx]
+
+        print(f"  {concept_name:20s}: peak=L{peak_layer}→L{peak_layer+1} "
+              f"(Δ={peak_mag:.3f}) cumΔ={cumulative:.2f} [{spark}]")
+
+    # Cross-concept: at which layers do ALL concepts change most?
+    print(f"\n  Mean transition magnitude per layer boundary:")
+    layer_means = np.zeros(num_layers - 1)
+    for concept_name in concept_names:
+        svs = []
+        for l in range(num_layers):
+            pos = all_acts[concept_name]["positive"][l]
+            neg = all_acts[concept_name]["negative"][l]
+            sv = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+            sv_norm = sv / (np.linalg.norm(sv) + 1e-12)
+            svs.append(sv_norm)
+        for l in range(num_layers - 1):
+            layer_means[l] += 1.0 - np.dot(svs[l], svs[l + 1])
+    layer_means /= len(concept_names)
+
+    max_m = max(layer_means) if max(layer_means) > 0 else 1
+    for l in range(num_layers - 1):
+        bar = "█" * int(layer_means[l] / max_m * 30)
+        marker = " ◄" if layer_means[l] == max(layer_means) else ""
+        print(f"    L{l:2d}→L{l+1:2d}: {layer_means[l]:.4f} {bar}{marker}")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Main Analysis Pipeline
 # ---------------------------------------------------------------------------
 
@@ -2234,6 +2358,12 @@ def run_analysis():
 
     # Phase 29: Concept dimensionality reduction (informational)
     concept_dimensionality_reduction(all_acts, concept_names, sparse_results)
+
+    # Phase 30: Concept polarity (informational)
+    concept_polarity_analysis(all_acts, concept_names, sparse_results)
+
+    # Phase 31: Layer transition dynamics (informational)
+    layer_transition_dynamics(all_acts, concept_names, num_layers)
 
     # ---- Composite Score ----
     interpretability_score = (
