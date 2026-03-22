@@ -3165,6 +3165,83 @@ def concept_encoding_capacity(all_acts, concept_names, sparse_results, num_layer
 
 
 # ---------------------------------------------------------------------------
+# PHASE 47: Neuron Activity Census
+# ---------------------------------------------------------------------------
+
+def neuron_activity_census(all_acts, concept_names, num_layers, hidden_size):
+    """
+    Scan all neurons at each layer: what fraction are active, dead, or sparse?
+    Active = high variance, dead = near-constant, sparse = mostly zero.
+    """
+    print("=" * 70)
+    print("PHASE 47: Neuron Activity Census")
+    print("=" * 70)
+
+    # Sample 3 layers
+    test_layers = [0, num_layers // 2, num_layers - 1]
+
+    for l in test_layers:
+        # Collect all activations at this layer
+        all_a = []
+        for concept_name in concept_names:
+            all_a.append(all_acts[concept_name]["positive"][l])
+            all_a.append(all_acts[concept_name]["negative"][l])
+        X = np.vstack(all_a)  # (n_samples, hidden_size)
+
+        variances = np.var(X, axis=0)
+        means = np.mean(X, axis=0)
+        zero_frac = np.mean(np.abs(X) < 0.01, axis=0)
+
+        n_dead = np.sum(variances < 1e-6)
+        n_sparse = np.sum(zero_frac > 0.9)
+        n_active = hidden_size - n_dead
+
+        # Top active neurons by variance
+        top_var = np.argsort(variances)[::-1][:5]
+
+        print(f"  L{l:2d}: active={n_active}/{hidden_size} "
+              f"dead={n_dead} sparse={n_sparse} "
+              f"mean_var={np.mean(variances):.4f} "
+              f"top5=[{','.join(f'N{n}' for n in top_var)}]")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
+# PHASE 48: Concept Encoding Summary — bits per neuron
+# ---------------------------------------------------------------------------
+
+def concept_encoding_summary(all_acts, concept_names, sparse_results):
+    """
+    Estimate how many bits of concept information each top neuron carries,
+    using mutual information between neuron activation and concept label.
+    """
+    print("=" * 70)
+    print("PHASE 48: Concept Encoding — Bits Per Neuron")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        best_layer = sparse_results[concept_name]["best_layer"]
+        top_neurons = sparse_results[concept_name]["top_neurons"][:3]
+
+        pos = all_acts[concept_name]["positive"][best_layer]
+        neg = all_acts[concept_name]["negative"][best_layer]
+        y = np.array([1] * len(pos) + [0] * len(neg))
+
+        bits = []
+        for n in top_neurons:
+            X_n = np.concatenate([pos[:, n], neg[:, n]]).reshape(-1, 1)
+            mi = mutual_info_classif(X_n, y, random_state=42)[0]
+            bits.append(mi / np.log(2))  # convert nats to bits
+
+        # Max possible = 1 bit (binary classification)
+        bits_str = " ".join(f"N{top_neurons[i]}={bits[i]:.3f}b" for i in range(len(bits)))
+        print(f"  {concept_name:20s} @ L{best_layer:2d}: {bits_str}")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Main Analysis Pipeline
 # ---------------------------------------------------------------------------
 
@@ -3327,6 +3404,12 @@ def run_analysis():
 
     # Phase 46: Encoding capacity (informational)
     concept_encoding_capacity(all_acts, concept_names, sparse_results, num_layers)
+
+    # Phase 47: Neuron activity census (informational)
+    neuron_activity_census(all_acts, concept_names, num_layers, hidden_size)
+
+    # Phase 48: Concept encoding bits (informational)
+    concept_encoding_summary(all_acts, concept_names, sparse_results)
 
     # ---- Composite Score ----
     interpretability_score = (
