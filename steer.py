@@ -5220,6 +5220,99 @@ def neuron_importance_gradient(all_acts, concept_names, sparse_results):
     print()
 
 
+def concept_contrast_sharpness(all_acts, concept_names, sparse_results):
+    """
+    How sharp is the boundary between pos/neg in the top neuron's activation space?
+    Measure the overlap region between the two distributions.
+    """
+    print("=" * 70)
+    print("PHASE 89: Concept Contrast Sharpness (Top Neuron)")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        sr = sparse_results[concept_name]
+        best_layer = sr["best_layer"]
+        top_neuron = sr["top_neurons"][0]
+
+        pos_vals = all_acts[concept_name]["positive"][best_layer][:, top_neuron]
+        neg_vals = all_acts[concept_name]["negative"][best_layer][:, top_neuron]
+
+        # Distribution statistics
+        mu_p, std_p = np.mean(pos_vals), np.std(pos_vals)
+        mu_n, std_n = np.mean(neg_vals), np.std(neg_vals)
+
+        # Cohen's d
+        pooled = np.sqrt((std_p**2 + std_n**2) / 2.0 + 1e-12)
+        d = abs(mu_p - mu_n) / pooled
+
+        # Overlap: fraction of samples where pos/neg ranges overlap
+        # Simple: what fraction of one distribution falls in the other's range?
+        threshold = (mu_p + mu_n) / 2.0
+        if mu_p > mu_n:
+            misclass_pos = np.mean(pos_vals < threshold)
+            misclass_neg = np.mean(neg_vals > threshold)
+        else:
+            misclass_pos = np.mean(pos_vals > threshold)
+            misclass_neg = np.mean(neg_vals < threshold)
+
+        overlap = (misclass_pos + misclass_neg) / 2.0
+
+        # Separation gap (min pos - max neg, or vice versa)
+        if mu_p > mu_n:
+            gap = np.min(pos_vals) - np.max(neg_vals)
+        else:
+            gap = np.min(neg_vals) - np.max(pos_vals)
+
+        print(f"  {concept_name:20s} N{top_neuron:3d}@L{best_layer}: d={d:.2f} "
+              f"overlap={overlap:.1%} gap={gap:.4f}")
+
+    print()
+
+
+def cross_layer_neuron_recruitment(all_acts, concept_names, num_layers):
+    """
+    At each layer, how many new neurons become important that weren't at the previous layer?
+    Reveals whether the model reuses or recruits neurons across depth.
+    """
+    print("=" * 70)
+    print("PHASE 90: Cross-Layer Neuron Recruitment")
+    print("=" * 70)
+
+    TOP_K = 20  # important neurons per layer
+
+    for concept_name in concept_names:
+        prev_important = set()
+        recruitments = []
+        retentions = []
+
+        for layer_idx in range(num_layers):
+            pos = all_acts[concept_name]["positive"][layer_idx]
+            neg = all_acts[concept_name]["negative"][layer_idx]
+            mu_p, mu_n = np.mean(pos, axis=0), np.mean(neg, axis=0)
+            std_p, std_n = np.std(pos, axis=0), np.std(neg, axis=0)
+            pooled = np.sqrt((std_p**2 + std_n**2) / 2.0 + 1e-12)
+            d_all = np.abs(mu_p - mu_n) / pooled
+            current_important = set(np.argsort(d_all)[-TOP_K:])
+
+            if prev_important:
+                retained = len(current_important & prev_important)
+                recruited = len(current_important - prev_important)
+                recruitments.append(recruited)
+                retentions.append(retained)
+
+            prev_important = current_important
+
+        mean_recruit = np.mean(recruitments) if recruitments else 0
+        mean_retain = np.mean(retentions) if retentions else 0
+        max_recruit = np.max(recruitments) if recruitments else 0
+
+        print(f"  {concept_name:20s}: mean_new={mean_recruit:.1f}/{TOP_K} "
+              f"mean_retained={mean_retain:.1f}/{TOP_K} "
+              f"max_turnover={max_recruit}/{TOP_K}")
+
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -5558,6 +5651,12 @@ def run_analysis():
 
     # Phase 88: Neuron importance gradient (informational)
     neuron_importance_gradient(all_acts, concept_names, sparse_results)
+
+    # Phase 89: Concept contrast sharpness (informational)
+    concept_contrast_sharpness(all_acts, concept_names, sparse_results)
+
+    # Phase 90: Cross-layer neuron recruitment (informational)
+    cross_layer_neuron_recruitment(all_acts, concept_names, num_layers)
 
     # ---- Composite Score ----
     interpretability_score = (
