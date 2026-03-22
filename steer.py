@@ -8357,6 +8357,182 @@ def neuron_functional_clustering(all_acts, concept_names, sparse_results):
     print()
 
 
+def concept_subspace_overlap(all_acts, concept_names, sparse_results):
+    """Measure overlap between concept subspaces using principal angles."""
+    print("=" * 70)
+    print("PHASE 162: Concept Subspace Overlap (Principal Angles)")
+    print("=" * 70)
+
+    # Get top-5 PCA directions for each concept at its best layer
+    subspaces = {}
+    for cname in concept_names:
+        info = sparse_results[cname]
+        best_layer = info["best_layer"]
+        pos = all_acts[cname]["positive"][best_layer]
+        neg = all_acts[cname]["negative"][best_layer]
+        X = np.vstack([pos, neg])
+        centered = X - np.mean(X, axis=0)
+        _, _, Vt = np.linalg.svd(centered, full_matrices=False)
+        subspaces[cname] = Vt[:5]  # top-5 directions
+
+    # Pairwise: smallest principal angle
+    names = list(concept_names)
+    for i in range(len(names)):
+        for j in range(i+1, len(names)):
+            V1 = subspaces[names[i]]
+            V2 = subspaces[names[j]]
+            # Principal angles via SVD of V1 @ V2.T
+            M = V1 @ V2.T
+            _, sigmas, _ = np.linalg.svd(M)
+            sigmas = np.clip(sigmas, 0, 1)
+            angles = np.degrees(np.arccos(sigmas))
+            min_angle = angles[-1]  # smallest principal angle
+            max_angle = angles[0]
+            if min_angle < 30:  # notable overlap
+                print(f"  {names[i][:12]:12s} ↔ {names[j][:12]:12s}: "
+                      f"min_angle={min_angle:.1f}° max_angle={max_angle:.1f}°")
+
+    print(f"  (Only pairs with min principal angle < 30° shown)")
+    print()
+
+
+def concept_activation_range(all_acts, concept_names, sparse_results):
+    """Range and dynamic range of concept-relevant neuron activations."""
+    print("=" * 70)
+    print("PHASE 163: Concept Activation Range")
+    print("=" * 70)
+
+    for cname in concept_names:
+        info = sparse_results[cname]
+        best_layer = info["best_layer"]
+        pos = all_acts[cname]["positive"][best_layer]
+        neg = all_acts[cname]["negative"][best_layer]
+        top_n = info["top_neurons"][0]
+
+        all_vals = np.concatenate([pos[:, top_n], neg[:, top_n]])
+        dyn_range = np.max(all_vals) - np.min(all_vals)
+        signal_range = abs(np.mean(pos[:, top_n]) - np.mean(neg[:, top_n]))
+        signal_fraction = signal_range / (dyn_range + 1e-10)
+
+        print(f"  {cname:20s} N{top_n:3d}: range={dyn_range:.4f} "
+              f"signal={signal_range:.4f} signal_frac={signal_fraction:.1%}")
+
+    print()
+
+
+def concept_probe_weight_sparsity(all_acts, concept_names, sparse_results):
+    """Analyze the weight vector sparsity of logistic probes."""
+    print("=" * 70)
+    print("PHASE 164: Probe Weight Sparsity")
+    print("=" * 70)
+
+    for cname in concept_names:
+        info = sparse_results[cname]
+        best_layer = info["best_layer"]
+        pos = all_acts[cname]["positive"][best_layer]
+        neg = all_acts[cname]["negative"][best_layer]
+        X = np.vstack([pos, neg])
+        y = np.array([1]*len(pos) + [0]*len(neg))
+
+        clf = LogisticRegression(C=1.0, max_iter=200, random_state=42)
+        clf.fit(X, y)
+        weights = clf.coef_[0]
+
+        # Gini coefficient of absolute weights
+        sorted_w = np.sort(np.abs(weights))
+        n = len(sorted_w)
+        gini = (2 * np.sum((np.arange(1, n+1)) * sorted_w) / (n * np.sum(sorted_w))) - (n+1)/n
+
+        # How many weights carry 90% of the L1 norm
+        cum = np.cumsum(sorted_w[::-1]) / np.sum(sorted_w)
+        n_90 = np.searchsorted(cum, 0.9) + 1
+
+        # Effective number of features (entropy-based)
+        p = np.abs(weights) / (np.sum(np.abs(weights)) + 1e-10)
+        eff_features = np.exp(-np.sum(p * np.log(p + 1e-10)))
+
+        print(f"  {cname:20s} gini={gini:.3f} n_90pct={n_90:3d}/896 "
+              f"eff_features={eff_features:.1f}")
+
+    print()
+
+
+def layer_transition_analysis(all_acts, concept_names, num_layers):
+    """What happens to concept representations at each layer transition?"""
+    print("=" * 70)
+    print("PHASE 165: Layer Transition Analysis")
+    print("=" * 70)
+
+    for cname in concept_names:
+        directions = []
+        for layer in range(num_layers):
+            pos = all_acts[cname]["positive"][layer]
+            neg = all_acts[cname]["negative"][layer]
+            d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+            norm = np.linalg.norm(d)
+            if norm > 1e-10:
+                d = d / norm
+            directions.append(d)
+
+        # Measure rotation at each transition
+        rotations = []
+        for i in range(len(directions)-1):
+            cos = np.dot(directions[i], directions[i+1])
+            angle = np.degrees(np.arccos(np.clip(cos, -1, 1)))
+            rotations.append(angle)
+
+        # Find biggest rotation
+        max_rot_layer = int(np.argmax(rotations))
+        max_rot = rotations[max_rot_layer]
+        mean_rot = np.mean(rotations)
+
+        # Classify: stable vs rotating vs oscillating
+        category = "stable" if mean_rot < 10 else "rotating" if mean_rot < 45 else "chaotic"
+
+        print(f"  {cname:20s} mean_rot={mean_rot:.1f}° "
+              f"max_rot=L{max_rot_layer}→L{max_rot_layer+1}({max_rot:.1f}°) [{category}]")
+
+    print()
+
+
+def concept_selectivity_index(all_acts, concept_names, sparse_results):
+    """How selective is each concept's top neuron for that concept vs others?"""
+    print("=" * 70)
+    print("PHASE 166: Concept Selectivity Index")
+    print("=" * 70)
+
+    for cname in concept_names:
+        info = sparse_results[cname]
+        top_n = info["top_neurons"][0]
+        best_layer = info["best_layer"]
+
+        # Cohen's d for this neuron on target concept
+        pos = all_acts[cname]["positive"][best_layer][:, top_n]
+        neg = all_acts[cname]["negative"][best_layer][:, top_n]
+        target_d = abs(np.mean(pos) - np.mean(neg)) / \
+                   (np.sqrt((np.var(pos) + np.var(neg)) / 2) + 1e-10)
+
+        # Cohen's d for this neuron on all other concepts
+        other_ds = []
+        for other in concept_names:
+            if other == cname:
+                continue
+            op = all_acts[other]["positive"][best_layer][:, top_n]
+            on = all_acts[other]["negative"][best_layer][:, top_n]
+            od = abs(np.mean(op) - np.mean(on)) / \
+                 (np.sqrt((np.var(op) + np.var(on)) / 2) + 1e-10)
+            other_ds.append(od)
+
+        selectivity = target_d / (np.mean(other_ds) + 1e-10)
+        max_other = max(other_ds)
+
+        print(f"  {cname:20s} N{top_n:3d}: target_d={target_d:.2f} "
+              f"mean_other_d={np.mean(other_ds):.2f} "
+              f"selectivity={selectivity:.1f}x max_other={max_other:.2f}")
+
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -8914,6 +9090,21 @@ def run_analysis():
 
     # Phase 161: Neuron functional clustering (informational)
     neuron_functional_clustering(all_acts, concept_names, sparse_results)
+
+    # Phase 162: Concept subspace overlap (informational)
+    concept_subspace_overlap(all_acts, concept_names, sparse_results)
+
+    # Phase 163: Concept activation range (informational)
+    concept_activation_range(all_acts, concept_names, sparse_results)
+
+    # Phase 164: Probe weight sparsity (informational)
+    concept_probe_weight_sparsity(all_acts, concept_names, sparse_results)
+
+    # Phase 165: Layer transition analysis (informational)
+    layer_transition_analysis(all_acts, concept_names, num_layers)
+
+    # Phase 166: Concept selectivity index (informational)
+    concept_selectivity_index(all_acts, concept_names, sparse_results)
 
     # ---- Composite Score ----
     interpretability_score = (
