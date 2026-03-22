@@ -6134,6 +6134,95 @@ def layer_transition_mechanism(all_acts, concept_names, num_layers):
     print()
 
 
+def concept_generalization_test(all_acts, concept_names, sparse_results):
+    """
+    Train on first 20 samples per class, test on last 10.
+    Tests generalization of concept decoding beyond training data.
+    """
+    print("=" * 70)
+    print("PHASE 109: Concept Generalization (Train/Test Split)")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        sr = sparse_results[concept_name]
+        best_layer = sr["best_layer"]
+        top_neurons = sr["top_neurons"][:3]
+
+        pos = all_acts[concept_name]["positive"][best_layer]
+        neg = all_acts[concept_name]["negative"][best_layer]
+
+        # Split: 20 train, 10 test per class
+        train_X = np.vstack([pos[:20], neg[:20]])
+        train_y = np.array([1]*20 + [0]*20)
+        test_X = np.vstack([pos[20:], neg[20:]])
+        test_y = np.array([1]*len(pos[20:]) + [0]*len(neg[20:]))
+
+        # Full features
+        clf_full = LogisticRegression(C=1.0, max_iter=200, random_state=42)
+        clf_full.fit(train_X, train_y)
+        full_train_acc = clf_full.score(train_X, train_y)
+        full_test_acc = clf_full.score(test_X, test_y)
+
+        # Sparse features (top-3)
+        clf_sparse = LogisticRegression(C=1.0, max_iter=200, random_state=42)
+        clf_sparse.fit(train_X[:, top_neurons], train_y)
+        sparse_train_acc = clf_sparse.score(train_X[:, top_neurons], train_y)
+        sparse_test_acc = clf_sparse.score(test_X[:, top_neurons], test_y)
+
+        gap = full_train_acc - full_test_acc
+
+        print(f"  {concept_name:20s}: full(train={full_train_acc:.2f} test={full_test_acc:.2f} "
+              f"gap={gap:+.2f}) sparse(train={sparse_train_acc:.2f} test={sparse_test_acc:.2f})")
+
+    print()
+
+
+def multi_concept_shared_decoding(all_acts, concept_names):
+    """
+    Can we decode ALL 8 concepts from a single shared sparse neuron set at L10?
+    Find the smallest set of neurons that achieves >85% for all concepts.
+    """
+    print("=" * 70)
+    print("PHASE 110: Multi-Concept Shared Decoding at L10")
+    print("=" * 70)
+
+    target_layer = 10
+
+    # Compute importance (mean |Cohen's d|) across all concepts for each neuron
+    combined_importance = np.zeros(896)
+    for cn in concept_names:
+        pos = all_acts[cn]["positive"][target_layer]
+        neg = all_acts[cn]["negative"][target_layer]
+        mu_p, mu_n = np.mean(pos, axis=0), np.mean(neg, axis=0)
+        std_p, std_n = np.std(pos, axis=0), np.std(neg, axis=0)
+        pooled = np.sqrt((std_p**2 + std_n**2) / 2.0 + 1e-12)
+        d = np.abs(mu_p - mu_n) / pooled
+        combined_importance += d
+
+    ranked = np.argsort(combined_importance)[::-1]
+
+    # Try budgets: 5, 10, 20, 50
+    print(f"  Shared neuron budget → per-concept accuracy:")
+    for budget in [5, 10, 20, 50]:
+        top_k = ranked[:budget]
+        accs = []
+        for cn in concept_names:
+            pos = all_acts[cn]["positive"][target_layer]
+            neg = all_acts[cn]["negative"][target_layer]
+            X = np.vstack([pos, neg])[:, top_k]
+            y = np.array([1]*len(pos) + [0]*len(neg))
+            clf = LogisticRegression(C=1.0, max_iter=200, random_state=42)
+            clf.fit(X, y)
+            accs.append(clf.score(X, y))
+
+        min_acc = min(accs)
+        mean_acc = np.mean(accs)
+        print(f"    K={budget:3d}: min={min_acc:.3f} mean={mean_acc:.3f} "
+              f"[{' '.join(f'{a:.2f}' for a in accs)}]")
+
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -6532,6 +6621,12 @@ def run_analysis():
 
     # Phase 108: Layer transition mechanism (informational)
     layer_transition_mechanism(all_acts, concept_names, num_layers)
+
+    # Phase 109: Concept generalization test (informational)
+    concept_generalization_test(all_acts, concept_names, sparse_results)
+
+    # Phase 110: Multi-concept shared decoding (informational)
+    multi_concept_shared_decoding(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
