@@ -4940,7 +4940,7 @@ def layerwise_information_flow(all_acts, concept_names, num_layers):
     print()
 
 
-def concept_direction_stability(all_acts, concept_names, sparse_results):
+def concept_direction_stability_split_half(all_acts, concept_names, sparse_results):
     """
     How stable is the concept direction when estimated from different data subsets?
     Split-half reliability of the difference-of-means direction.
@@ -7072,7 +7072,7 @@ def sparse_ablation_impact(all_acts, concept_names, sparse_results):
     print()
 
 
-def concept_difficulty_ranking(all_acts, concept_names, sparse_results, num_layers):
+def concept_difficulty_ranking_full(all_acts, concept_names, sparse_results, num_layers):
     """
     Rank concepts by overall 'difficulty' — composite of multiple metrics:
     margin, stability, noise robustness, Cohen's d.
@@ -7846,10 +7846,10 @@ def neuron_ensemble_diversity(all_acts, concept_names, sparse_results):
     print()
 
 
-def concept_snr_analysis(all_acts, concept_names, sparse_results):
-    """Signal-to-noise ratio for each concept at its best layer."""
+def concept_snr_detailed(all_acts, concept_names, sparse_results):
+    """Detailed signal-to-noise ratio for each concept at its best layer."""
     print("=" * 70)
-    print("PHASE 148: Concept Signal-to-Noise Ratio")
+    print("PHASE 148: Concept Signal-to-Noise Ratio (Detailed)")
     print("=" * 70)
 
     for cname in concept_names:
@@ -8384,7 +8384,7 @@ def run_analysis():
                            steering_vectors, num_layers, hidden_size)
 
     # Phase 43: Concept direction stability (informational)
-    concept_direction_stability(all_acts, concept_names, sparse_results)
+    concept_direction_stability(all_acts, concept_names, num_layers)
 
     # Phase 44: Concept SNR (informational)
     concept_snr_analysis(all_acts, concept_names, sparse_results)
@@ -8411,7 +8411,7 @@ def run_analysis():
     norm_controlled_probing(all_acts, concept_names, sparse_results)
 
     # Phase 52: Concept difficulty ranking (informational)
-    concept_difficulty_ranking(all_acts, concept_names, sparse_results, num_layers)
+    concept_difficulty_ranking(all_acts, concept_names, sparse_results)
 
     # Phase 53: Concept suppression (informational)
     concept_suppression_analysis(all_acts, concept_names, sparse_results)
@@ -8504,8 +8504,8 @@ def run_analysis():
     # Phase 82: Layer-wise information flow (informational)
     layerwise_information_flow(all_acts, concept_names, num_layers)
 
-    # Phase 83: Concept direction stability (informational)
-    concept_direction_stability(all_acts, concept_names, sparse_results)
+    # Phase 83: Concept direction stability split-half (informational)
+    concept_direction_stability_split_half(all_acts, concept_names, sparse_results)
 
     # Phase 84: Neuron saturation analysis (informational)
     neuron_saturation_analysis(all_acts, concept_names, sparse_results, num_layers)
@@ -8645,8 +8645,8 @@ def run_analysis():
     # Phase 129: Sparse ablation impact (informational)
     sparse_ablation_impact(all_acts, concept_names, sparse_results)
 
-    # Phase 130: Concept difficulty ranking (informational)
-    concept_difficulty_ranking(all_acts, concept_names, sparse_results, num_layers)
+    # Phase 130: Concept difficulty ranking full (informational)
+    concept_difficulty_ranking_full(all_acts, concept_names, sparse_results, num_layers)
 
     # Phase 131: Concept confusion analysis (informational)
     concept_confusion_analysis(all_acts, concept_names, sparse_results)
@@ -8699,8 +8699,8 @@ def run_analysis():
     # Phase 147: Neuron ensemble diversity (informational)
     neuron_ensemble_diversity(all_acts, concept_names, sparse_results)
 
-    # Phase 148: Concept signal-to-noise ratio (informational)
-    concept_snr_analysis(all_acts, concept_names, sparse_results)
+    # Phase 148: Concept signal-to-noise ratio detailed (informational)
+    concept_snr_detailed(all_acts, concept_names, sparse_results)
 
     # Phase 149: Layer-wise concept emergence profile (informational)
     concept_emergence_profile(all_acts, concept_names, num_layers)
