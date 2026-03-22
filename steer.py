@@ -5026,6 +5026,101 @@ def neuron_saturation_analysis(all_acts, concept_names, sparse_results, num_laye
     print()
 
 
+def concept_margin_analysis(all_acts, concept_names, sparse_results):
+    """
+    How far are samples from the decision boundary?
+    Larger margins = more confident, robust classification.
+    """
+    print("=" * 70)
+    print("PHASE 85: Concept Margin Analysis")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        sr = sparse_results[concept_name]
+        best_layer = sr["best_layer"]
+        pos = all_acts[concept_name]["positive"][best_layer]
+        neg = all_acts[concept_name]["negative"][best_layer]
+        X = np.vstack([pos, neg])
+        y = np.array([1] * len(pos) + [0] * len(neg))
+
+        # Use diff-of-means as decision direction
+        dom = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        dom_norm = dom / (np.linalg.norm(dom) + 1e-12)
+
+        # Project all points
+        projections = X @ dom_norm
+        threshold = np.mean(projections)
+
+        # Margins: distance from threshold
+        pos_margins = projections[y == 1] - threshold
+        neg_margins = threshold - projections[y == 0]
+
+        mean_pos_margin = np.mean(pos_margins)
+        mean_neg_margin = np.mean(neg_margins)
+        min_margin = min(np.min(pos_margins), np.min(neg_margins))
+
+        # Fraction of "hard" examples (margin < 10% of mean)
+        all_margins = np.concatenate([pos_margins, neg_margins])
+        hard_frac = np.mean(all_margins < 0.1 * np.mean(all_margins))
+
+        print(f"  {concept_name:20s}: pos_margin={mean_pos_margin:.3f} "
+              f"neg_margin={mean_neg_margin:.3f} min={min_margin:.3f} "
+              f"hard_examples={hard_frac:.1%}")
+
+    print()
+
+
+def feature_interaction_effects(all_acts, concept_names, sparse_results):
+    """
+    Do pairs of top neurons have synergistic interaction effects?
+    Compare accuracy of pair vs sum of individual accuracies.
+    """
+    print("=" * 70)
+    print("PHASE 86: Feature Interaction Effects")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        sr = sparse_results[concept_name]
+        best_layer = sr["best_layer"]
+        top_neurons = sr["top_neurons"][:3]
+        if len(top_neurons) < 2:
+            continue
+
+        pos = all_acts[concept_name]["positive"][best_layer]
+        neg = all_acts[concept_name]["negative"][best_layer]
+        X = np.vstack([pos, neg])
+        y = np.array([1] * len(pos) + [0] * len(neg))
+
+        # Individual accuracies
+        individual_accs = []
+        for n_idx in top_neurons:
+            clf = LogisticRegression(C=1.0, max_iter=200, random_state=42)
+            clf.fit(X[:, n_idx:n_idx+1], y)
+            individual_accs.append(clf.score(X[:, n_idx:n_idx+1], y))
+
+        # Pair accuracies
+        pair_results = []
+        for i in range(len(top_neurons)):
+            for j in range(i+1, len(top_neurons)):
+                X_pair = X[:, [top_neurons[i], top_neurons[j]]]
+                clf = LogisticRegression(C=1.0, max_iter=200, random_state=42)
+                clf.fit(X_pair, y)
+                pair_acc = clf.score(X_pair, y)
+                # Expected if independent: max of individuals (ceiling effect)
+                expected = max(individual_accs[i], individual_accs[j])
+                synergy = pair_acc - expected
+                pair_results.append((top_neurons[i], top_neurons[j],
+                                    pair_acc, expected, synergy))
+
+        # Best pair synergy
+        best = max(pair_results, key=lambda x: x[4])
+        print(f"  {concept_name:20s}: indiv=[{','.join(f'{a:.2f}' for a in individual_accs)}] "
+              f"best_pair=N{best[0]}+N{best[1]} acc={best[2]:.3f} "
+              f"synergy={best[4]:+.3f}")
+
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -5352,6 +5447,12 @@ def run_analysis():
 
     # Phase 84: Neuron saturation analysis (informational)
     neuron_saturation_analysis(all_acts, concept_names, sparse_results, num_layers)
+
+    # Phase 85: Concept margin analysis (informational)
+    concept_margin_analysis(all_acts, concept_names, sparse_results)
+
+    # Phase 86: Feature interaction effects (informational)
+    feature_interaction_effects(all_acts, concept_names, sparse_results)
 
     # ---- Composite Score ----
     interpretability_score = (
