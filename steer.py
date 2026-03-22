@@ -31968,6 +31968,230 @@ def concept_direction_concept_direction_signal_noise_decomposition(all_acts, con
     print()
 
 
+def concept_activation_covariance_eigenspectrum(all_acts, concept_names):
+    """Phase 1151: Analyze eigenvalue spectrum of concept activation covariance."""
+    print("=" * 70)
+    print("PHASE 1151: ACTIVATION COVARIANCE EIGENSPECTRUM")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        combined = np.vstack([pos, neg])
+        cov = np.cov(combined.T)
+        eigvals = np.linalg.eigvalsh(cov)[::-1]
+        top5_pct = eigvals[:5].sum() / (eigvals.sum() + 1e-10) * 100
+        top20_pct = eigvals[:20].sum() / (eigvals.sum() + 1e-10) * 100
+        eff_dim = (eigvals.sum() ** 2) / (np.sum(eigvals ** 2) + 1e-10)
+        print(f"  {cname:20s} | top5: {top5_pct:.1f}% | top20: {top20_pct:.1f}% | eff_dim: {eff_dim:.1f} | max/min ratio: {eigvals[0]/(eigvals[-1]+1e-10):.0f}")
+    print()
+
+
+def concept_direction_robustness_to_outlier_trimming(all_acts, concept_names):
+    """Phase 1152: Test how robust concept directions are to outlier removal."""
+    print("=" * 70)
+    print("PHASE 1152: DIRECTION ROBUSTNESS TO OUTLIER TRIMMING")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        full_dir = pos.mean(0) - neg.mean(0)
+        full_dir = full_dir / (np.linalg.norm(full_dir) + 1e-10)
+        # Remove top 10% most extreme samples
+        combined = np.vstack([pos, neg])
+        labels = np.array([1]*len(pos) + [0]*len(neg))
+        dists = np.linalg.norm(combined - combined.mean(0), axis=1)
+        keep = dists <= np.percentile(dists, 90)
+        trimmed_pos = combined[keep & (labels == 1)]
+        trimmed_neg = combined[keep & (labels == 0)]
+        if len(trimmed_pos) > 2 and len(trimmed_neg) > 2:
+            trim_dir = trimmed_pos.mean(0) - trimmed_neg.mean(0)
+            trim_dir = trim_dir / (np.linalg.norm(trim_dir) + 1e-10)
+            cos_sim = float(full_dir @ trim_dir)
+            print(f"  {cname:20s} | full vs trimmed cosine: {cos_sim:.6f} | kept: {keep.sum()}/{len(keep)}")
+        else:
+            print(f"  {cname:20s} | too few samples after trimming")
+    print()
+
+
+def concept_neuron_activation_range_analysis(all_acts, concept_names):
+    """Phase 1153: Analyze dynamic range of neuron activations per concept."""
+    print("=" * 70)
+    print("PHASE 1153: NEURON ACTIVATION DYNAMIC RANGE")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        combined = np.vstack([pos, neg])
+        ranges = combined.max(0) - combined.min(0)
+        top_range_neurons = np.argsort(ranges)[-5:]
+        print(f"  {cname:20s} | mean range: {ranges.mean():.3f} | max range: {ranges.max():.3f} | top neurons: {top_range_neurons.tolist()}")
+    print()
+
+
+def concept_activation_gradient_magnitude(all_acts, concept_names):
+    """Phase 1154: Measure gradient magnitude of concept signal across layers."""
+    print("=" * 70)
+    print("PHASE 1154: CONCEPT SIGNAL GRADIENT ACROSS LAYERS")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        norms = []
+        for l in range(24):
+            d = all_acts[cname]["positive"][l].mean(0) - all_acts[cname]["negative"][l].mean(0)
+            norms.append(np.linalg.norm(d))
+        gradients = np.diff(norms)
+        max_grad_layer = int(np.argmax(np.abs(gradients)))
+        print(f"  {cname:20s} | max gradient: {gradients[max_grad_layer]:+.3f} at L{max_grad_layer}->{max_grad_layer+1} | mean |grad|: {np.mean(np.abs(gradients)):.3f}")
+    print()
+
+
+def concept_within_class_compactness(all_acts, concept_names):
+    """Phase 1155: Measure within-class compactness vs between-class separation."""
+    print("=" * 70)
+    print("PHASE 1155: WITHIN-CLASS COMPACTNESS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        pos_compact = np.mean(np.linalg.norm(pos - pos.mean(0), axis=1))
+        neg_compact = np.mean(np.linalg.norm(neg - neg.mean(0), axis=1))
+        separation = np.linalg.norm(pos.mean(0) - neg.mean(0))
+        ratio = separation / (pos_compact + neg_compact + 1e-10)
+        print(f"  {cname:20s} | pos_compact: {pos_compact:.3f} | neg_compact: {neg_compact:.3f} | separation: {separation:.3f} | ratio: {ratio:.3f}")
+    print()
+
+
+def concept_direction_higher_order_alignment(all_acts, concept_names):
+    """Phase 1156: Check alignment between concept directions and higher-order PCA components."""
+    print("=" * 70)
+    print("PHASE 1156: DIRECTION vs HIGHER-ORDER PCA ALIGNMENT")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        combined = np.vstack([pos, neg])
+        combined_centered = combined - combined.mean(0)
+        cov = np.cov(combined_centered.T)
+        eigvals, eigvecs = np.linalg.eigh(cov)
+        eigvecs = eigvecs[:, ::-1]  # descending
+        direction = pos.mean(0) - neg.mean(0)
+        direction = direction / (np.linalg.norm(direction) + 1e-10)
+        alignments = [abs(float(direction @ eigvecs[:, i])) for i in range(5)]
+        print(f"  {cname:20s} | PC alignment: " + " ".join(f"PC{i}={a:.3f}" for i, a in enumerate(alignments)))
+    print()
+
+
+def concept_neuron_selectivity_ratio_index(all_acts, concept_names):
+    """Phase 1157: Compute selectivity index for each neuron across all concepts."""
+    print("=" * 70)
+    print("PHASE 1157: NEURON SELECTIVITY RATIO INDEX")
+    print("=" * 70)
+    layer = 10
+    # For each neuron, compute how selective it is (max concept response / sum)
+    n_neurons = all_acts[concept_names[0]]["positive"][layer].shape[1]
+    selectivities = np.zeros(n_neurons)
+    for j in range(n_neurons):
+        responses = []
+        for cname in concept_names:
+            pos_mean = all_acts[cname]["positive"][layer][:, j].mean()
+            neg_mean = all_acts[cname]["negative"][layer][:, j].mean()
+            responses.append(abs(pos_mean - neg_mean))
+        responses = np.array(responses)
+        total = responses.sum() + 1e-10
+        selectivities[j] = responses.max() / total
+    top_selective = np.argsort(selectivities)[-10:][::-1]
+    print(f"  Mean selectivity: {selectivities.mean():.4f}")
+    print(f"  Top 10 most selective neurons:")
+    for n in top_selective:
+        print(f"    Neuron {n}: selectivity={selectivities[n]:.4f}")
+    print()
+
+
+def concept_activation_temporal_autocorrelation(all_acts, concept_names):
+    """Phase 1158: Autocorrelation of concept signal strength across layers."""
+    print("=" * 70)
+    print("PHASE 1158: CONCEPT SIGNAL LAYER AUTOCORRELATION")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        norms = []
+        for l in range(24):
+            d = all_acts[cname]["positive"][l].mean(0) - all_acts[cname]["negative"][l].mean(0)
+            norms.append(np.linalg.norm(d))
+        norms = np.array(norms)
+        norms_centered = norms - norms.mean()
+        var = np.var(norms)
+        if var > 1e-10:
+            autocorr_1 = np.mean(norms_centered[:-1] * norms_centered[1:]) / var
+            autocorr_2 = np.mean(norms_centered[:-2] * norms_centered[2:]) / var
+        else:
+            autocorr_1 = autocorr_2 = 0.0
+        print(f"  {cname:20s} | lag-1 autocorr: {autocorr_1:.4f} | lag-2 autocorr: {autocorr_2:.4f}")
+    print()
+
+
+def concept_concept_conditional_independence_test(all_acts, concept_names):
+    """Phase 1159: Test conditional independence between concept pairs given a third concept."""
+    print("=" * 70)
+    print("PHASE 1159: CONDITIONAL INDEPENDENCE TEST")
+    print("=" * 70)
+    layer = 10
+    # Pick 3 concept triplets
+    triplets = [(0, 1, 2), (3, 4, 5), (0, 3, 6)]
+    for i, j, k in triplets:
+        c1, c2, c3 = concept_names[i], concept_names[j], concept_names[k]
+        d1 = all_acts[c1]["positive"][layer].mean(0) - all_acts[c1]["negative"][layer].mean(0)
+        d2 = all_acts[c2]["positive"][layer].mean(0) - all_acts[c2]["negative"][layer].mean(0)
+        d3 = all_acts[c3]["positive"][layer].mean(0) - all_acts[c3]["negative"][layer].mean(0)
+        d1 = d1 / (np.linalg.norm(d1) + 1e-10)
+        d2 = d2 / (np.linalg.norm(d2) + 1e-10)
+        d3 = d3 / (np.linalg.norm(d3) + 1e-10)
+        # Partial correlation: corr(d1,d2) after removing d3
+        d1_res = d1 - (d1 @ d3) * d3
+        d2_res = d2 - (d2 @ d3) * d3
+        d1_res = d1_res / (np.linalg.norm(d1_res) + 1e-10)
+        d2_res = d2_res / (np.linalg.norm(d2_res) + 1e-10)
+        partial_cos = float(d1_res @ d2_res)
+        raw_cos = float(d1 @ d2)
+        print(f"  {c1:12s} vs {c2:12s} | {c3:12s} | raw cos: {raw_cos:.4f} | partial cos: {partial_cos:.4f} | diff: {abs(raw_cos-partial_cos):.4f}")
+    print()
+
+
+def concept_direction_reconstruction_from_top_neurons(all_acts, concept_names):
+    """Phase 1160: How well can we reconstruct concept direction from top-k neurons only."""
+    print("=" * 70)
+    print("PHASE 1160: DIRECTION RECONSTRUCTION FROM TOP-K NEURONS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        direction = pos.mean(0) - neg.mean(0)
+        norm = np.linalg.norm(direction)
+        direction_unit = direction / (norm + 1e-10)
+        importances = np.abs(direction)
+        top_indices = np.argsort(importances)[::-1]
+        for k in [1, 5, 10, 50]:
+            sparse_dir = np.zeros_like(direction)
+            sparse_dir[top_indices[:k]] = direction[top_indices[:k]]
+            recon_cos = float(direction_unit @ sparse_dir / (np.linalg.norm(sparse_dir) + 1e-10))
+            energy_pct = np.sum(sparse_dir ** 2) / (np.sum(direction ** 2) + 1e-10) * 100
+            if cname == concept_names[0]:
+                print(f"  {cname:20s} | k={k:3d}: cos={recon_cos:.4f}, energy={energy_pct:.1f}%")
+        if cname != concept_names[0]:
+            sparse_1 = np.zeros_like(direction)
+            sparse_1[top_indices[:1]] = direction[top_indices[:1]]
+            cos_1 = float(direction_unit @ sparse_1 / (np.linalg.norm(sparse_1) + 1e-10))
+            sparse_50 = np.zeros_like(direction)
+            sparse_50[top_indices[:50]] = direction[top_indices[:50]]
+            cos_50 = float(direction_unit @ sparse_50 / (np.linalg.norm(sparse_50) + 1e-10))
+            print(f"  {cname:20s} | k=1: cos={cos_1:.4f} | k=50: cos={cos_50:.4f}")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -35492,6 +35716,36 @@ def run_analysis():
 
     # Phase 1150: Signal-noise variance decomposition (informational)
     concept_direction_concept_direction_signal_noise_decomposition(all_acts, concept_names)
+
+    # Phase 1151: Activation covariance eigenspectrum (informational)
+    concept_activation_covariance_eigenspectrum(all_acts, concept_names)
+
+    # Phase 1152: Direction robustness to outlier trimming (informational)
+    concept_direction_robustness_to_outlier_trimming(all_acts, concept_names)
+
+    # Phase 1153: Neuron activation dynamic range (informational)
+    concept_neuron_activation_range_analysis(all_acts, concept_names)
+
+    # Phase 1154: Concept signal gradient across layers (informational)
+    concept_activation_gradient_magnitude(all_acts, concept_names)
+
+    # Phase 1155: Within-class compactness (informational)
+    concept_within_class_compactness(all_acts, concept_names)
+
+    # Phase 1156: Direction vs higher-order PCA alignment (informational)
+    concept_direction_higher_order_alignment(all_acts, concept_names)
+
+    # Phase 1157: Neuron selectivity ratio index (informational)
+    concept_neuron_selectivity_ratio_index(all_acts, concept_names)
+
+    # Phase 1158: Concept signal layer autocorrelation (informational)
+    concept_activation_temporal_autocorrelation(all_acts, concept_names)
+
+    # Phase 1159: Conditional independence test (informational)
+    concept_concept_conditional_independence_test(all_acts, concept_names)
+
+    # Phase 1160: Direction reconstruction from top-k neurons (informational)
+    concept_direction_reconstruction_from_top_neurons(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
