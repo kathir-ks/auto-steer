@@ -5227,7 +5227,7 @@ def run_analysis():
                            steering_vectors, num_layers, hidden_size)
 
     # Phase 43: Concept direction stability (informational)
-    concept_direction_stability(all_acts, concept_names, num_layers)
+    concept_direction_stability(all_acts, concept_names, sparse_results)
 
     # Phase 44: Concept SNR (informational)
     concept_snr_analysis(all_acts, concept_names, sparse_results)
