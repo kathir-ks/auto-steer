@@ -32192,6 +32192,233 @@ def concept_direction_reconstruction_from_top_neurons(all_acts, concept_names):
     print()
 
 
+def concept_direction_subspace_overlap_analysis(all_acts, concept_names):
+    """Phase 1161: Measure overlap between concept subspaces (top-k PCA dims)."""
+    print("=" * 70)
+    print("PHASE 1161: CONCEPT SUBSPACE OVERLAP ANALYSIS")
+    print("=" * 70)
+    layer = 10
+    k = 5  # subspace dimension
+    subspaces = {}
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        combined = np.vstack([pos, neg])
+        centered = combined - combined.mean(0)
+        cov = np.cov(centered.T)
+        _, vecs = np.linalg.eigh(cov)
+        subspaces[cname] = vecs[:, -k:]  # top-k eigenvectors
+    pairs = [(concept_names[i], concept_names[j]) for i in range(len(concept_names)) for j in range(i+1, len(concept_names))]
+    for c1, c2 in pairs[:6]:
+        # Subspace overlap via principal angles
+        M = subspaces[c1].T @ subspaces[c2]
+        svals = np.linalg.svd(M, compute_uv=False)
+        max_overlap = svals[0]
+        mean_overlap = svals.mean()
+        print(f"  {c1:12s} vs {c2:12s} | max overlap: {max_overlap:.4f} | mean overlap: {mean_overlap:.4f}")
+    print()
+
+
+def concept_neuron_firing_rate_distribution(all_acts, concept_names):
+    """Phase 1162: Distribution of neuron firing rates across concepts."""
+    print("=" * 70)
+    print("PHASE 1162: NEURON FIRING RATE DISTRIBUTION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        # "firing" = activation above mean
+        combined = np.vstack([pos, neg])
+        thresholds = combined.mean(0)
+        pos_rates = (pos > thresholds).mean(0)
+        neg_rates = (neg > thresholds).mean(0)
+        rate_diff = np.abs(pos_rates - neg_rates)
+        n_discriminative = (rate_diff > 0.3).sum()
+        print(f"  {cname:20s} | discriminative neurons (>0.3 rate diff): {n_discriminative} | max rate diff: {rate_diff.max():.3f} | mean: {rate_diff.mean():.4f}")
+    print()
+
+
+def concept_direction_norm_layer_trajectory(all_acts, concept_names):
+    """Phase 1163: Plot concept direction norm trajectory across all layers."""
+    print("=" * 70)
+    print("PHASE 1163: DIRECTION NORM LAYER TRAJECTORY")
+    print("=" * 70)
+    for cname in concept_names:
+        norms = []
+        for l in range(24):
+            d = all_acts[cname]["positive"][l].mean(0) - all_acts[cname]["negative"][l].mean(0)
+            norms.append(np.linalg.norm(d))
+        peak = int(np.argmax(norms))
+        trough = int(np.argmin(norms))
+        print(f"  {cname:20s} | peak: L{peak} ({norms[peak]:.2f}) | trough: L{trough} ({norms[trough]:.2f}) | ratio: {norms[peak]/(norms[trough]+1e-10):.1f}x")
+    print()
+
+
+def concept_activation_mahalanobis_diagonal_separation(all_acts, concept_names):
+    """Phase 1164: Mahalanobis distance between positive and negative concept clusters."""
+    print("=" * 70)
+    print("PHASE 1164: MAHALANOBIS DIAGONAL SEPARATION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        combined = np.vstack([pos, neg])
+        # Use diagonal covariance for efficiency
+        var = np.var(combined, axis=0) + 1e-10
+        diff = pos.mean(0) - neg.mean(0)
+        mahal = np.sqrt(np.sum(diff ** 2 / var))
+        euclid = np.linalg.norm(diff)
+        print(f"  {cname:20s} | Mahalanobis: {mahal:.3f} | Euclidean: {euclid:.3f} | ratio: {mahal/(euclid+1e-10):.3f}")
+    print()
+
+
+def concept_neuron_correlation_network_density(all_acts, concept_names):
+    """Phase 1165: Density of neuron correlation network per concept."""
+    print("=" * 70)
+    print("PHASE 1165: NEURON CORRELATION NETWORK DENSITY")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        combined = np.vstack([pos, neg])
+        # Sample 100 neurons for efficiency
+        rng = np.random.default_rng(42)
+        idx = rng.choice(combined.shape[1], min(100, combined.shape[1]), replace=False)
+        sub = combined[:, idx]
+        corr = np.corrcoef(sub.T)
+        np.fill_diagonal(corr, 0)
+        density_05 = (np.abs(corr) > 0.5).sum() / (corr.size - len(corr))
+        density_03 = (np.abs(corr) > 0.3).sum() / (corr.size - len(corr))
+        print(f"  {cname:20s} | edges>0.5: {density_05:.4f} | edges>0.3: {density_03:.4f} | mean |corr|: {np.abs(corr).mean():.4f}")
+    print()
+
+
+def concept_direction_angle_to_random_baseline(all_acts, concept_names):
+    """Phase 1166: Compare concept direction angles to random direction baselines."""
+    print("=" * 70)
+    print("PHASE 1166: DIRECTION ANGLES vs RANDOM BASELINE")
+    print("=" * 70)
+    layer = 10
+    rng = np.random.default_rng(42)
+    d = all_acts[concept_names[0]]["positive"][layer].shape[1]
+    # Generate random directions
+    random_dirs = rng.standard_normal((100, d))
+    random_dirs = random_dirs / np.linalg.norm(random_dirs, axis=1, keepdims=True)
+    # Mean pairwise angle among random directions
+    random_cos = []
+    for i in range(min(50, len(random_dirs))):
+        for j in range(i+1, min(50, len(random_dirs))):
+            random_cos.append(abs(float(random_dirs[i] @ random_dirs[j])))
+    mean_random_angle = np.degrees(np.arccos(np.clip(np.mean(random_cos), 0, 1)))
+    # Concept direction pairwise angles
+    dirs = {}
+    for cname in concept_names:
+        dd = all_acts[cname]["positive"][layer].mean(0) - all_acts[cname]["negative"][layer].mean(0)
+        dirs[cname] = dd / (np.linalg.norm(dd) + 1e-10)
+    concept_cos = []
+    for i in range(len(concept_names)):
+        for j in range(i+1, len(concept_names)):
+            concept_cos.append(abs(float(dirs[concept_names[i]] @ dirs[concept_names[j]])))
+    mean_concept_angle = np.degrees(np.arccos(np.clip(np.mean(concept_cos), 0, 1)))
+    print(f"  Mean concept pairwise angle: {mean_concept_angle:.1f}°")
+    print(f"  Mean random pairwise angle:  {mean_random_angle:.1f}°")
+    print(f"  Concepts are {'more' if mean_concept_angle > mean_random_angle else 'less'} orthogonal than random")
+    print()
+
+
+def concept_activation_sparsity_ratio(all_acts, concept_names):
+    """Phase 1167: Measure activation sparsity (fraction near zero) per concept."""
+    print("=" * 70)
+    print("PHASE 1167: ACTIVATION SPARSITY RATIO")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        combined = np.vstack([pos, neg])
+        threshold = 0.01 * np.abs(combined).max()
+        sparse_frac = (np.abs(combined) < threshold).mean()
+        l1_mean = np.abs(combined).mean()
+        l2_mean = np.sqrt(np.mean(combined ** 2))
+        print(f"  {cname:20s} | near-zero frac: {sparse_frac:.4f} | L1/L2: {l1_mean/(l2_mean+1e-10):.4f}")
+    print()
+
+
+def concept_direction_concept_direction_weighted_layer_ensemble(all_acts, concept_names):
+    """Phase 1168: Ensemble concept directions across layers with signal-weighted averaging."""
+    print("=" * 70)
+    print("PHASE 1168: WEIGHTED LAYER ENSEMBLE DIRECTION")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        dirs = []
+        weights = []
+        for l in range(24):
+            d = all_acts[cname]["positive"][l].mean(0) - all_acts[cname]["negative"][l].mean(0)
+            norm = np.linalg.norm(d)
+            dirs.append(d / (norm + 1e-10))
+            weights.append(norm)
+        weights = np.array(weights)
+        weights = weights / (weights.sum() + 1e-10)
+        # Best single layer direction
+        best_layer = int(np.argmax([np.linalg.norm(all_acts[cname]["positive"][l].mean(0) - all_acts[cname]["negative"][l].mean(0)) for l in range(24)]))
+        best_dir = dirs[best_layer]
+        # Weighted ensemble
+        ensemble = sum(w * d for w, d in zip(weights, dirs))
+        ensemble = ensemble / (np.linalg.norm(ensemble) + 1e-10)
+        cos_sim = float(best_dir @ ensemble)
+        print(f"  {cname:20s} | best layer: L{best_layer} | ensemble-best cosine: {cos_sim:.4f} | top 3 weights: {np.sort(weights)[-3:][::-1]}")
+    print()
+
+
+def concept_neuron_mutual_information_pairs(all_acts, concept_names):
+    """Phase 1169: Estimate mutual information between top neuron pairs per concept."""
+    print("=" * 70)
+    print("PHASE 1169: NEURON PAIR MUTUAL INFORMATION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:3]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        combined = np.vstack([pos, neg])
+        labels = np.array([1]*len(pos) + [0]*len(neg))
+        # Find top 5 neurons by MI
+        mi = mutual_info_classif(combined, labels, n_neighbors=3, random_state=42)
+        top5 = np.argsort(mi)[-5:][::-1]
+        # Pairwise correlation among top neurons
+        sub = combined[:, top5]
+        corr = np.corrcoef(sub.T)
+        np.fill_diagonal(corr, 0)
+        max_corr = np.abs(corr).max()
+        mean_corr = np.abs(corr).mean()
+        print(f"  {cname:20s} | top5 MI neurons: {top5.tolist()} | max pairwise |corr|: {max_corr:.4f} | mean: {mean_corr:.4f}")
+    print()
+
+
+def concept_layer_transition_mutual_info(all_acts, concept_names):
+    """Phase 1170: MI between concept labels and activations at each layer transition."""
+    print("=" * 70)
+    print("PHASE 1170: LAYER TRANSITION MUTUAL INFORMATION")
+    print("=" * 70)
+    for cname in concept_names[:3]:
+        mi_vals = []
+        for l in range(24):
+            pos = all_acts[cname]["positive"][l]
+            neg = all_acts[cname]["negative"][l]
+            combined = np.vstack([pos, neg])
+            labels = np.array([1]*len(pos) + [0]*len(neg))
+            # Use projection onto concept direction as single feature
+            direction = pos.mean(0) - neg.mean(0)
+            proj = combined @ direction
+            mi = mutual_info_classif(proj.reshape(-1, 1), labels, n_neighbors=3, random_state=42)[0]
+            mi_vals.append(mi)
+        peak = int(np.argmax(mi_vals))
+        print(f"  {cname:20s} | peak MI layer: L{peak} ({mi_vals[peak]:.4f}) | L0: {mi_vals[0]:.4f} | L23: {mi_vals[23]:.4f}")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -35746,6 +35973,36 @@ def run_analysis():
 
     # Phase 1160: Direction reconstruction from top-k neurons (informational)
     concept_direction_reconstruction_from_top_neurons(all_acts, concept_names)
+
+    # Phase 1161: Concept subspace overlap (informational)
+    concept_direction_subspace_overlap_analysis(all_acts, concept_names)
+
+    # Phase 1162: Neuron firing rate distribution (informational)
+    concept_neuron_firing_rate_distribution(all_acts, concept_names)
+
+    # Phase 1163: Direction norm layer trajectory (informational)
+    concept_direction_norm_layer_trajectory(all_acts, concept_names)
+
+    # Phase 1164: Mahalanobis diagonal separation (informational)
+    concept_activation_mahalanobis_diagonal_separation(all_acts, concept_names)
+
+    # Phase 1165: Neuron correlation network density (informational)
+    concept_neuron_correlation_network_density(all_acts, concept_names)
+
+    # Phase 1166: Direction angles vs random baseline (informational)
+    concept_direction_angle_to_random_baseline(all_acts, concept_names)
+
+    # Phase 1167: Activation sparsity ratio (informational)
+    concept_activation_sparsity_ratio(all_acts, concept_names)
+
+    # Phase 1168: Weighted layer ensemble direction (informational)
+    concept_direction_concept_direction_weighted_layer_ensemble(all_acts, concept_names)
+
+    # Phase 1169: Neuron pair mutual information (informational)
+    concept_neuron_mutual_information_pairs(all_acts, concept_names)
+
+    # Phase 1170: Layer transition mutual information (informational)
+    concept_layer_transition_mutual_info(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
