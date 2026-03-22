@@ -7400,6 +7400,105 @@ def model_capacity_saturation(all_acts, concept_names, hidden_size):
     print()
 
 
+def concept_cross_prediction_neuron(all_acts, concept_names, sparse_results):
+    """
+    Use concept A's top neuron to classify concept B.
+    Raw neuron-level transfer (not probe-level).
+    """
+    print("=" * 70)
+    print("PHASE 137: Cross-Prediction via Top Neuron")
+    print("=" * 70)
+
+    target_layer = 10
+    n = len(concept_names)
+    matrix = np.zeros((n, n))
+
+    for i, ci in enumerate(concept_names):
+        top_neuron = sparse_results[ci]["top_neurons"][0]
+
+        for j, cj in enumerate(concept_names):
+            pos_j = all_acts[cj]["positive"][target_layer]
+            neg_j = all_acts[cj]["negative"][target_layer]
+            X = np.vstack([pos_j, neg_j])
+            y = np.array([1]*len(pos_j) + [0]*len(neg_j))
+
+            # Use only this neuron
+            clf = LogisticRegression(C=1.0, max_iter=200, random_state=42)
+            clf.fit(X[:, top_neuron:top_neuron+1], y)
+            matrix[i, j] = clf.score(X[:, top_neuron:top_neuron+1], y)
+
+    # Print compact matrix
+    short = [c[:6] for c in concept_names]
+    print(f"  {'':14s} " + " ".join(f"{s:>6s}" for s in short))
+    for i, ci in enumerate(concept_names):
+        row = f"  N{sparse_results[ci]['top_neurons'][0]:3d}({ci[:8]:8s})"
+        for j in range(n):
+            if i == j:
+                row += f"  [{matrix[i,j]:.2f}]"
+            elif matrix[i,j] > 0.75:
+                row += f"  *{matrix[i,j]:.2f}"
+            else:
+                row += f"   {matrix[i,j]:.2f}"
+        print(row)
+
+    # Best cross-prediction
+    best_cross = 0
+    best_pair = ("", "")
+    for i in range(n):
+        for j in range(n):
+            if i != j and matrix[i,j] > best_cross:
+                best_cross = matrix[i,j]
+                best_pair = (concept_names[i], concept_names[j])
+
+    print(f"\n  Best cross: {best_pair[0]}'s neuron → {best_pair[1]} ({best_cross:.3f})")
+
+    print()
+
+
+def layer_contribution_decomposition(all_acts, concept_names, num_layers):
+    """
+    Decompose the final layer's concept signal into per-layer contributions.
+    Since activations are residual stream, layer L's contribution is approx:
+    act[L] - act[L-1]
+    """
+    print("=" * 70)
+    print("PHASE 138: Layer Contribution Decomposition")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        # Concept signal = diff-of-means norm at each layer
+        contributions = []
+        for li in range(num_layers):
+            pos = all_acts[concept_name]["positive"][li]
+            neg = all_acts[concept_name]["negative"][li]
+            dom = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+            norm = np.linalg.norm(dom)
+
+            if li == 0:
+                contrib = norm
+            else:
+                pos_prev = all_acts[concept_name]["positive"][li - 1]
+                neg_prev = all_acts[concept_name]["negative"][li - 1]
+                dom_prev = np.mean(pos_prev, axis=0) - np.mean(neg_prev, axis=0)
+                # Change in signal
+                contrib = norm - np.linalg.norm(dom_prev)
+
+            contributions.append(contrib)
+
+        c_arr = np.array(contributions)
+        # Top 3 contributing layers
+        top3 = np.argsort(np.abs(c_arr))[-3:][::-1]
+        top3_str = ", ".join(f"L{l}({c_arr[l]:+.2f})" for l in top3)
+
+        total_gain = np.sum(c_arr[c_arr > 0])
+        total_loss = np.sum(np.abs(c_arr[c_arr < 0]))
+
+        print(f"  {concept_name:20s}: gain={total_gain:.2f} loss={total_loss:.2f} "
+              f"top3=[{top3_str}]")
+
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -7882,6 +7981,12 @@ def run_analysis():
 
     # Phase 136: Model capacity saturation (informational)
     model_capacity_saturation(all_acts, concept_names, hidden_size)
+
+    # Phase 137: Cross-prediction via top neuron (informational)
+    concept_cross_prediction_neuron(all_acts, concept_names, sparse_results)
+
+    # Phase 138: Layer contribution decomposition (informational)
+    layer_contribution_decomposition(all_acts, concept_names, num_layers)
 
     # ---- Composite Score ----
     interpretability_score = (
