@@ -17742,6 +17742,266 @@ def concept_activation_layer_transition_smoothness(all_acts, concept_names):
     print()
 
 
+def concept_direction_leave_one_out_stability(all_acts, concept_names):
+    """Phase 511: Leave-one-concept-out effect on remaining directions."""
+    print("=" * 70)
+    print("PHASE 511: Leave-One-Concept-Out Direction Stability")
+    print("=" * 70)
+    layer = 10
+    dirs = {}
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = pos.mean(0) - neg.mean(0)
+        dirs[cname] = d / (np.linalg.norm(d) + 1e-10)
+    # Full Gram matrix
+    full_G = np.array([[np.dot(dirs[c1], dirs[c2]) for c2 in concept_names] for c1 in concept_names])
+    full_cond = np.linalg.cond(full_G)
+    for drop in concept_names:
+        remaining = [c for c in concept_names if c != drop]
+        sub_G = np.array([[np.dot(dirs[c1], dirs[c2]) for c2 in remaining] for c1 in remaining])
+        sub_cond = np.linalg.cond(sub_G)
+        delta = full_cond - sub_cond
+        print(f"  Drop {drop:20s}: cond={sub_cond:.2f} (delta={delta:+.2f})")
+    print()
+
+
+def concept_neuron_firing_rate_balance(all_acts, concept_names, sparse_results):
+    """Phase 512: How balanced are neuron firing rates across concepts."""
+    print("=" * 70)
+    print("PHASE 512: Neuron Firing Rate Balance Across Concepts")
+    print("=" * 70)
+    layer = 10
+    # For each of top 10 neurons (by max importance), check how evenly they fire across concepts
+    all_importance = np.zeros(all_acts[concept_names[0]]["positive"][layer].shape[1])
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.abs(pos.mean(0) - neg.mean(0))
+        all_importance += d
+    top10 = np.argsort(all_importance)[-10:][::-1]
+    for n in top10[:5]:
+        rates = []
+        for cname in concept_names:
+            pos = all_acts[cname]["positive"][layer]
+            neg = all_acts[cname]["negative"][layer]
+            mean_act = np.abs(np.concatenate([pos[:, n], neg[:, n]])).mean()
+            rates.append(mean_act)
+        rates = np.array(rates)
+        cv = rates.std() / (rates.mean() + 1e-10)
+        print(f"  N{n:3d}: mean_rate={rates.mean():.3f} CV={cv:.4f} (low CV = balanced)")
+    print()
+
+
+def concept_activation_distance_ratio(all_acts, concept_names):
+    """Phase 513: Ratio of inter-class to intra-class distances."""
+    print("=" * 70)
+    print("PHASE 513: Inter/Intra Class Distance Ratio")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        # Intra-class: mean pairwise distance within each class
+        intra_p = np.mean(np.linalg.norm(pos[:, None] - pos[None, :], axis=2)[np.triu_indices(len(pos), k=1)])
+        intra_n = np.mean(np.linalg.norm(neg[:, None] - neg[None, :], axis=2)[np.triu_indices(len(neg), k=1)])
+        intra = (intra_p + intra_n) / 2
+        # Inter-class: distance between centroids
+        inter = np.linalg.norm(pos.mean(0) - neg.mean(0))
+        ratio = inter / (intra + 1e-10)
+        print(f"  {cname:20s} inter/intra ratio: {ratio:.4f}")
+    print()
+
+
+def concept_direction_projection_kurtosis(all_acts, concept_names):
+    """Phase 514: Kurtosis of projections onto concept directions (non-Gaussianity)."""
+    print("=" * 70)
+    print("PHASE 514: Projection Kurtosis (Non-Gaussianity)")
+    print("=" * 70)
+    from scipy.stats import kurtosis as sp_kurtosis
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = pos.mean(0) - neg.mean(0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        all_data = np.vstack([pos, neg])
+        projs = all_data @ d
+        k = sp_kurtosis(projs, fisher=True)
+        print(f"  {cname:20s} projection kurtosis: {k:.4f} {'(platykurtic)' if k < 0 else '(leptokurtic)'}")
+    print()
+
+
+def concept_neuron_concept_specificity_entropy(all_acts, concept_names):
+    """Phase 515: For each neuron, entropy of its importance distribution across concepts."""
+    print("=" * 70)
+    print("PHASE 515: Neuron Concept-Specificity Entropy")
+    print("=" * 70)
+    layer = 10
+    hidden = all_acts[concept_names[0]]["positive"][layer].shape[1]
+    importance_matrix = np.zeros((len(concept_names), hidden))
+    for i, cname in enumerate(concept_names):
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        importance_matrix[i] = np.abs(pos.mean(0) - neg.mean(0))
+    # Normalize per neuron
+    col_sums = importance_matrix.sum(axis=0) + 1e-10
+    normed = importance_matrix / col_sums
+    entropies = -np.sum(normed * np.log2(normed + 1e-10), axis=0)
+    max_ent = np.log2(len(concept_names))
+    mean_ent = entropies.mean()
+    n_specialist = (entropies < max_ent * 0.5).sum()
+    n_generalist = (entropies > max_ent * 0.8).sum()
+    print(f"  Max possible entropy: {max_ent:.3f} bits")
+    print(f"  Mean neuron entropy:  {mean_ent:.3f} bits")
+    print(f"  Specialists (<50% max): {n_specialist}/{hidden}")
+    print(f"  Generalists (>80% max): {n_generalist}/{hidden}")
+    print()
+
+
+def concept_activation_silhouette_score(all_acts, concept_names):
+    """Phase 516: Silhouette score treating concepts as clusters."""
+    print("=" * 70)
+    print("PHASE 516: Concept Silhouette Score")
+    print("=" * 70)
+    layer = 10
+    all_data = []
+    labels = []
+    for i, cname in enumerate(concept_names):
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        all_data.append(np.vstack([pos, neg]))
+        labels.extend([i] * (len(pos) + len(neg)))
+    all_data = np.vstack(all_data)
+    labels = np.array(labels)
+    # Compute simplified silhouette on centroids
+    centroids = np.array([all_data[labels == i].mean(0) for i in range(len(concept_names))])
+    scores = []
+    for idx in range(len(all_data)):
+        own = labels[idx]
+        a = np.linalg.norm(all_data[idx] - centroids[own])
+        b = min(np.linalg.norm(all_data[idx] - centroids[j]) for j in range(len(concept_names)) if j != own)
+        s = (b - a) / (max(a, b) + 1e-10)
+        scores.append(s)
+    mean_sil = np.mean(scores)
+    per_concept = {concept_names[i]: np.mean([scores[j] for j in range(len(labels)) if labels[j] == i]) for i in range(len(concept_names))}
+    print(f"  Overall silhouette: {mean_sil:.4f}")
+    for cname in concept_names:
+        print(f"    {cname:20s}: {per_concept[cname]:.4f}")
+    print()
+
+
+def concept_direction_cosine_distribution(all_acts, concept_names):
+    """Phase 517: Full distribution of pairwise cosines between concept directions."""
+    print("=" * 70)
+    print("PHASE 517: Pairwise Concept Direction Cosine Distribution")
+    print("=" * 70)
+    layer = 10
+    dirs = []
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = pos.mean(0) - neg.mean(0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        dirs.append(d)
+    cosines = []
+    for i in range(len(dirs)):
+        for j in range(i+1, len(dirs)):
+            cosines.append(np.dot(dirs[i], dirs[j]))
+    cosines = np.array(cosines)
+    print(f"  N pairs: {len(cosines)}")
+    print(f"  Mean cosine: {cosines.mean():.6f}")
+    print(f"  Std cosine:  {cosines.std():.6f}")
+    print(f"  Max |cosine|: {np.max(np.abs(cosines)):.6f}")
+    print(f"  Min |cosine|: {np.min(np.abs(cosines)):.6f}")
+    # Count near-orthogonal pairs
+    n_orth = (np.abs(cosines) < 0.1).sum()
+    print(f"  Near-orthogonal (|cos|<0.1): {n_orth}/{len(cosines)}")
+    print()
+
+
+def concept_neuron_max_activation_per_class(all_acts, concept_names, sparse_results):
+    """Phase 518: Max activation magnitude per class for top neurons."""
+    print("=" * 70)
+    print("PHASE 518: Max Activation Per Class for Top Neurons")
+    print("=" * 70)
+    for cname in concept_names:
+        sr = sparse_results.get(cname, {})
+        best_layer = sr.get("best_layer", 10)
+        top_ns = sr.get("top_neurons", [0, 1, 2])[:3]
+        pos = all_acts[cname]["positive"][best_layer]
+        neg = all_acts[cname]["negative"][best_layer]
+        for n in top_ns:
+            max_p = np.max(np.abs(pos[:, n]))
+            max_n = np.max(np.abs(neg[:, n]))
+            ratio = max_p / (max_n + 1e-10)
+            print(f"  {cname:20s} N{n:3d}: max_pos={max_p:.3f} max_neg={max_n:.3f} ratio={ratio:.3f}")
+    print()
+
+
+def concept_activation_explained_variance_by_direction(all_acts, concept_names):
+    """Phase 519: How much total variance is explained by each concept direction."""
+    print("=" * 70)
+    print("PHASE 519: Variance Explained by Each Concept Direction")
+    print("=" * 70)
+    layer = 10
+    # Pool all data
+    all_data = []
+    for cname in concept_names:
+        all_data.append(all_acts[cname]["positive"][layer])
+        all_data.append(all_acts[cname]["negative"][layer])
+    all_data = np.vstack(all_data)
+    total_var = np.var(all_data, axis=0).sum()
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = pos.mean(0) - neg.mean(0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        proj = all_data @ d
+        explained = np.var(proj)
+        frac = explained / (total_var + 1e-10)
+        print(f"  {cname:20s} explained variance: {frac*100:.2f}%")
+    # Total
+    dirs = []
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = pos.mean(0) - neg.mean(0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        dirs.append(d)
+    D = np.array(dirs)
+    proj_all = all_data @ D.T
+    total_explained = np.sum(np.var(proj_all, axis=0))
+    print(f"  Total by all 8 directions: {total_explained/total_var*100:.2f}%")
+    print()
+
+
+def concept_direction_gram_schmidt_residual_norms(all_acts, concept_names):
+    """Phase 520: Gram-Schmidt residual norms show how much each direction is novel."""
+    print("=" * 70)
+    print("PHASE 520: Gram-Schmidt Residual Norms (Direction Novelty)")
+    print("=" * 70)
+    layer = 10
+    dirs = []
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = pos.mean(0) - neg.mean(0)
+        dirs.append(d)
+    ortho_basis = []
+    for i, (cname, d) in enumerate(zip(concept_names, dirs)):
+        orig_norm = np.linalg.norm(d)
+        residual = d.copy()
+        for b in ortho_basis:
+            residual -= np.dot(residual, b) * b
+        res_norm = np.linalg.norm(residual)
+        novelty = res_norm / (orig_norm + 1e-10)
+        if res_norm > 1e-10:
+            ortho_basis.append(residual / res_norm)
+        print(f"  {cname:20s} novelty (residual/orig): {novelty:.4f}")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -19346,6 +19606,36 @@ def run_analysis():
 
     # Phase 510: Layer transition smoothness (informational)
     concept_activation_layer_transition_smoothness(all_acts, concept_names)
+
+    # Phase 511: Leave-one-concept-out direction stability (informational)
+    concept_direction_leave_one_out_stability(all_acts, concept_names)
+
+    # Phase 512: Neuron firing rate balance across concepts (informational)
+    concept_neuron_firing_rate_balance(all_acts, concept_names, sparse_results)
+
+    # Phase 513: Inter/intra class distance ratio (informational)
+    concept_activation_distance_ratio(all_acts, concept_names)
+
+    # Phase 514: Projection kurtosis (informational)
+    concept_direction_projection_kurtosis(all_acts, concept_names)
+
+    # Phase 515: Neuron concept-specificity entropy (informational)
+    concept_neuron_concept_specificity_entropy(all_acts, concept_names)
+
+    # Phase 516: Concept silhouette score (informational)
+    concept_activation_silhouette_score(all_acts, concept_names)
+
+    # Phase 517: Pairwise cosine distribution (informational)
+    concept_direction_cosine_distribution(all_acts, concept_names)
+
+    # Phase 518: Max activation per class for top neurons (informational)
+    concept_neuron_max_activation_per_class(all_acts, concept_names, sparse_results)
+
+    # Phase 519: Variance explained by each concept direction (informational)
+    concept_activation_explained_variance_by_direction(all_acts, concept_names)
+
+    # Phase 520: Gram-Schmidt residual norms (informational)
+    concept_direction_gram_schmidt_residual_norms(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
