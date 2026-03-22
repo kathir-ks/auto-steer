@@ -2516,6 +2516,101 @@ def residual_analysis(all_acts, concept_names, sparse_results, steering_vectors,
 
 
 # ---------------------------------------------------------------------------
+# PHASE 36: Concept Stability — bootstrap analysis
+# ---------------------------------------------------------------------------
+
+def concept_stability_analysis(all_acts, concept_names, sparse_results):
+    """
+    Bootstrap resample the training data and re-run neuron ranking to see
+    how stable the top neuron assignments are. High stability = robust features.
+    """
+    print("=" * 70)
+    print("PHASE 36: Concept Stability — Bootstrap Neuron Assignment")
+    print("=" * 70)
+
+    N_BOOTSTRAPS = 5
+    rng = np.random.RandomState(42)
+
+    for concept_name in concept_names:
+        best_layer = sparse_results[concept_name]["best_layer"]
+        top_neuron = sparse_results[concept_name]["top_neurons"][0]
+        pos = all_acts[concept_name]["positive"][best_layer]
+        neg = all_acts[concept_name]["negative"][best_layer]
+        n_pos, n_neg = len(pos), len(neg)
+
+        original_top = top_neuron
+        top1_counts = {}
+
+        for b in range(N_BOOTSTRAPS):
+            idx_pos = rng.choice(n_pos, n_pos, replace=True)
+            idx_neg = rng.choice(n_neg, n_neg, replace=True)
+            X_b = np.vstack([pos[idx_pos], neg[idx_neg]])
+            y_b = np.array([1] * n_pos + [0] * n_neg)
+
+            # Use MI ranking (fast) instead of L1 probing
+            mi = mutual_info_classif(X_b, y_b, random_state=b)
+            top1 = int(np.argmax(mi))
+            top1_counts[top1] = top1_counts.get(top1, 0) + 1
+
+        # Stability = fraction of bootstraps agreeing on the same top neuron
+        most_common = max(top1_counts.values())
+        stability = most_common / N_BOOTSTRAPS
+        n_unique = len(top1_counts)
+        agrees_with_original = top1_counts.get(original_top, 0) / N_BOOTSTRAPS
+
+        print(f"  {concept_name:20s} N{original_top:3d}@L{best_layer:2d}: "
+              f"stability={stability:.0%} unique={n_unique} "
+              f"original_frac={agrees_with_original:.0%}")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
+# PHASE 37: Concept Effective Rank — dimensionality of concept signal
+# ---------------------------------------------------------------------------
+
+def concept_effective_rank(all_acts, concept_names, sparse_results):
+    """
+    Compute the effective rank of each concept's activation subspace.
+    Low rank = concept lives on a low-dimensional manifold.
+    """
+    print("=" * 70)
+    print("PHASE 37: Concept Effective Rank — Signal Dimensionality")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        best_layer = sparse_results[concept_name]["best_layer"]
+        pos = all_acts[concept_name]["positive"][best_layer]
+        neg = all_acts[concept_name]["negative"][best_layer]
+
+        # Concept signal: difference from grand mean for each class
+        X = np.vstack([pos, neg])
+        X_centered = X - X.mean(axis=0)
+
+        # SVD to get singular values
+        _, S, _ = np.linalg.svd(X_centered, full_matrices=False)
+        S = S[S > 1e-10]
+
+        # Effective rank (Shannon entropy of normalized singular values)
+        p = S / S.sum()
+        entropy = -np.sum(p * np.log(p + 1e-12))
+        eff_rank = np.exp(entropy)
+
+        # Also compute ratio of first singular value
+        top1_ratio = S[0] / S.sum() * 100
+        top3_ratio = S[:3].sum() / S.sum() * 100
+
+        # Nuclear norm ratio (another measure of spread)
+        stable_rank = (S ** 2).sum() / (S[0] ** 2 + 1e-12)
+
+        print(f"  {concept_name:20s} @ L{best_layer:2d}: "
+              f"eff_rank={eff_rank:.1f} stable_rank={stable_rank:.1f} "
+              f"top1={top1_ratio:.1f}% top3={top3_ratio:.1f}%")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Main Analysis Pipeline
 # ---------------------------------------------------------------------------
 
@@ -2644,6 +2739,12 @@ def run_analysis():
 
     # Phase 35: Residual analysis (informational)
     residual_analysis(all_acts, concept_names, sparse_results, steering_vectors, num_layers)
+
+    # Phase 36: Concept stability (informational)
+    concept_stability_analysis(all_acts, concept_names, sparse_results)
+
+    # Phase 37: Concept effective rank (informational)
+    concept_effective_rank(all_acts, concept_names, sparse_results)
 
     # ---- Composite Score ----
     interpretability_score = (
