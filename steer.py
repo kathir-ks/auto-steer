@@ -4749,6 +4749,117 @@ def activation_topology(all_acts, concept_names, sparse_results):
     print()
 
 
+def concept_noise_sensitivity(all_acts, concept_names, sparse_results):
+    """
+    How robust are concept decodings to Gaussian noise injection?
+    Measure accuracy degradation at increasing noise levels.
+    """
+    print("=" * 70)
+    print("PHASE 79: Concept Noise Sensitivity")
+    print("=" * 70)
+
+    rng = np.random.RandomState(42)
+    noise_levels = [0.0, 0.1, 0.25, 0.5, 1.0, 2.0]
+
+    for concept_name in concept_names:
+        sr = sparse_results[concept_name]
+        best_layer = sr["best_layer"]
+        pos = all_acts[concept_name]["positive"][best_layer]
+        neg = all_acts[concept_name]["negative"][best_layer]
+        X = np.vstack([pos, neg])
+        y = np.array([1] * len(pos) + [0] * len(neg))
+
+        # Train on clean data
+        top_n = sr["top_neurons"][:3]
+        X_sparse = X[:, top_n]
+
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X_sparse)
+        clf = LogisticRegression(C=1.0, max_iter=200, random_state=42)
+        clf.fit(X_scaled, y)
+
+        # Test at each noise level
+        accs = []
+        for sigma in noise_levels:
+            if sigma == 0:
+                acc = clf.score(X_scaled, y)
+            else:
+                noise = rng.randn(*X_scaled.shape) * sigma
+                acc = clf.score(X_scaled + noise, y)
+            accs.append(acc)
+
+        # Robustness: noise level at which accuracy drops below 0.75
+        robust_sigma = noise_levels[-1]
+        for i, (sigma, acc) in enumerate(zip(noise_levels, accs)):
+            if acc < 0.75:
+                robust_sigma = noise_levels[max(0, i-1)]
+                break
+
+        acc_str = " ".join(f"{a:.2f}" for a in accs)
+        print(f"  {concept_name:20s}: σ=[{','.join(str(s) for s in noise_levels)}] "
+              f"acc=[{acc_str}] robust_σ={robust_sigma:.1f}")
+
+    print()
+
+
+def neuron_correlation_structure(all_acts, concept_names, sparse_results):
+    """
+    Pairwise correlation structure among top concept neurons at bottleneck layer.
+    Reveals whether concept neurons fire independently or in correlated patterns.
+    """
+    print("=" * 70)
+    print("PHASE 80: Neuron Correlation Structure")
+    print("=" * 70)
+
+    target_layer = 10
+    # Gather all top neurons across concepts
+    all_top_neurons = []
+    neuron_labels = []
+    for concept_name in concept_names:
+        sr = sparse_results[concept_name]
+        n = sr["top_neurons"][0]  # top-1 neuron
+        if n not in all_top_neurons:
+            all_top_neurons.append(n)
+            neuron_labels.append(concept_name)
+
+    # Collect activations from all samples at target layer
+    all_X = []
+    for concept_name in concept_names:
+        pos = all_acts[concept_name]["positive"][target_layer]
+        neg = all_acts[concept_name]["negative"][target_layer]
+        all_X.append(pos)
+        all_X.append(neg)
+    X_all = np.vstack(all_X)
+
+    # Extract top neuron activations
+    X_neurons = X_all[:, all_top_neurons]
+
+    # Compute correlation matrix
+    if X_neurons.shape[1] > 1:
+        corr = np.corrcoef(X_neurons.T)
+
+        # Report strongest correlations
+        pairs = []
+        n_neurons = len(all_top_neurons)
+        for i in range(n_neurons):
+            for j in range(i+1, n_neurons):
+                pairs.append((abs(corr[i, j]), neuron_labels[i], neuron_labels[j],
+                             all_top_neurons[i], all_top_neurons[j], corr[i, j]))
+
+        pairs.sort(reverse=True)
+
+        print(f"  Top-1 neurons from {len(all_top_neurons)} concepts at L{target_layer}:")
+        print(f"  Mean |correlation|: {np.mean([abs(p[5]) for p in pairs]):.3f}")
+        print(f"  Max  |correlation|: {pairs[0][0]:.3f} ({pairs[0][1]} N{pairs[0][3]} vs {pairs[0][2]} N{pairs[0][4]})")
+        print(f"\n  All pairs (top-1 neurons):")
+        for abs_c, l1, l2, n1, n2, c in pairs[:10]:
+            print(f"    N{n1:3d}({l1[:8]:8s}) vs N{n2:3d}({l2[:8]:8s}): r={c:+.3f}")
+    else:
+        print("  Only 1 unique top neuron — cannot compute correlations")
+
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -5057,6 +5168,12 @@ def run_analysis():
 
     # Phase 78: Activation topology (informational)
     activation_topology(all_acts, concept_names, sparse_results)
+
+    # Phase 79: Concept noise sensitivity (informational)
+    concept_noise_sensitivity(all_acts, concept_names, sparse_results)
+
+    # Phase 80: Neuron correlation structure (informational)
+    neuron_correlation_structure(all_acts, concept_names, sparse_results)
 
     # ---- Composite Score ----
     interpretability_score = (
