@@ -3781,6 +3781,114 @@ def neuron_redundancy_analysis(all_acts, concept_names, sparse_results):
 
 
 # ---------------------------------------------------------------------------
+# PHASE 59: Multi-Concept Ensemble Decoding
+# ---------------------------------------------------------------------------
+
+def multi_concept_decoding(all_acts, concept_names, sparse_results):
+    """
+    Train a single classifier to predict all 8 concept labels simultaneously
+    from a shared representation. Tests whether concepts are independently
+    decodable from the same sample.
+    """
+    print("=" * 70)
+    print("PHASE 59: Multi-Concept Ensemble Decoding")
+    print("=" * 70)
+
+    # Use bottleneck layer (L10) for shared representation
+    target_layer = 10
+
+    # Build multi-label dataset: each sample has 8 binary labels
+    # Collect all activations (there's overlap: same concept pairs repeated)
+    # Instead, use each concept's pos/neg at the target layer
+    print(f"  Per-concept accuracy at shared layer L{target_layer}:\n")
+
+    for concept_name in concept_names:
+        pos = all_acts[concept_name]["positive"][target_layer]
+        neg = all_acts[concept_name]["negative"][target_layer]
+        X = np.vstack([pos, neg])
+        y = np.array([1] * len(pos) + [0] * len(neg))
+
+        # Sparse probe: use only concept neurons from all concepts
+        all_neurons = set()
+        for cn in concept_names:
+            all_neurons.update(sparse_results[cn]["top_neurons"][:1])
+        neuron_indices = sorted(all_neurons)
+
+        X_sparse = X[:, neuron_indices]
+        clf = LogisticRegression(C=1.0, max_iter=500, random_state=42)
+        cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=42)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            acc_sparse = np.mean(cross_val_score(clf, X_sparse, y, cv=cv))
+
+        # Full features
+        scaler = StandardScaler()
+        X_sc = scaler.fit_transform(X)
+        clf2 = LogisticRegression(C=1.0, max_iter=200, random_state=42)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            acc_full = np.mean(cross_val_score(clf2, X_sc, y, cv=cv))
+
+        print(f"  {concept_name:20s}: sparse({len(neuron_indices)}n)={acc_sparse:.3f} "
+              f"full(896n)={acc_full:.3f}")
+
+    print(f"\n  Shared neuron set ({len(neuron_indices)} neurons): "
+          f"{', '.join(f'N{n}' for n in neuron_indices)}")
+    print()
+
+
+# ---------------------------------------------------------------------------
+# PHASE 60: Activation Space Geometry
+# ---------------------------------------------------------------------------
+
+def activation_space_geometry(all_acts, concept_names, num_layers):
+    """
+    Measure geometric properties of the activation space at key layers:
+    intrinsic dimensionality, isotropy (how uniformly directions are used),
+    and the eigenspectrum shape.
+    """
+    print("=" * 70)
+    print("PHASE 60: Activation Space Geometry")
+    print("=" * 70)
+
+    test_layers = [0, 6, 12, 18, 23]
+
+    for l in test_layers:
+        all_a = []
+        for concept_name in concept_names:
+            all_a.append(all_acts[concept_name]["positive"][l])
+            all_a.append(all_acts[concept_name]["negative"][l])
+        X = np.vstack(all_a)
+        X_centered = X - X.mean(axis=0)
+
+        # Eigenspectrum
+        cov = np.cov(X_centered.T)
+        eigenvalues = np.linalg.eigvalsh(cov)[::-1]
+        eigenvalues = eigenvalues[eigenvalues > 1e-10]
+
+        # Intrinsic dimensionality (participation ratio)
+        p = eigenvalues / eigenvalues.sum()
+        participation_ratio = 1.0 / np.sum(p ** 2)
+
+        # Isotropy (how uniform the eigenspectrum is)
+        # 1.0 = perfectly isotropic, 0.0 = all variance in 1 direction
+        isotropy = participation_ratio / len(eigenvalues)
+
+        # Effective rank
+        entropy = -np.sum(p * np.log(p + 1e-12))
+        eff_rank = np.exp(entropy)
+
+        # Top eigenvalue concentration
+        top1_pct = eigenvalues[0] / eigenvalues.sum() * 100
+        top10_pct = eigenvalues[:10].sum() / eigenvalues.sum() * 100
+
+        print(f"  L{l:2d}: PR={participation_ratio:.1f} eff_rank={eff_rank:.1f} "
+              f"isotropy={isotropy:.3f} top1={top1_pct:.1f}% top10={top10_pct:.1f}%")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Main Analysis Pipeline
 # ---------------------------------------------------------------------------
 
@@ -3979,6 +4087,12 @@ def run_analysis():
 
     # Phase 58: Neuron redundancy (informational)
     neuron_redundancy_analysis(all_acts, concept_names, sparse_results)
+
+    # Phase 59: Multi-concept decoding (informational)
+    multi_concept_decoding(all_acts, concept_names, sparse_results)
+
+    # Phase 60: Activation space geometry (informational)
+    activation_space_geometry(all_acts, concept_names, num_layers)
 
     # ---- Composite Score ----
     interpretability_score = (
