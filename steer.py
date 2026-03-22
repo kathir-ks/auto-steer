@@ -7719,6 +7719,95 @@ def inter_concept_distance_evolution(all_acts, concept_names, num_layers):
     print()
 
 
+def concept_eigenspectrum(all_acts, concept_names, sparse_results):
+    """
+    Eigenvalue distribution of concept-specific covariance matrices.
+    Reveals the intrinsic dimensionality and structure of each concept.
+    """
+    print("=" * 70)
+    print("PHASE 145: Concept Eigenspectrum")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        sr = sparse_results[concept_name]
+        best_layer = sr["best_layer"]
+        pos = all_acts[concept_name]["positive"][best_layer]
+        neg = all_acts[concept_name]["negative"][best_layer]
+        X = np.vstack([pos, neg])
+
+        centered = X - np.mean(X, axis=0)
+        U, S, Vt = np.linalg.svd(centered, full_matrices=False)
+        eigvals = S**2 / (len(X) - 1)
+
+        # Entropy of eigenspectrum (how uniform)
+        p = eigvals / (np.sum(eigvals) + 1e-12)
+        spectral_entropy = -np.sum(p * np.log2(p + 1e-12))
+        max_entropy = np.log2(len(eigvals))
+        norm_entropy = spectral_entropy / max_entropy
+
+        # Effective dimensionality
+        pr = np.sum(eigvals)**2 / (np.sum(eigvals**2) + 1e-12)
+
+        # Top eigenvalue fraction
+        top1_frac = eigvals[0] / np.sum(eigvals)
+
+        print(f"  {concept_name:20s}: eff_dim={pr:.1f} top1={top1_frac:.1%} "
+              f"entropy={norm_entropy:.3f}")
+
+    print()
+
+
+def concept_pair_interaction(all_acts, concept_names, sparse_results):
+    """
+    For the most interesting concept pairs, measure mutual information
+    between their labels across shared samples.
+    """
+    print("=" * 70)
+    print("PHASE 146: Concept Pair Interaction Strength")
+    print("=" * 70)
+
+    target_layer = 10
+    # For each pair: train a joint 2-concept decoder
+    interesting_pairs = [
+        ("sentiment", "emotion_joy_anger"),
+        ("formality", "complexity"),
+        ("certainty", "temporal"),
+        ("subjectivity", "instruction"),
+    ]
+
+    for c1, c2 in interesting_pairs:
+        pos1 = all_acts[c1]["positive"][target_layer]
+        neg1 = all_acts[c1]["negative"][target_layer]
+        pos2 = all_acts[c2]["positive"][target_layer]
+        neg2 = all_acts[c2]["negative"][target_layer]
+
+        # Individual probes
+        X1 = np.vstack([pos1, neg1])
+        y1 = np.array([1]*len(pos1) + [0]*len(neg1))
+        clf1 = LogisticRegression(C=1.0, max_iter=200, random_state=42)
+        clf1.fit(X1, y1)
+        acc1 = clf1.score(X1, y1)
+
+        X2 = np.vstack([pos2, neg2])
+        y2 = np.array([1]*len(pos2) + [0]*len(neg2))
+        clf2 = LogisticRegression(C=1.0, max_iter=200, random_state=42)
+        clf2.fit(X2, y2)
+        acc2 = clf2.score(X2, y2)
+
+        # Cross-prediction: c1 probe on c2's data
+        cross12 = clf1.score(X2, y2)
+        cross21 = clf2.score(X1, y1)
+
+        interaction = (cross12 + cross21) / 2 - 0.5  # above chance
+
+        print(f"  {c1[:10]:10s}↔{c2[:10]:10s}: "
+              f"self=[{acc1:.2f},{acc2:.2f}] "
+              f"cross=[{cross12:.2f},{cross21:.2f}] "
+              f"interaction={interaction:+.3f}")
+
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
