@@ -4193,7 +4193,96 @@ def extended_report(concept_names, sparse_results, locality_results, num_layers,
     print(f"  • Mean pairwise |cos| between concept directions: 0.18")
     print(f"  • Top entanglement: sentiment ↔ emotion_joy_anger (cos=0.66)")
 
-    print(f"\n  Runtime: {elapsed:.0f}s across 66 analysis phases")
+    print(f"\n  Runtime: {elapsed:.0f}s across 66+ analysis phases")
+    print()
+
+
+# ---------------------------------------------------------------------------
+# PHASE 67: Concept Prediction Confidence Distribution
+# ---------------------------------------------------------------------------
+
+def concept_confidence_distribution(all_acts, concept_names, sparse_results):
+    """
+    Analyze the full distribution of prediction confidences for each concept.
+    High mean with low variance = reliable concept. Bimodal = some ambiguous cases.
+    """
+    print("=" * 70)
+    print("PHASE 67: Concept Prediction Confidence Distribution")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        best_layer = sparse_results[concept_name]["best_layer"]
+        top_neuron = sparse_results[concept_name]["top_neurons"][0]
+
+        pos = all_acts[concept_name]["positive"][best_layer]
+        neg = all_acts[concept_name]["negative"][best_layer]
+
+        # Use single neuron for interpretable confidence
+        X_1n = np.concatenate([pos[:, top_neuron], neg[:, top_neuron]]).reshape(-1, 1)
+        y = np.array([1] * len(pos) + [0] * len(neg))
+
+        clf = LogisticRegression(C=1.0, max_iter=500, random_state=42)
+        clf.fit(X_1n, y)
+        probs = clf.predict_proba(X_1n)
+        correct_prob = np.array([probs[i, y[i]] for i in range(len(y))])
+
+        # Percentiles
+        p5, p25, p50, p75, p95 = np.percentile(correct_prob, [5, 25, 50, 75, 95])
+
+        # Mini ASCII box plot
+        def to_pos(v):
+            return int((v - 0.5) * 40)  # map 0.5-1.0 to 0-20
+
+        print(f"  {concept_name:20s}: "
+              f"p5={p5:.2f} p25={p25:.2f} p50={p50:.2f} p75={p75:.2f} p95={p95:.2f}")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
+# PHASE 68: Cross-Layer Neuron Tracking
+# ---------------------------------------------------------------------------
+
+def cross_layer_neuron_tracking(all_acts, concept_names, sparse_results, num_layers):
+    """
+    For each concept's top neuron, track that same neuron's discriminative
+    power across all layers. Does the neuron only matter at one layer?
+    """
+    print("=" * 70)
+    print("PHASE 68: Cross-Layer Neuron Tracking — Same Neuron, All Layers")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        best_layer = sparse_results[concept_name]["best_layer"]
+        top_neuron = sparse_results[concept_name]["top_neurons"][0]
+
+        # Compute Cohen's d for this neuron at every layer
+        ds = []
+        for l in range(num_layers):
+            pos_n = all_acts[concept_name]["positive"][l][:, top_neuron]
+            neg_n = all_acts[concept_name]["negative"][l][:, top_neuron]
+            mean_diff = abs(np.mean(pos_n) - np.mean(neg_n))
+            pooled_std = np.sqrt((np.var(pos_n) + np.var(neg_n)) / 2.0) + 1e-12
+            ds.append(mean_diff / pooled_std)
+
+        # Peak layer for this neuron
+        peak = int(np.argmax(ds))
+        peak_d = ds[peak]
+
+        # Fraction of layers where d > 0.5
+        active_frac = np.mean(np.array(ds) > 0.5)
+
+        # Sparkline
+        max_d = max(ds) if max(ds) > 0 else 1
+        blocks = " ▁▂▃▄▅▆▇█"
+        spark = ""
+        for d in ds:
+            idx = min(int(d / max_d * 8), 8)
+            spark += blocks[idx]
+
+        print(f"  {concept_name:20s} N{top_neuron:3d}: "
+              f"peak=L{peak}(d={peak_d:.2f}) active={active_frac:.0%} [{spark}]")
+
     print()
 
 
@@ -4421,6 +4510,12 @@ def run_analysis():
     # Phase 66: Extended report (informational)
     extended_report(concept_names, sparse_results, locality_results,
                     num_layers, hidden_size, time.time() - t0)
+
+    # Phase 67: Confidence distribution (informational)
+    concept_confidence_distribution(all_acts, concept_names, sparse_results)
+
+    # Phase 68: Cross-layer neuron tracking (informational)
+    cross_layer_neuron_tracking(all_acts, concept_names, sparse_results, num_layers)
 
     # ---- Composite Score ----
     interpretability_score = (
