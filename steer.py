@@ -26,7 +26,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import cross_val_score, StratifiedKFold
 from sklearn.preprocessing import StandardScaler
 from sklearn.feature_selection import mutual_info_classif
-from sklearn.decomposition import FastICA
+from sklearn.decomposition import FastICA, NMF
 from scipy.cluster.hierarchy import linkage, fcluster
 from scipy.spatial.distance import pdist
 
@@ -956,6 +956,86 @@ def information_theoretic_analysis(all_acts, concept_names, sparse_results):
 
 
 # ---------------------------------------------------------------------------
+# PHASE 13: NMF Decomposition — non-negative parts-based representation
+# ---------------------------------------------------------------------------
+
+def nmf_decomposition_analysis(all_acts, concept_names, sparse_results):
+    """
+    Apply NMF to find non-negative parts-based decomposition of activations.
+    NMF decomposes activations into additive parts, revealing which
+    components contribute positively to each concept. Shifted to ensure
+    non-negativity.
+    """
+    print("=" * 70)
+    print("PHASE 13: NMF Decomposition — Parts-Based Representation")
+    print("=" * 70)
+
+    # Group concepts by layer
+    layer_concepts = {}
+    for concept_name in concept_names:
+        layer = sparse_results[concept_name]["best_layer"]
+        layer_concepts.setdefault(layer, []).append(concept_name)
+
+    for layer_idx, concepts_at_layer in sorted(layer_concepts.items()):
+        # Build activation matrix from all concepts at this layer
+        all_X = []
+        concept_ranges = {}  # concept -> (start, end) indices
+        offset = 0
+        for concept_name in concepts_at_layer:
+            pos = all_acts[concept_name]["positive"][layer_idx]
+            neg = all_acts[concept_name]["negative"][layer_idx]
+            all_X.extend([pos, neg])
+            n_total = len(pos) + len(neg)
+            concept_ranges[concept_name] = (offset, offset + len(pos), offset + n_total)
+            offset += n_total
+
+        X_all = np.vstack(all_X)
+
+        # Shift to non-negative (NMF requirement)
+        X_shifted = X_all - X_all.min(axis=0, keepdims=True)
+
+        n_comp = min(len(concepts_at_layer) * 3, 15, X_shifted.shape[1])
+        try:
+            nmf = NMF(n_components=n_comp, random_state=42, max_iter=300)
+            W = nmf.fit_transform(X_shifted)  # sample x component
+            H = nmf.components_  # component x feature
+        except Exception:
+            print(f"  Layer {layer_idx}: NMF failed, skipping")
+            continue
+
+        print(f"\n  Layer {layer_idx} ({', '.join(concepts_at_layer)}): "
+              f"{n_comp} NMF components, reconstruction_err={nmf.reconstruction_err_:.1f}")
+
+        for concept_name in concepts_at_layer:
+            start, mid, end = concept_ranges[concept_name]
+            pos_W = W[start:mid]
+            neg_W = W[mid:end]
+
+            # Find most discriminative NMF component
+            best_comp = -1
+            best_d = 0
+            for c in range(n_comp):
+                d = abs(pos_W[:, c].mean() - neg_W[:, c].mean()) / (
+                    np.sqrt((pos_W[:, c].var() + neg_W[:, c].var()) / 2) + 1e-8)
+                if d > best_d:
+                    best_d = d
+                    best_comp = c
+
+            # How many neurons does this component use heavily?
+            if best_comp >= 0:
+                comp_weights = H[best_comp]
+                top_weight = comp_weights.max()
+                n_active = int((comp_weights > top_weight * 0.1).sum())
+                top_neurons = np.argsort(comp_weights)[::-1][:3]
+
+                print(f"    {concept_name:20s}: best_comp={best_comp}, "
+                      f"d={best_d:.2f}, n_active_features={n_active}, "
+                      f"top_neurons={list(top_neurons)}")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Main Analysis Pipeline
 # ---------------------------------------------------------------------------
 
@@ -1015,6 +1095,9 @@ def run_analysis():
 
     # Phase 12: Information-theoretic analysis (informational)
     information_theoretic_analysis(all_acts, concept_names, sparse_results)
+
+    # Phase 13: NMF decomposition (informational)
+    nmf_decomposition_analysis(all_acts, concept_names, sparse_results)
 
     # ---- Composite Score ----
     interpretability_score = (
