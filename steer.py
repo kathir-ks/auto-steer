@@ -3563,6 +3563,110 @@ def ranking_method_comparison(all_acts, concept_names, sparse_results):
 
 
 # ---------------------------------------------------------------------------
+# PHASE 55: Concept Neuron Lineage
+# ---------------------------------------------------------------------------
+
+def concept_neuron_lineage(all_acts, concept_names, num_layers):
+    """
+    Track which neuron is most important for each concept at each layer.
+    Shows how the "identity" of the concept neuron changes through depth.
+    """
+    print("=" * 70)
+    print("PHASE 55: Concept Neuron Lineage — Identity Across Layers")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        top_neurons = []
+        for l in range(num_layers):
+            pos = all_acts[concept_name]["positive"][l]
+            neg = all_acts[concept_name]["negative"][l]
+            # Cohen's d per neuron (fast)
+            mean_diff = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+            pooled_std = np.sqrt((np.var(pos, axis=0) + np.var(neg, axis=0)) / 2.0) + 1e-12
+            d = mean_diff / pooled_std
+            top_neurons.append(int(np.argmax(d)))
+
+        # Count unique neurons
+        n_unique = len(set(top_neurons))
+
+        # Find runs of same neuron
+        runs = []
+        current = top_neurons[0]
+        start = 0
+        for l in range(1, num_layers):
+            if top_neurons[l] != current:
+                runs.append((current, start, l - 1))
+                current = top_neurons[l]
+                start = l
+        runs.append((current, start, num_layers - 1))
+
+        # Longest run
+        longest = max(runs, key=lambda x: x[2] - x[1])
+        longest_desc = f"N{longest[0]} (L{longest[1]}-L{longest[2]})"
+
+        # Compact lineage: show neuron at each layer
+        lineage = " ".join(f"{n}" for n in top_neurons[::4])  # every 4th layer
+
+        print(f"  {concept_name:20s}: {n_unique:2d} unique neurons, "
+              f"longest=({longest_desc}) "
+              f"[{lineage}]")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
+# PHASE 56: Concept Subspace Angles
+# ---------------------------------------------------------------------------
+
+def concept_subspace_angles(all_acts, concept_names, sparse_results):
+    """
+    Compute principal angles between concept subspaces (not just 1D directions).
+    Uses the top-3 neurons for each concept to define a subspace.
+    """
+    print("=" * 70)
+    print("PHASE 56: Concept Subspace Angles (3D Subspaces)")
+    print("=" * 70)
+
+    # Build 3D subspaces from top-3 PCA directions in full activation space
+    subspaces = {}
+    target_layer = 10  # use shared bottleneck layer for fair comparison
+    for concept_name in concept_names:
+        pos = all_acts[concept_name]["positive"][target_layer]
+        neg = all_acts[concept_name]["negative"][target_layer]
+        # Concept-relevant activations: positive minus negative centroid
+        X_diff = pos - np.mean(neg, axis=0)  # shifted to emphasize concept
+        X_centered = X_diff - X_diff.mean(axis=0)
+        U, S, Vt = np.linalg.svd(X_centered, full_matrices=False)
+        subspaces[concept_name] = Vt[:3]  # top-3 directions in 896-dim space
+
+    n = len(concept_names)
+    print(f"  Principal angles between concept 3D subspaces:\n")
+    header = "  " + " " * 22 + "".join(f"{c[:6]:>7s}" for c in concept_names)
+    print(header)
+
+    for i in range(n):
+        row = f"  {concept_names[i]:20s}:"
+        for j in range(n):
+            if i == j:
+                row += f"     0°"
+                continue
+            # Principal angles between subspaces
+            A = subspaces[concept_names[i]]
+            B = subspaces[concept_names[j]]
+            # Compute via SVD of A @ B.T
+            M = A @ B.T
+            _, svals, _ = np.linalg.svd(M)
+            # Clamp to valid range
+            svals = np.clip(svals, -1, 1)
+            angles = np.arccos(svals)
+            min_angle = np.degrees(angles[0])  # smallest principal angle
+            row += f"  {min_angle:4.0f}°"
+        print(row)
+
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Main Analysis Pipeline
 # ---------------------------------------------------------------------------
 
@@ -3749,6 +3853,12 @@ def run_analysis():
 
     # Phase 54: Ranking comparison (informational)
     ranking_method_comparison(all_acts, concept_names, sparse_results)
+
+    # Phase 55: Concept neuron lineage (informational)
+    concept_neuron_lineage(all_acts, concept_names, num_layers)
+
+    # Phase 56: Concept subspace angles (informational)
+    concept_subspace_angles(all_acts, concept_names, sparse_results)
 
     # ---- Composite Score ----
     interpretability_score = (
