@@ -3336,6 +3336,109 @@ def pipeline_summary(num_phases=50):
 
 
 # ---------------------------------------------------------------------------
+# PHASE 51: Norm-Controlled Probing
+# ---------------------------------------------------------------------------
+
+def norm_controlled_probing(all_acts, concept_names, sparse_results):
+    """
+    Re-run probing after normalizing activations to unit norm.
+    If accuracy drops significantly, the concept relies on norm shortcuts.
+    """
+    print("=" * 70)
+    print("PHASE 51: Norm-Controlled Probing — Remove Norm Shortcuts")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        best_layer = sparse_results[concept_name]["best_layer"]
+        pos = all_acts[concept_name]["positive"][best_layer]
+        neg = all_acts[concept_name]["negative"][best_layer]
+        X = np.vstack([pos, neg])
+        y = np.array([1] * len(pos) + [0] * len(neg))
+
+        # Standard probing
+        scaler = StandardScaler()
+        X_sc = scaler.fit_transform(X)
+        clf = LogisticRegression(C=1.0, max_iter=500, random_state=42)
+        cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+        acc_standard = np.mean(cross_val_score(clf, X_sc, y, cv=cv))
+
+        # Norm-controlled: normalize each sample to unit L2 norm
+        norms = np.linalg.norm(X, axis=1, keepdims=True) + 1e-12
+        X_normed = X / norms
+        scaler2 = StandardScaler()
+        X_n_sc = scaler2.fit_transform(X_normed)
+        acc_normed = np.mean(cross_val_score(clf, X_n_sc, y, cv=cv))
+
+        drop = acc_standard - acc_normed
+        status = "NORM-DEPENDENT" if drop > 0.05 else "norm-free"
+
+        print(f"  {concept_name:20s}: standard={acc_standard:.3f} "
+              f"normed={acc_normed:.3f} drop={drop:+.3f} → {status}")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
+# PHASE 52: Concept Difficulty Ranking
+# ---------------------------------------------------------------------------
+
+def concept_difficulty_ranking(all_acts, concept_names, sparse_results):
+    """
+    Rank concepts by difficulty using multiple metrics: CV accuracy,
+    margin, SNR, and min_neurons. Produces a unified difficulty score.
+    """
+    print("=" * 70)
+    print("PHASE 52: Concept Difficulty Ranking")
+    print("=" * 70)
+
+    difficulties = {}
+    for concept_name in concept_names:
+        best_layer = sparse_results[concept_name]["best_layer"]
+        pos = all_acts[concept_name]["positive"][best_layer]
+        neg = all_acts[concept_name]["negative"][best_layer]
+
+        # 1-neuron CV accuracy
+        top_neuron = sparse_results[concept_name]["top_neurons"][0]
+        X_1n = np.concatenate([pos[:, top_neuron], neg[:, top_neuron]]).reshape(-1, 1)
+        y = np.array([1] * len(pos) + [0] * len(neg))
+        clf = LogisticRegression(C=1.0, max_iter=500, random_state=42)
+        cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            acc_1n = np.mean(cross_val_score(clf, X_1n, y, cv=cv))
+
+        # SNR
+        dom = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        dom_norm = dom / (np.linalg.norm(dom) + 1e-12)
+        proj_pos = pos @ dom_norm
+        proj_neg = neg @ dom_norm
+        signal = (np.mean(proj_pos) - np.mean(proj_neg)) ** 2
+        noise = (np.var(proj_pos) + np.var(proj_neg)) / 2.0
+        snr = signal / (noise + 1e-12)
+
+        # MI bits
+        mi = mutual_info_classif(X_1n, y, random_state=42)[0]
+        bits = mi / np.log(2)
+
+        # Unified difficulty: lower = harder
+        difficulty = (1.0 - acc_1n) * 3 + (1.0 / (snr + 1e-3)) + (1.0 - bits)
+        difficulties[concept_name] = {
+            "acc_1n": acc_1n, "snr": snr, "bits": bits, "score": difficulty
+        }
+
+    # Sort by difficulty (highest score = hardest)
+    ranked = sorted(difficulties.items(), key=lambda x: x[1]["score"], reverse=True)
+
+    print(f"  {'Rank':>4s}  {'Concept':20s} {'1n-acc':>6s} {'SNR':>6s} {'MI-bits':>7s} {'Diff':>6s}")
+    print(f"  {'─'*4}  {'─'*20} {'─'*6} {'─'*6} {'─'*7} {'─'*6}")
+    for rank, (name, d) in enumerate(ranked, 1):
+        print(f"  {rank:4d}  {name:20s} {d['acc_1n']:6.3f} {d['snr']:6.1f} "
+              f"{d['bits']:7.3f} {d['score']:6.3f}")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Main Analysis Pipeline
 # ---------------------------------------------------------------------------
 
@@ -3510,6 +3613,12 @@ def run_analysis():
 
     # Phase 50: Pipeline summary (informational)
     pipeline_summary()
+
+    # Phase 51: Norm-controlled probing (informational)
+    norm_controlled_probing(all_acts, concept_names, sparse_results)
+
+    # Phase 52: Concept difficulty ranking (informational)
+    concept_difficulty_ranking(all_acts, concept_names, sparse_results)
 
     # ---- Composite Score ----
     interpretability_score = (
