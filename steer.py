@@ -21985,6 +21985,231 @@ def grand_milestone_700():
     print()
 
 
+def concept_activation_cross_layer_correlation(all_acts, concept_names, num_layers):
+    """Phase 701: Cross-layer activation correlation for each concept."""
+    print("=" * 70)
+    print("PHASE 701: Cross-Layer Activation Correlation")
+    print("=" * 70)
+    for cname in concept_names:
+        pos_means = []
+        for layer in range(num_layers):
+            pos_means.append(all_acts[cname]["positive"][layer].mean(0))
+        pos_means = np.array(pos_means)
+        corr_matrix = np.corrcoef(pos_means)
+        # Adjacent layer correlations
+        adj_corrs = [corr_matrix[i, i+1] for i in range(num_layers - 1)]
+        mean_adj = np.mean(adj_corrs)
+        min_adj = np.min(adj_corrs)
+        min_idx = np.argmin(adj_corrs)
+        print(f"  {cname:20s} | mean_adj_corr={mean_adj:.4f} | min_adj={min_adj:.4f} at L{min_idx}-L{min_idx+1}")
+    print()
+
+
+def concept_neuron_activation_entropy(all_acts, concept_names):
+    """Phase 702: Entropy of neuron activation distributions per concept."""
+    print("=" * 70)
+    print("PHASE 702: Neuron Activation Entropy per Concept")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        combined = np.vstack([pos, neg])
+        # Per-neuron entropy via histogram
+        entropies = []
+        for j in range(combined.shape[1]):
+            vals = combined[:, j]
+            hist, _ = np.histogram(vals, bins=20, density=True)
+            hist = hist + 1e-10
+            hist = hist / hist.sum()
+            ent = -np.sum(hist * np.log2(hist))
+            entropies.append(ent)
+        entropies = np.array(entropies)
+        print(f"  {cname:20s} | mean_entropy={entropies.mean():.3f} | std={entropies.std():.3f} | min={entropies.min():.3f} | max={entropies.max():.3f}")
+    print()
+
+
+def concept_direction_angle_distribution(all_acts, concept_names):
+    """Phase 703: Distribution of pairwise angles between concept directions."""
+    print("=" * 70)
+    print("PHASE 703: Pairwise Angle Distribution Between Concept Directions")
+    print("=" * 70)
+    layer = 10
+    dirs = []
+    for cname in concept_names:
+        d = all_acts[cname]["positive"][layer].mean(0) - all_acts[cname]["negative"][layer].mean(0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        dirs.append(d)
+    angles = []
+    for i in range(len(dirs)):
+        for j in range(i + 1, len(dirs)):
+            cos = np.dot(dirs[i], dirs[j])
+            angle = np.degrees(np.arccos(np.clip(cos, -1, 1)))
+            angles.append(angle)
+    angles = np.array(angles)
+    print(f"  Number of pairs: {len(angles)}")
+    print(f"  Mean angle: {angles.mean():.2f}°")
+    print(f"  Std angle: {angles.std():.2f}°")
+    print(f"  Min angle: {angles.min():.2f}° | Max angle: {angles.max():.2f}°")
+    # Quartiles
+    q25, q50, q75 = np.percentile(angles, [25, 50, 75])
+    print(f"  Quartiles: Q25={q25:.2f}° Q50={q50:.2f}° Q75={q75:.2f}°")
+    print()
+
+
+def concept_neuron_selectivity_ratio(all_acts, concept_names):
+    """Phase 704: Selectivity index for each neuron — how much it prefers one concept over others."""
+    print("=" * 70)
+    print("PHASE 704: Neuron Selectivity Index")
+    print("=" * 70)
+    layer = 10
+    hidden = all_acts[concept_names[0]]["positive"][layer].shape[1]
+    # Compute importance of each neuron for each concept
+    imp_matrix = np.zeros((len(concept_names), hidden))
+    for ci, cname in enumerate(concept_names):
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        imp_matrix[ci] = np.abs(pos.mean(0) - neg.mean(0))
+    # Selectivity = max / sum (1 = perfectly selective, 1/n_concepts = uniform)
+    selectivity = imp_matrix.max(axis=0) / (imp_matrix.sum(axis=0) + 1e-10)
+    print(f"  Mean selectivity: {selectivity.mean():.4f} (1/8={1/8:.4f} is chance)")
+    print(f"  Std selectivity: {selectivity.std():.4f}")
+    # Top 10 most selective neurons
+    top10 = np.argsort(selectivity)[-10:][::-1]
+    print("  Top 10 most selective neurons:")
+    for n in top10:
+        best_c = concept_names[np.argmax(imp_matrix[:, n])]
+        print(f"    N{n:3d}: selectivity={selectivity[n]:.4f} best_concept={best_c}")
+    print()
+
+
+def concept_activation_layer_variance_profile(all_acts, concept_names, num_layers):
+    """Phase 705: How activation variance changes across layers for each concept."""
+    print("=" * 70)
+    print("PHASE 705: Layer Variance Profile per Concept")
+    print("=" * 70)
+    for cname in concept_names:
+        vars_per_layer = []
+        for layer in range(num_layers):
+            combined = np.vstack([all_acts[cname]["positive"][layer], all_acts[cname]["negative"][layer]])
+            vars_per_layer.append(np.mean(np.var(combined, axis=0)))
+        vars_per_layer = np.array(vars_per_layer)
+        peak_layer = np.argmax(vars_per_layer)
+        print(f"  {cname:20s} | peak_var_layer=L{peak_layer} | peak_var={vars_per_layer[peak_layer]:.4f} | L0_var={vars_per_layer[0]:.4f} | L23_var={vars_per_layer[-1]:.4f}")
+    print()
+
+
+def concept_direction_projection_kurtosis_measure(all_acts, concept_names):
+    """Phase 706: Kurtosis of projections onto concept directions."""
+    print("=" * 70)
+    print("PHASE 706: Projection Kurtosis onto Concept Directions")
+    print("=" * 70)
+    from scipy.stats import kurtosis
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = pos.mean(0) - neg.mean(0)
+        d_unit = d / (np.linalg.norm(d) + 1e-10)
+        combined = np.vstack([pos, neg])
+        proj = combined @ d_unit
+        k = kurtosis(proj, fisher=True)
+        print(f"  {cname:20s} | kurtosis={k:.4f} (>0 heavy-tailed, <0 light-tailed)")
+    print()
+
+
+def concept_neuron_top_activation_range(all_acts, concept_names):
+    """Phase 707: Activation range (max - min) of top neurons per concept."""
+    print("=" * 70)
+    print("PHASE 707: Activation Range of Top Neurons per Concept")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        diff = np.abs(pos.mean(0) - neg.mean(0))
+        top5 = np.argsort(diff)[-5:][::-1]
+        combined = np.vstack([pos, neg])
+        print(f"  {cname:20s}:")
+        for n in top5:
+            rng = combined[:, n].max() - combined[:, n].min()
+            mean_val = combined[:, n].mean()
+            print(f"    N{n:3d}: range={rng:.4f} mean={mean_val:.4f} diff={diff[n]:.4f}")
+    print()
+
+
+def concept_direction_subspace_overlap(all_acts, concept_names):
+    """Phase 708: Overlap between concept subspaces (2D) using principal angles."""
+    print("=" * 70)
+    print("PHASE 708: Concept Subspace Overlap (Principal Angles)")
+    print("=" * 70)
+    layer = 10
+    # Get 2D subspace for each concept via PCA
+    subspaces = {}
+    for cname in concept_names:
+        combined = np.vstack([all_acts[cname]["positive"][layer], all_acts[cname]["negative"][layer]])
+        combined = combined - combined.mean(0)
+        U, S, Vt = np.linalg.svd(combined, full_matrices=False)
+        subspaces[cname] = Vt[:2].T  # (hidden, 2)
+    # Pairwise principal angles
+    pairs_shown = 0
+    for i in range(len(concept_names)):
+        for j in range(i + 1, len(concept_names)):
+            A = subspaces[concept_names[i]]
+            B = subspaces[concept_names[j]]
+            M = A.T @ B
+            _, svals, _ = np.linalg.svd(M)
+            angles = np.degrees(np.arccos(np.clip(svals, 0, 1)))
+            if pairs_shown < 10:
+                print(f"  {concept_names[i]:15s} vs {concept_names[j]:15s} | principal_angles=[{angles[0]:.1f}°, {angles[1]:.1f}°]")
+                pairs_shown += 1
+    print()
+
+
+def concept_activation_class_separability(all_acts, concept_names):
+    """Phase 709: Class separability via Bhattacharyya distance."""
+    print("=" * 70)
+    print("PHASE 709: Bhattacharyya Distance Between Classes")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        mu_p, mu_n = pos.mean(0), neg.mean(0)
+        var_p, var_n = np.var(pos, axis=0) + 1e-10, np.var(neg, axis=0) + 1e-10
+        # 1D Bhattacharyya per neuron, then average
+        var_avg = 0.5 * (var_p + var_n)
+        bhat_per_neuron = 0.25 * (mu_p - mu_n)**2 / var_avg + 0.5 * np.log(var_avg / np.sqrt(var_p * var_n))
+        mean_bhat = bhat_per_neuron.mean()
+        max_bhat = bhat_per_neuron.max()
+        max_neuron = np.argmax(bhat_per_neuron)
+        print(f"  {cname:20s} | mean_bhat={mean_bhat:.4f} | max_bhat={max_bhat:.4f} at N{max_neuron}")
+    print()
+
+
+def concept_direction_cosine_to_random(all_acts, concept_names):
+    """Phase 710: Compare concept directions to random directions."""
+    print("=" * 70)
+    print("PHASE 710: Concept Directions vs Random Directions")
+    print("=" * 70)
+    layer = 10
+    hidden = all_acts[concept_names[0]]["positive"][layer].shape[1]
+    np.random.seed(710)
+    n_random = 50
+    random_dirs = np.random.randn(n_random, hidden)
+    random_dirs = random_dirs / np.linalg.norm(random_dirs, axis=1, keepdims=True)
+    for cname in concept_names:
+        d = all_acts[cname]["positive"][layer].mean(0) - all_acts[cname]["negative"][layer].mean(0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        cos_to_random = np.abs(random_dirs @ d)
+        mean_cos = cos_to_random.mean()
+        max_cos = cos_to_random.max()
+        # Expected for random in d-dim: ~sqrt(1/d)
+        expected = np.sqrt(1.0 / hidden)
+        print(f"  {cname:20s} | mean|cos|={mean_cos:.4f} | max|cos|={max_cos:.4f} | expected_random={expected:.4f}")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -24159,6 +24384,36 @@ def run_analysis():
 
     # Phase 700: THE SEVEN HUNDRED MILESTONE! (informational)
     grand_milestone_700()
+
+    # Phase 701: Cross-layer activation correlation (informational)
+    concept_activation_cross_layer_correlation(all_acts, concept_names, num_layers)
+
+    # Phase 702: Neuron activation entropy (informational)
+    concept_neuron_activation_entropy(all_acts, concept_names)
+
+    # Phase 703: Pairwise angle distribution (informational)
+    concept_direction_angle_distribution(all_acts, concept_names)
+
+    # Phase 704: Neuron selectivity index (informational)
+    concept_neuron_selectivity_ratio(all_acts, concept_names)
+
+    # Phase 705: Layer variance profile (informational)
+    concept_activation_layer_variance_profile(all_acts, concept_names, num_layers)
+
+    # Phase 706: Projection kurtosis (informational)
+    concept_direction_projection_kurtosis_measure(all_acts, concept_names)
+
+    # Phase 707: Activation range of top neurons (informational)
+    concept_neuron_top_activation_range(all_acts, concept_names)
+
+    # Phase 708: Concept subspace overlap (informational)
+    concept_direction_subspace_overlap(all_acts, concept_names)
+
+    # Phase 709: Bhattacharyya distance (informational)
+    concept_activation_class_separability(all_acts, concept_names)
+
+    # Phase 710: Concept vs random directions (informational)
+    concept_direction_cosine_to_random(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
