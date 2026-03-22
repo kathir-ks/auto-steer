@@ -1036,6 +1036,99 @@ def nmf_decomposition_analysis(all_acts, concept_names, sparse_results):
 
 
 # ---------------------------------------------------------------------------
+# PHASE 14: INLP — Iterative Nullspace Projection
+# ---------------------------------------------------------------------------
+
+def inlp_analysis(all_acts, concept_names, sparse_results):
+    """
+    Apply Iterative Nullspace Projection: for a chosen layer, sequentially
+    train classifiers for each concept, then project the data into the
+    nullspace of the classifier weight vector. This reveals the ordering
+    of concepts by their "extractability" and how much information remains
+    after each concept direction is removed.
+    """
+    print("=" * 70)
+    print("PHASE 14: INLP — Iterative Nullspace Projection")
+    print("=" * 70)
+
+    # Use a common layer (middle of network) for INLP
+    # Pick the layer used by the most concepts
+    layer_counts = {}
+    for concept_name in concept_names:
+        l = sparse_results[concept_name]["best_layer"]
+        layer_counts[l] = layer_counts.get(l, 0) + 1
+    common_layer = max(layer_counts, key=layer_counts.get)
+
+    # Also try layer 0 (earliest) and a middle layer
+    mid_layer = 12
+
+    for target_layer in sorted(set([0, common_layer, mid_layer])):
+        print(f"\n  === Layer {target_layer} ===")
+
+        # Build full dataset at this layer
+        concept_data = {}
+        for concept_name in concept_names:
+            pos = all_acts[concept_name]["positive"][target_layer]
+            neg = all_acts[concept_name]["negative"][target_layer]
+            concept_data[concept_name] = (pos, neg)
+
+        # Iteratively extract concept directions
+        hidden_size = concept_data[concept_names[0]][0].shape[1]
+        P = np.eye(hidden_size)  # projection matrix (starts as identity)
+        removed_concepts = []
+        extraction_order = []
+
+        remaining = list(concept_names)
+        for iteration in range(min(len(concept_names), 6)):
+            if not remaining:
+                break
+
+            # Find the most extractable concept in the projected space
+            best_concept = None
+            best_acc = 0
+            best_w = None
+
+            for concept_name in remaining:
+                pos_p = concept_data[concept_name][0] @ P.T
+                neg_p = concept_data[concept_name][1] @ P.T
+                X, y = make_dataset(pos_p, neg_p)
+                acc = probe_accuracy(X, y)
+                if acc > best_acc:
+                    best_acc = acc
+                    best_concept = concept_name
+                    clf, scaler = fit_probe(X, y)
+                    w = clf.coef_[0] / scaler.scale_
+                    best_w = w
+
+            if best_concept is None or best_acc < 0.55:
+                break
+
+            extraction_order.append((best_concept, best_acc))
+            remaining.remove(best_concept)
+
+            # Project into nullspace of this concept's direction
+            w_norm = best_w / (np.linalg.norm(best_w) + 1e-8)
+            P_concept = np.eye(hidden_size) - np.outer(w_norm, w_norm)
+            P = P_concept @ P
+
+            print(f"    Iter {iteration+1}: extract {best_concept:20s} "
+                  f"(acc={best_acc:.3f}), project out")
+
+        # Show remaining accuracy after all projections
+        print(f"    After removing {len(extraction_order)} directions:")
+        for concept_name in concept_names:
+            pos_p = concept_data[concept_name][0] @ P.T
+            neg_p = concept_data[concept_name][1] @ P.T
+            X, y = make_dataset(pos_p, neg_p)
+            acc = probe_accuracy(X, y)
+            removed = concept_name in [c for c, _ in extraction_order]
+            status = "REMOVED" if removed else "kept"
+            print(f"      {concept_name:20s}: acc={acc:.3f} [{status}]")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Main Analysis Pipeline
 # ---------------------------------------------------------------------------
 
@@ -1098,6 +1191,9 @@ def run_analysis():
 
     # Phase 13: NMF decomposition (informational)
     nmf_decomposition_analysis(all_acts, concept_names, sparse_results)
+
+    # Phase 14: INLP (informational)
+    inlp_analysis(all_acts, concept_names, sparse_results)
 
     # ---- Composite Score ----
     interpretability_score = (
