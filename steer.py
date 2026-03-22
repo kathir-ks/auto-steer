@@ -6500,6 +6500,86 @@ def global_neuron_importance(all_acts, concept_names, num_layers, hidden_size):
     print()
 
 
+def concept_contrastive_strength(all_acts, concept_names, sparse_results):
+    """
+    How much stronger is each concept's best neuron compared to the average concept's signal?
+    Measures the 'specificity advantage' of the best neuron.
+    """
+    print("=" * 70)
+    print("PHASE 117: Concept Contrastive Strength")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        sr = sparse_results[concept_name]
+        best_layer = sr["best_layer"]
+        top_neuron = sr["top_neurons"][0]
+
+        # Cohen's d for this neuron across all concepts
+        d_for_target = 0.0
+        d_for_others = []
+
+        for cn in concept_names:
+            pos = all_acts[cn]["positive"][best_layer]
+            neg = all_acts[cn]["negative"][best_layer]
+            mu_p = np.mean(pos[:, top_neuron])
+            mu_n = np.mean(neg[:, top_neuron])
+            std_p = np.std(pos[:, top_neuron])
+            std_n = np.std(neg[:, top_neuron])
+            pooled = np.sqrt((std_p**2 + std_n**2) / 2.0 + 1e-12)
+            d = abs(mu_p - mu_n) / pooled
+
+            if cn == concept_name:
+                d_for_target = d
+            else:
+                d_for_others.append(d)
+
+        mean_other = np.mean(d_for_others)
+        advantage = d_for_target / (mean_other + 1e-12)
+
+        print(f"  {concept_name:20s} N{top_neuron:3d}: target_d={d_for_target:.2f} "
+              f"others_mean_d={mean_other:.2f} advantage={advantage:.1f}x")
+
+    print()
+
+
+def neuron_population_statistics(all_acts, concept_names, num_layers, hidden_size):
+    """
+    Characterize the full distribution of neuron activation statistics.
+    What fraction of neurons are active, what's the typical firing rate, etc.
+    """
+    print("=" * 70)
+    print("PHASE 118: Neuron Population Statistics")
+    print("=" * 70)
+
+    for layer_idx in [0, 10, 23]:
+        # Collect all activations
+        all_X = []
+        for cn in concept_names:
+            all_X.append(all_acts[cn]["positive"][layer_idx])
+            all_X.append(all_acts[cn]["negative"][layer_idx])
+        X = np.vstack(all_X)
+
+        # Per-neuron stats
+        means = np.mean(X, axis=0)
+        stds = np.std(X, axis=0)
+
+        # Activation rate: fraction of time neuron is positive
+        pos_rate = np.mean(X > 0, axis=0)
+
+        # Sparsity: fraction of neurons that are zero (or near-zero) for each sample
+        sample_sparsity = np.mean(np.abs(X) < 0.01, axis=1)
+
+        print(f"  L{layer_idx:2d}:")
+        print(f"    Mean activation: {np.mean(means):.4f} ± {np.std(means):.4f}")
+        print(f"    Mean neuron std: {np.mean(stds):.4f}")
+        print(f"    Activation rate: {np.mean(pos_rate):.1%} neurons positive on average")
+        print(f"    Sample sparsity: {np.mean(sample_sparsity):.1%} near-zero per sample")
+        print(f"    Max neuron mean: N{np.argmax(means)} ({np.max(means):.4f})")
+        print(f"    Min neuron mean: N{np.argmin(means)} ({np.min(means):.4f})")
+
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -6922,6 +7002,12 @@ def run_analysis():
 
     # Phase 116: Global neuron importance (informational)
     global_neuron_importance(all_acts, concept_names, num_layers, hidden_size)
+
+    # Phase 117: Concept contrastive strength (informational)
+    concept_contrastive_strength(all_acts, concept_names, sparse_results)
+
+    # Phase 118: Neuron population statistics (informational)
+    neuron_population_statistics(all_acts, concept_names, num_layers, hidden_size)
 
     # ---- Composite Score ----
     interpretability_score = (
