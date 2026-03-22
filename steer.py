@@ -4585,6 +4585,104 @@ def concept_alignment_random(all_acts, concept_names, sparse_results):
     print()
 
 
+def concept_encoding_efficiency(all_acts, concept_names, sparse_results, hidden_size):
+    """
+    How efficiently does each concept use its neurons?
+    Measure mutual information between top-K neurons and concept label,
+    then compute bits-per-neuron efficiency.
+    """
+    print("=" * 70)
+    print("PHASE 75: Concept Encoding Efficiency")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        sr = sparse_results[concept_name]
+        best_layer = sr["best_layer"]
+        pos = all_acts[concept_name]["positive"][best_layer]
+        neg = all_acts[concept_name]["negative"][best_layer]
+        X = np.vstack([pos, neg])
+        y = np.array([1] * len(pos) + [0] * len(neg))
+
+        top_neurons = sr["top_neurons"][:3]
+
+        # MI for each neuron individually
+        total_mi = 0.0
+        neuron_mis = []
+        for n_idx in top_neurons:
+            mi = mutual_info_classif(X[:, n_idx:n_idx+1], y,
+                                      discrete_features=False, random_state=42)[0]
+            neuron_mis.append(mi)
+            total_mi += mi
+
+        # MI for all top neurons together
+        X_top = X[:, top_neurons]
+        joint_mi = np.sum(mutual_info_classif(X_top, y,
+                                               discrete_features=False, random_state=42))
+
+        # Redundancy ratio: if neurons carry independent info, joint ≈ sum of individual
+        redundancy = 1.0 - (joint_mi / (total_mi + 1e-12)) if total_mi > 0 else 0.0
+
+        # Bits per neuron
+        bits_per_neuron = joint_mi / len(top_neurons) if top_neurons else 0.0
+
+        # Full accuracy with just 1 neuron
+        acc_1 = sr["budget_curve"].get("1", sr["budget_curve"].get(1, 0.0))
+
+        print(f"  {concept_name:20s}: top-{len(top_neurons)} MI={joint_mi:.3f}nats "
+              f"bits/neuron={bits_per_neuron:.3f} redundancy={redundancy:.1%} "
+              f"1-neuron acc={acc_1:.3f}")
+
+    print()
+
+
+def concept_formation_rate(all_acts, concept_names, num_layers):
+    """
+    How quickly do concepts become decodable across layers?
+    Use Cohen's d as a fast proxy for decodability at each layer,
+    then compute the "formation rate" (steepest increase).
+    """
+    print("=" * 70)
+    print("PHASE 76: Concept Formation Rate")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        cohens_d_per_layer = []
+        for layer_idx in range(num_layers):
+            pos = all_acts[concept_name]["positive"][layer_idx]
+            neg = all_acts[concept_name]["negative"][layer_idx]
+            # Mean Cohen's d across neurons
+            d_vals = []
+            mu_p, mu_n = np.mean(pos, axis=0), np.mean(neg, axis=0)
+            std_p, std_n = np.std(pos, axis=0), np.std(neg, axis=0)
+            pooled_std = np.sqrt((std_p**2 + std_n**2) / 2.0 + 1e-12)
+            d_all = np.abs(mu_p - mu_n) / pooled_std
+            # Use max Cohen's d (best neuron) as decodability proxy
+            cohens_d_per_layer.append(np.max(d_all))
+
+        d_arr = np.array(cohens_d_per_layer)
+        # Formation rate: max layer-to-layer increase
+        diffs = np.diff(d_arr)
+        max_jump_layer = np.argmax(diffs)
+        max_jump = diffs[max_jump_layer]
+
+        # Peak layer
+        peak_layer = np.argmax(d_arr)
+        peak_d = d_arr[peak_layer]
+
+        # Formation onset: first layer where d > 50% of peak
+        onset = 0
+        for li in range(num_layers):
+            if d_arr[li] >= 0.5 * peak_d:
+                onset = li
+                break
+
+        print(f"  {concept_name:20s}: peak=L{peak_layer} (d={peak_d:.2f}) "
+              f"onset=L{onset} max_jump=L{max_jump_layer}→L{max_jump_layer+1} "
+              f"(Δd={max_jump:.2f})")
+
+    print()
+
+
 # ---------------------------------------------------------------------------
 # Main Analysis Pipeline
 # ---------------------------------------------------------------------------
@@ -4833,6 +4931,12 @@ def run_analysis():
 
     # Phase 74: Concept alignment with random (informational)
     concept_alignment_random(all_acts, concept_names, sparse_results)
+
+    # Phase 75: Concept encoding efficiency (informational)
+    concept_encoding_efficiency(all_acts, concept_names, sparse_results, hidden_size)
+
+    # Phase 76: Concept formation rate (informational)
+    concept_formation_rate(all_acts, concept_names, num_layers)
 
     # ---- Composite Score ----
     interpretability_score = (
