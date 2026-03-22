@@ -1729,6 +1729,67 @@ def activation_distribution_analysis(all_acts, concept_names, sparse_results):
 
 
 # ---------------------------------------------------------------------------
+# PHASE 24: Neuron Co-activation — functional connectivity
+# ---------------------------------------------------------------------------
+
+def neuron_coactivation_analysis(all_acts, concept_names, sparse_results):
+    """
+    Measure co-activation patterns between concept neurons. When concept A's
+    top neuron fires strongly, do other concept neurons also fire? Reveals
+    functional connectivity in the representation.
+    """
+    print("=" * 70)
+    print("PHASE 24: Neuron Co-activation — Functional Connectivity")
+    print("=" * 70)
+
+    # Collect top neuron activations for each concept across all samples
+    # Use a common layer (mid-network) so all neurons are comparable
+    mid_layer = 12
+
+    # For each concept, get its top neuron's activation at mid layer
+    neuron_acts = {}
+    for concept_name in concept_names:
+        top_neuron = sparse_results[concept_name]["top_neurons"][0]
+        all_samples = []
+        for c2 in concept_names:
+            pos = all_acts[c2]["positive"][mid_layer][:, top_neuron]
+            neg = all_acts[c2]["negative"][mid_layer][:, top_neuron]
+            all_samples.extend(pos.tolist())
+            all_samples.extend(neg.tolist())
+        neuron_acts[concept_name] = np.array(all_samples)
+
+    # Compute correlation matrix between concept neurons
+    n = len(concept_names)
+    corr_matrix = np.zeros((n, n))
+    for i, c1 in enumerate(concept_names):
+        for j, c2 in enumerate(concept_names):
+            corr_matrix[i, j] = np.corrcoef(
+                neuron_acts[c1], neuron_acts[c2])[0, 1]
+
+    # Print correlation matrix
+    header = "                " + "".join(f"{c[:6]:>8s}" for c in concept_names)
+    print(header)
+    for i, c1 in enumerate(concept_names):
+        row = f"  {c1[:14]:14s}"
+        for j in range(n):
+            row += f"  {corr_matrix[i,j]:+5.2f}"
+        print(row)
+
+    # Identify strongly correlated/anti-correlated pairs
+    print(f"\n  Notable co-activation patterns:")
+    pairs = []
+    for i in range(n):
+        for j in range(i + 1, n):
+            pairs.append((concept_names[i], concept_names[j], corr_matrix[i, j]))
+    pairs.sort(key=lambda x: -abs(x[2]))
+    for c1, c2, r in pairs[:5]:
+        label = "CO-ACTIVATE" if r > 0.3 else ("ANTI-CORRELATED" if r < -0.3 else "independent")
+        print(f"    {c1:15s} - {c2:15s}: r={r:+.3f} [{label}]")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Main Analysis Pipeline
 # ---------------------------------------------------------------------------
 
@@ -1821,6 +1882,9 @@ def run_analysis():
 
     # Phase 23: Activation distributions (informational)
     activation_distribution_analysis(all_acts, concept_names, sparse_results)
+
+    # Phase 24: Neuron co-activation (informational)
+    neuron_coactivation_analysis(all_acts, concept_names, sparse_results)
 
     # ---- Composite Score ----
     interpretability_score = (
