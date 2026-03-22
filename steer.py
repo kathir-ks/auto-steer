@@ -3043,6 +3043,128 @@ def concept_snr_analysis(all_acts, concept_names, sparse_results):
 
 
 # ---------------------------------------------------------------------------
+# PHASE 45: Activation Regime Analysis
+# ---------------------------------------------------------------------------
+
+def activation_regime_analysis(all_acts, concept_names, sparse_results):
+    """
+    Characterize whether concept neurons operate in linear, saturated,
+    or near-dead activation regimes. Reports activation statistics.
+    """
+    print("=" * 70)
+    print("PHASE 45: Activation Regime Analysis — Neuron Operating Modes")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        best_layer = sparse_results[concept_name]["best_layer"]
+        top_neuron = sparse_results[concept_name]["top_neurons"][0]
+
+        pos_acts = all_acts[concept_name]["positive"][best_layer][:, top_neuron]
+        neg_acts = all_acts[concept_name]["negative"][best_layer][:, top_neuron]
+        all_a = np.concatenate([pos_acts, neg_acts])
+
+        # Statistics
+        mean_a = np.mean(all_a)
+        std_a = np.std(all_a)
+        min_a = np.min(all_a)
+        max_a = np.max(all_a)
+        range_a = max_a - min_a
+
+        # Fraction near zero (potentially "dead")
+        near_zero = np.mean(np.abs(all_a) < 0.01)
+
+        # Fraction at extremes (potentially "saturated")
+        q01, q99 = np.percentile(all_a, [1, 99])
+        dynamic_range = q99 - q01
+
+        # Coefficient of variation
+        cv = std_a / (abs(mean_a) + 1e-12)
+
+        # Regime classification
+        if near_zero > 0.5:
+            regime = "sparse/dead"
+        elif cv < 0.3:
+            regime = "narrow"
+        elif dynamic_range > 2.0:
+            regime = "wide-range"
+        else:
+            regime = "moderate"
+
+        print(f"  {concept_name:20s} N{top_neuron:3d}@L{best_layer:2d}: "
+              f"μ={mean_a:+.3f} σ={std_a:.3f} range=[{min_a:.2f},{max_a:.2f}] "
+              f"zero={near_zero:.0%} → {regime}")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
+# PHASE 46: Concept Encoding Capacity
+# ---------------------------------------------------------------------------
+
+def concept_encoding_capacity(all_acts, concept_names, sparse_results, num_layers):
+    """
+    Estimate how many binary concepts could be encoded in the network's
+    representation at each layer using random probing baselines.
+    """
+    print("=" * 70)
+    print("PHASE 46: Concept Encoding Capacity")
+    print("=" * 70)
+
+    # Test at 3 representative layers
+    test_layers = [0, num_layers // 2, num_layers - 1]
+    rng = np.random.RandomState(42)
+
+    for l in test_layers:
+        # Collect all activations at this layer
+        all_X = []
+        for concept_name in concept_names:
+            pos = all_acts[concept_name]["positive"][l]
+            neg = all_acts[concept_name]["negative"][l]
+            all_X.append(pos)
+            all_X.append(neg)
+        X = np.vstack(all_X)
+        n_samples = X.shape[0]
+
+        # Accuracy on real concepts
+        real_accs = []
+        for concept_name in concept_names:
+            pos = all_acts[concept_name]["positive"][l]
+            neg = all_acts[concept_name]["negative"][l]
+            X_c = np.vstack([pos, neg])
+            y_c = np.array([1] * len(pos) + [0] * len(neg))
+            scaler = StandardScaler()
+            X_sc = scaler.fit_transform(X_c)
+            clf = LogisticRegression(C=1.0, max_iter=200, random_state=42)
+            clf.fit(X_sc, y_c)
+            real_accs.append(clf.score(X_sc, y_c))
+
+        # Accuracy on random binary labels (baseline)
+        n_random = 20
+        random_accs = []
+        for _ in range(n_random):
+            y_rand = rng.randint(0, 2, n_samples)
+            scaler = StandardScaler()
+            X_sc = scaler.fit_transform(X)
+            clf = LogisticRegression(C=1.0, max_iter=200, random_state=42)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                clf.fit(X_sc, y_rand)
+            random_accs.append(clf.score(X_sc, y_rand))
+
+        mean_real = np.mean(real_accs)
+        mean_random = np.mean(random_accs)
+        std_random = np.std(random_accs)
+
+        # Capacity estimate: how many σ above random baseline?
+        z_score = (mean_real - mean_random) / (std_random + 1e-12)
+
+        print(f"  L{l:2d}: real={mean_real:.3f} random={mean_random:.3f}±{std_random:.3f} "
+              f"z={z_score:.1f}σ")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Main Analysis Pipeline
 # ---------------------------------------------------------------------------
 
@@ -3199,6 +3321,12 @@ def run_analysis():
 
     # Phase 44: Concept SNR (informational)
     concept_snr_analysis(all_acts, concept_names, sparse_results)
+
+    # Phase 45: Activation regime (informational)
+    activation_regime_analysis(all_acts, concept_names, sparse_results)
+
+    # Phase 46: Encoding capacity (informational)
+    concept_encoding_capacity(all_acts, concept_names, sparse_results, num_layers)
 
     # ---- Composite Score ----
     interpretability_score = (
