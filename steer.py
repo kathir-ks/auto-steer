@@ -4860,6 +4860,86 @@ def neuron_correlation_structure(all_acts, concept_names, sparse_results):
     print()
 
 
+def concept_manifold_dimensionality(all_acts, concept_names, sparse_results):
+    """
+    Intrinsic dimensionality of each concept's activation cloud.
+    Uses PCA to find how many dimensions capture 90% of within-concept variance.
+    """
+    print("=" * 70)
+    print("PHASE 81: Concept Manifold Dimensionality")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        sr = sparse_results[concept_name]
+        best_layer = sr["best_layer"]
+        pos = all_acts[concept_name]["positive"][best_layer]
+        neg = all_acts[concept_name]["negative"][best_layer]
+
+        for label, data in [("pos", pos), ("neg", neg)]:
+            centered = data - np.mean(data, axis=0)
+            # Use SVD for PCA
+            U, S, Vt = np.linalg.svd(centered, full_matrices=False)
+            var_explained = (S ** 2) / (np.sum(S ** 2) + 1e-12)
+            cum_var = np.cumsum(var_explained)
+
+            # Dims for 90% and 95% variance
+            dim_90 = int(np.searchsorted(cum_var, 0.90)) + 1
+            dim_95 = int(np.searchsorted(cum_var, 0.95)) + 1
+
+            # Participation ratio (effective dimensionality)
+            pr = (np.sum(S**2))**2 / (np.sum(S**4) + 1e-12)
+
+            if label == "pos":
+                print(f"  {concept_name:20s}: pos 90%={dim_90:2d}d 95%={dim_95:2d}d PR={pr:.1f}", end="")
+            else:
+                print(f"  neg 90%={dim_90:2d}d 95%={dim_95:2d}d PR={pr:.1f}")
+
+    print()
+
+
+def layerwise_information_flow(all_acts, concept_names, num_layers):
+    """
+    Track how concept-relevant information flows across layers.
+    At each layer transition, measure: new info added vs info preserved.
+    Uses Cohen's d as proxy for concept signal strength.
+    """
+    print("=" * 70)
+    print("PHASE 82: Layer-wise Information Flow")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        d_per_layer = []
+        for layer_idx in range(num_layers):
+            pos = all_acts[concept_name]["positive"][layer_idx]
+            neg = all_acts[concept_name]["negative"][layer_idx]
+            mu_p, mu_n = np.mean(pos, axis=0), np.mean(neg, axis=0)
+            std_p, std_n = np.std(pos, axis=0), np.std(neg, axis=0)
+            pooled = np.sqrt((std_p**2 + std_n**2) / 2.0 + 1e-12)
+            d_all = np.abs(mu_p - mu_n) / pooled
+            d_per_layer.append(np.mean(np.sort(d_all)[-10:]))  # top-10 mean
+
+        d_arr = np.array(d_per_layer)
+        # Classify each transition
+        gains = []
+        losses = []
+        for i in range(1, num_layers):
+            delta = d_arr[i] - d_arr[i-1]
+            if delta > 0.05:
+                gains.append(i)
+            elif delta < -0.05:
+                losses.append(i)
+
+        # Net flow pattern
+        total_gain = sum(max(0, d_arr[i] - d_arr[i-1]) for i in range(1, num_layers))
+        total_loss = sum(max(0, d_arr[i-1] - d_arr[i]) for i in range(1, num_layers))
+
+        print(f"  {concept_name:20s}: gain_layers={len(gains)} loss_layers={len(losses)} "
+              f"net_gain={total_gain:.2f} net_loss={total_loss:.2f} "
+              f"efficiency={total_gain/(total_gain+total_loss+1e-12):.1%}")
+
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -5174,6 +5254,12 @@ def run_analysis():
 
     # Phase 80: Neuron correlation structure (informational)
     neuron_correlation_structure(all_acts, concept_names, sparse_results)
+
+    # Phase 81: Concept manifold dimensionality (informational)
+    concept_manifold_dimensionality(all_acts, concept_names, sparse_results)
+
+    # Phase 82: Layer-wise information flow (informational)
+    layerwise_information_flow(all_acts, concept_names, num_layers)
 
     # ---- Composite Score ----
     interpretability_score = (
