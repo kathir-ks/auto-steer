@@ -5477,6 +5477,83 @@ def activation_anisotropy_per_layer(all_acts, concept_names, num_layers):
     print()
 
 
+def concept_separability_evolution(all_acts, concept_names, num_layers):
+    """
+    Track Fisher's linear discriminant ratio across all layers for each concept.
+    J = (mu_p - mu_n)^2 / (sigma_p^2 + sigma_n^2) — higher = better separation.
+    """
+    print("=" * 70)
+    print("PHASE 95: Concept Separability Evolution (Fisher's J)")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        j_per_layer = []
+        for layer_idx in range(num_layers):
+            pos = all_acts[concept_name]["positive"][layer_idx]
+            neg = all_acts[concept_name]["negative"][layer_idx]
+            mu_p, mu_n = np.mean(pos, axis=0), np.mean(neg, axis=0)
+            var_p, var_n = np.var(pos, axis=0), np.var(neg, axis=0)
+            # Fisher J for each neuron, take max
+            j_all = (mu_p - mu_n)**2 / (var_p + var_n + 1e-12)
+            j_per_layer.append(np.max(j_all))
+
+        j_arr = np.array(j_per_layer)
+        peak = np.argmax(j_arr)
+
+        # Sparkline of J values
+        j_norm = j_arr / (np.max(j_arr) + 1e-12)
+        spark_chars = " ▁▂▃▄▅▆▇█"
+        sparkline = "".join(spark_chars[min(8, int(v * 8))] for v in j_norm)
+
+        print(f"  {concept_name:20s}: peak=L{peak} J={j_arr[peak]:.2f} "
+              f"[{sparkline}]")
+
+    print()
+
+
+def neuron_dead_zone_analysis(all_acts, concept_names, num_layers, hidden_size):
+    """
+    Identify neurons that are effectively 'dead' — never activate strongly for any concept.
+    Also find neurons that are always active (saturated high).
+    """
+    print("=" * 70)
+    print("PHASE 96: Neuron Dead Zone Analysis")
+    print("=" * 70)
+
+    # Check at a few representative layers
+    for layer_idx in [0, 10, 23]:
+        # Gather all activations at this layer
+        all_vals = []
+        for concept_name in concept_names:
+            pos = all_acts[concept_name]["positive"][layer_idx]
+            neg = all_acts[concept_name]["negative"][layer_idx]
+            all_vals.append(pos)
+            all_vals.append(neg)
+        X = np.vstack(all_vals)
+
+        # Per-neuron statistics
+        means = np.mean(X, axis=0)
+        stds = np.std(X, axis=0)
+        maxs = np.max(np.abs(X), axis=0)
+
+        # Dead: std < 0.001 (never varies)
+        dead = np.sum(stds < 0.001)
+        # Near-zero: max activation < 0.01
+        near_zero = np.sum(maxs < 0.01)
+        # Always active: min > 0.1
+        mins = np.min(X, axis=0)
+        always_on = np.sum(mins > 0.1)
+        # High variance: std > 1.0
+        high_var = np.sum(stds > 1.0)
+
+        print(f"  L{layer_idx:2d}: dead(σ<0.001)={dead:3d} "
+              f"near_zero(max<0.01)={near_zero:3d} "
+              f"always_on(min>0.1)={always_on:3d} "
+              f"high_var(σ>1.0)={high_var:3d}")
+
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -5833,6 +5910,12 @@ def run_analysis():
 
     # Phase 94: Activation anisotropy per layer (informational)
     activation_anisotropy_per_layer(all_acts, concept_names, num_layers)
+
+    # Phase 95: Concept separability evolution (informational)
+    concept_separability_evolution(all_acts, concept_names, num_layers)
+
+    # Phase 96: Neuron dead zone analysis (informational)
+    neuron_dead_zone_analysis(all_acts, concept_names, num_layers, hidden_size)
 
     # ---- Composite Score ----
     interpretability_score = (
