@@ -136,6 +136,9 @@ def sparse_probing(all_acts, concept_names, num_layers):
         best_weights = None
 
         for layer_idx in range(num_layers):
+            if best_min_neurons <= 1:
+                break  # can't improve beyond 1 neuron
+
             pos_l = all_acts[concept_name]["positive"][layer_idx]
             neg_l = all_acts[concept_name]["negative"][layer_idx]
             hidden_size = pos_l.shape[1]
@@ -161,14 +164,16 @@ def sparse_probing(all_acts, concept_names, num_layers):
                 r_min = hidden_size
                 r_curve = {}
                 for budget in SPARSITY_BUDGETS:
-                    if budget > hidden_size:
-                        break
+                    if budget > hidden_size or budget > r_min:
+                        break  # no point checking larger budgets
                     top_k = ranking[:budget]
                     X_sp, y_sp = make_dataset(pos_l[:, top_k], neg_l[:, top_k])
                     acc_sp = probe_accuracy(X_sp, y_sp, C=1.0)
                     r_curve[budget] = acc_sp
                     if acc_sp >= ACCURACY_THRESHOLD and budget < r_min:
                         r_min = budget
+                    if acc_sp >= 1.0 - 1e-8:
+                        break  # perfect accuracy, no need to check more
                 if r_min < layer_min:
                     layer_min = r_min
                     layer_curve = r_curve
