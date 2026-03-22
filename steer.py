@@ -17512,6 +17512,236 @@ def grand_milestone_500():
     print()
 
 
+def concept_activation_projection_histogram(all_acts, concept_names):
+    """Phase 501: Histogram of activation projections onto concept directions."""
+    print("=" * 70)
+    print("PHASE 501: Activation Projection Histograms")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = pos.mean(0) - neg.mean(0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        proj_p = pos @ d
+        proj_n = neg @ d
+        overlap = max(0, min(proj_p.max(), proj_n.max()) - max(proj_p.min(), proj_n.min()))
+        total_range = max(proj_p.max(), proj_n.max()) - min(proj_p.min(), proj_n.min())
+        overlap_frac = overlap / (total_range + 1e-10)
+        print(f"  {cname:20s} pos_mean={proj_p.mean():.3f} neg_mean={proj_n.mean():.3f} overlap_frac={overlap_frac:.4f}")
+    print()
+
+
+def concept_neuron_redundancy_correlation(all_acts, concept_names, sparse_results):
+    """Phase 502: How redundant are the top neurons for each concept."""
+    print("=" * 70)
+    print("PHASE 502: Top Neuron Redundancy Analysis")
+    print("=" * 70)
+    for cname in concept_names:
+        sr = sparse_results.get(cname, {})
+        best_layer = sr.get("best_layer", 10)
+        top_ns = sr.get("top_neurons", [0, 1, 2])[:3]
+        pos = all_acts[cname]["positive"][best_layer]
+        neg = all_acts[cname]["negative"][best_layer]
+        acts = np.concatenate([pos, neg], axis=0)
+        if len(top_ns) >= 2:
+            vals = acts[:, top_ns]
+            corr = np.corrcoef(vals.T)
+            mean_corr = np.mean(np.abs(corr[np.triu_indices(len(top_ns), k=1)]))
+            print(f"  {cname:20s} mean |corr| among top {len(top_ns)} neurons: {mean_corr:.4f}")
+        else:
+            print(f"  {cname:20s} (not enough top neurons)")
+    print()
+
+
+def concept_direction_angle_layer_evolution(all_acts, concept_names):
+    """Phase 503: How pairwise concept angles evolve across layers."""
+    print("=" * 70)
+    print("PHASE 503: Pairwise Concept Angle Evolution Across Layers")
+    print("=" * 70)
+    num_layers = len(all_acts[concept_names[0]]["positive"])
+    # Pick the most correlated pair: sentiment vs emotion_joy_anger
+    c1, c2 = "sentiment", "emotion_joy_anger"
+    if c1 in concept_names and c2 in concept_names:
+        angles = []
+        for l in range(num_layers):
+            d1 = all_acts[c1]["positive"][l].mean(0) - all_acts[c1]["negative"][l].mean(0)
+            d2 = all_acts[c2]["positive"][l].mean(0) - all_acts[c2]["negative"][l].mean(0)
+            cos = np.dot(d1, d2) / (np.linalg.norm(d1) * np.linalg.norm(d2) + 1e-10)
+            angles.append(np.degrees(np.arccos(np.clip(cos, -1, 1))))
+        min_l = int(np.argmin(angles))
+        max_l = int(np.argmax(angles))
+        print(f"  {c1} vs {c2}:")
+        print(f"    Min angle: {angles[min_l]:.1f}° at L{min_l}")
+        print(f"    Max angle: {angles[max_l]:.1f}° at L{max_l}")
+        print(f"    L0: {angles[0]:.1f}°  L10: {angles[10]:.1f}°  L23: {angles[23]:.1f}°")
+    print()
+
+
+def concept_activation_sparse_coding(all_acts, concept_names):
+    """Phase 504: Sparse coding of concept activations via OMP."""
+    print("=" * 70)
+    print("PHASE 504: Sparse Coding of Concept Activations")
+    print("=" * 70)
+    layer = 10
+    all_data = []
+    for cname in concept_names:
+        all_data.append(all_acts[cname]["positive"][layer])
+        all_data.append(all_acts[cname]["negative"][layer])
+    all_data = np.vstack(all_data)
+    # Use SVD as dictionary
+    U, S, Vt = np.linalg.svd(all_data - all_data.mean(0), full_matrices=False)
+    dict_atoms = Vt[:20]  # top 20 atoms
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = pos.mean(0) - neg.mean(0)
+        coeffs = dict_atoms @ d
+        sorted_idx = np.argsort(np.abs(coeffs))[::-1]
+        top3 = sorted_idx[:3]
+        recon = dict_atoms[top3].T @ coeffs[top3]
+        recon_err = np.linalg.norm(d - recon) / (np.linalg.norm(d) + 1e-10)
+        print(f"  {cname:20s} top 3 atoms reconstruct {(1-recon_err)*100:.1f}% of direction")
+    print()
+
+
+def concept_neuron_activation_temporal_pattern(all_acts, concept_names, sparse_results):
+    """Phase 505: Check if top neuron activations show sample-order patterns."""
+    print("=" * 70)
+    print("PHASE 505: Neuron Activation Sample-Order Patterns")
+    print("=" * 70)
+    for cname in concept_names:
+        sr = sparse_results.get(cname, {})
+        best_layer = sr.get("best_layer", 10)
+        top_ns = sr.get("top_neurons", [0, 1, 2])[:1]
+        pos = all_acts[cname]["positive"][best_layer]
+        for n in top_ns:
+            vals = pos[:, n]
+            # Autocorrelation at lag 1
+            if len(vals) > 2:
+                mean_v = vals.mean()
+                var_v = vals.var()
+                if var_v > 0:
+                    autocorr = np.mean((vals[:-1] - mean_v) * (vals[1:] - mean_v)) / var_v
+                else:
+                    autocorr = 0
+            else:
+                autocorr = 0
+            print(f"  {cname:20s} N{n:3d}: lag-1 autocorr={autocorr:.4f}")
+    print()
+
+
+def concept_direction_effective_dimensionality(all_acts, concept_names):
+    """Phase 506: Effective dimensionality of the concept direction subspace."""
+    print("=" * 70)
+    print("PHASE 506: Concept Direction Subspace Effective Dimensionality")
+    print("=" * 70)
+    layer = 10
+    dirs = []
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = pos.mean(0) - neg.mean(0)
+        dirs.append(d)
+    D = np.array(dirs)
+    U, S, Vt = np.linalg.svd(D, full_matrices=False)
+    S_norm = S / S.sum()
+    eff_dim = np.exp(-np.sum(S_norm * np.log(S_norm + 1e-10)))
+    cum_var = np.cumsum(S**2) / np.sum(S**2)
+    n95 = int(np.searchsorted(cum_var, 0.95)) + 1
+    print(f"  Effective dimensionality of concept subspace: {eff_dim:.2f}")
+    print(f"  Dims for 95% variance: {n95}")
+    print(f"  Singular values: {', '.join(f'{s:.2f}' for s in S)}")
+    print()
+
+
+def concept_activation_between_within_ratio(all_acts, concept_names):
+    """Phase 507: Between-class / within-class variance ratio (multivariate)."""
+    print("=" * 70)
+    print("PHASE 507: Between/Within Class Variance Ratio (Multivariate)")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        grand_mean = np.concatenate([pos, neg], axis=0).mean(0)
+        n_p, n_n = len(pos), len(neg)
+        between = n_p * np.outer(pos.mean(0) - grand_mean, pos.mean(0) - grand_mean) + \
+                  n_n * np.outer(neg.mean(0) - grand_mean, neg.mean(0) - grand_mean)
+        within = (pos - pos.mean(0)).T @ (pos - pos.mean(0)) + \
+                 (neg - neg.mean(0)).T @ (neg - neg.mean(0))
+        # Use trace ratio as simple scalar
+        bw_ratio = np.trace(between) / (np.trace(within) + 1e-10)
+        print(f"  {cname:20s} trace(B)/trace(W) = {bw_ratio:.4f}")
+    print()
+
+
+def concept_neuron_sparsity_gini(all_acts, concept_names):
+    """Phase 508: Gini coefficient of neuron importance for each concept."""
+    print("=" * 70)
+    print("PHASE 508: Neuron Importance Gini Coefficient")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = pos.mean(0) - neg.mean(0)
+        importance = np.abs(d)
+        importance = np.sort(importance)
+        n = len(importance)
+        idx = np.arange(1, n + 1)
+        gini = (2 * np.sum(idx * importance) / (n * np.sum(importance)) - (n + 1) / n) if np.sum(importance) > 0 else 0
+        print(f"  {cname:20s} Gini coefficient: {gini:.4f}")
+    print()
+
+
+def concept_direction_pairwise_projection(all_acts, concept_names):
+    """Phase 509: Projection of each concept's data onto other concept directions."""
+    print("=" * 70)
+    print("PHASE 509: Cross-Concept Projection Analysis")
+    print("=" * 70)
+    layer = 10
+    dirs = {}
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = pos.mean(0) - neg.mean(0)
+        dirs[cname] = d / (np.linalg.norm(d) + 1e-10)
+    # Show how much concept A data projects onto concept B direction
+    for c1 in concept_names[:4]:
+        pos = all_acts[c1]["positive"][layer]
+        neg = all_acts[c1]["negative"][layer]
+        data = np.vstack([pos, neg])
+        projections = {}
+        for c2 in concept_names[:4]:
+            if c2 == c1:
+                continue
+            proj_var = np.var(data @ dirs[c2])
+            projections[c2] = proj_var
+        parts = [f"{c2}:{v:.2f}" for c2, v in projections.items()]
+        print(f"  {c1:15s} proj variance onto: " + " | ".join(parts))
+    print()
+
+
+def concept_activation_layer_transition_smoothness(all_acts, concept_names):
+    """Phase 510: Smoothness of concept direction transitions between layers."""
+    print("=" * 70)
+    print("PHASE 510: Layer Transition Smoothness")
+    print("=" * 70)
+    num_layers = len(all_acts[concept_names[0]]["positive"])
+    for cname in concept_names:
+        cosines = []
+        for l in range(num_layers - 1):
+            d1 = all_acts[cname]["positive"][l].mean(0) - all_acts[cname]["negative"][l].mean(0)
+            d2 = all_acts[cname]["positive"][l+1].mean(0) - all_acts[cname]["negative"][l+1].mean(0)
+            cos = np.dot(d1, d2) / (np.linalg.norm(d1) * np.linalg.norm(d2) + 1e-10)
+            cosines.append(cos)
+        smoothness = np.mean(cosines)
+        roughest = int(np.argmin(cosines))
+        print(f"  {cname:20s} mean smoothness: {smoothness:.4f}, roughest: L{roughest}->L{roughest+1} ({cosines[roughest]:.4f})")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -19086,6 +19316,36 @@ def run_analysis():
 
     # Phase 500: THE BIG 500 MILESTONE! (informational)
     grand_milestone_500()
+
+    # Phase 501: Activation projection histograms (informational)
+    concept_activation_projection_histogram(all_acts, concept_names)
+
+    # Phase 502: Top neuron redundancy correlation (informational)
+    concept_neuron_redundancy_correlation(all_acts, concept_names, sparse_results)
+
+    # Phase 503: Pairwise concept angle evolution (informational)
+    concept_direction_angle_layer_evolution(all_acts, concept_names)
+
+    # Phase 504: Sparse coding of concept activations (informational)
+    concept_activation_sparse_coding(all_acts, concept_names)
+
+    # Phase 505: Neuron activation sample-order patterns (informational)
+    concept_neuron_activation_temporal_pattern(all_acts, concept_names, sparse_results)
+
+    # Phase 506: Concept direction subspace effective dimensionality (informational)
+    concept_direction_effective_dimensionality(all_acts, concept_names)
+
+    # Phase 507: Between/within class variance ratio (informational)
+    concept_activation_between_within_ratio(all_acts, concept_names)
+
+    # Phase 508: Neuron importance Gini coefficient (informational)
+    concept_neuron_sparsity_gini(all_acts, concept_names)
+
+    # Phase 509: Cross-concept projection analysis (informational)
+    concept_direction_pairwise_projection(all_acts, concept_names)
+
+    # Phase 510: Layer transition smoothness (informational)
+    concept_activation_layer_transition_smoothness(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
