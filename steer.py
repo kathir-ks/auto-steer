@@ -1897,6 +1897,51 @@ def neuron_specificity_spectrum(all_acts, concept_names, num_layers):
 
 
 # ---------------------------------------------------------------------------
+# PHASE 27: Concept Bottleneck — best single layer for all concepts
+# ---------------------------------------------------------------------------
+
+def concept_bottleneck_analysis(concept_names, locality_results, num_layers):
+    """
+    Find which single layer maximizes the mean accuracy across ALL concepts.
+    This is the network's "concept bottleneck" — the representation where
+    the most concept information is simultaneously accessible.
+    """
+    print("=" * 70)
+    print("PHASE 27: Concept Bottleneck — Optimal Single Layer")
+    print("=" * 70)
+
+    # For each layer, compute mean accuracy across all concepts
+    layer_scores = np.zeros(num_layers)
+    for layer_idx in range(num_layers):
+        accs = []
+        for concept_name in concept_names:
+            accs.append(locality_results[concept_name]["layer_accuracies"][layer_idx])
+        layer_scores[layer_idx] = np.mean(accs)
+
+    best_layer = int(np.argmax(layer_scores))
+    best_score = layer_scores[best_layer]
+
+    # Print layer scores compactly
+    print(f"  Mean accuracy across all {len(concept_names)} concepts per layer:\n")
+    for l in range(num_layers):
+        bar = "█" * int(layer_scores[l] * 40)
+        marker = " ◄ BEST" if l == best_layer else ""
+        print(f"    L{l:2d}: {layer_scores[l]:.3f} {bar}{marker}")
+
+    # Top-3 bottleneck layers
+    top3 = np.argsort(layer_scores)[::-1][:3]
+    print(f"\n  Bottleneck layers: {', '.join(f'L{l}({layer_scores[l]:.3f})' for l in top3)}")
+
+    # Per-concept accuracy at the bottleneck layer
+    print(f"\n  Per-concept accuracy at bottleneck L{best_layer}:")
+    for concept_name in concept_names:
+        acc = locality_results[concept_name]["layer_accuracies"][best_layer]
+        print(f"    {concept_name:20s}: {acc:.3f}")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Main Analysis Pipeline
 # ---------------------------------------------------------------------------
 
@@ -1998,6 +2043,9 @@ def run_analysis():
 
     # Phase 26: Neuron specificity spectrum (informational)
     neuron_specificity_spectrum(all_acts, concept_names, num_layers)
+
+    # Phase 27: Concept bottleneck (informational, reuses Phase 4 data)
+    concept_bottleneck_analysis(concept_names, locality_results, num_layers)
 
     # ---- Composite Score ----
     interpretability_score = (
