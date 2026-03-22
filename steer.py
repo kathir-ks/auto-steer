@@ -8677,6 +8677,209 @@ def grand_milestone_170(all_acts, concept_names, sparse_results, num_layers, hid
     print()
 
 
+def concept_direction_norm_evolution(all_acts, concept_names, num_layers):
+    """Track how concept direction norms change across layers."""
+    print("=" * 70)
+    print("PHASE 171: Concept Direction Norm Evolution")
+    print("=" * 70)
+
+    for cname in concept_names:
+        norms = []
+        for layer in range(num_layers):
+            pos = all_acts[cname]["positive"][layer]
+            neg = all_acts[cname]["negative"][layer]
+            d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+            norms.append(np.linalg.norm(d))
+
+        max_norm = max(norms)
+        bars = "▁▂▃▄▅▆▇█"
+        spark = ""
+        for n in norms:
+            idx = min(int(n / max_norm * 8), 7) if max_norm > 0 else 0
+            spark += bars[idx]
+
+        peak = int(np.argmax(norms))
+        growth = norms[-1] / (norms[0] + 1e-10)
+
+        print(f"  {cname:20s} [{spark}] peak=L{peak} growth={growth:.1f}x "
+              f"L0={norms[0]:.3f} L23={norms[-1]:.3f}")
+
+    print()
+
+
+def neuron_importance_distribution(all_acts, concept_names):
+    """Distribution shape of neuron importance (Cohen's d) at L10."""
+    print("=" * 70)
+    print("PHASE 172: Neuron Importance Distribution (L10)")
+    print("=" * 70)
+
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][10]
+        neg = all_acts[cname]["negative"][10]
+        diff = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        pooled = np.sqrt((np.var(pos, axis=0) + np.var(neg, axis=0)) / 2)
+        d = np.abs(diff) / np.maximum(pooled, 1e-10)
+
+        # Distribution stats
+        n_above_1 = np.sum(d > 1.0)
+        n_above_2 = np.sum(d > 2.0)
+        n_above_3 = np.sum(d > 3.0)
+
+        # Gini of importance
+        sorted_d = np.sort(d)
+        n = len(sorted_d)
+        gini = (2 * np.sum((np.arange(1, n+1)) * sorted_d) / (n * np.sum(sorted_d))) - (n+1)/n
+
+        print(f"  {cname:20s} |d|>1:{n_above_1:3d} |d|>2:{n_above_2:3d} |d|>3:{n_above_3:3d} "
+              f"gini={gini:.3f} max={np.max(d):.2f}")
+
+    print()
+
+
+def concept_mutual_predictability(all_acts, concept_names):
+    """Can you predict one concept from another's representation?"""
+    print("=" * 70)
+    print("PHASE 173: Concept Mutual Predictability (L10)")
+    print("=" * 70)
+
+    # For each pair, use concept A's diff-of-means direction to classify concept B
+    names = list(concept_names)
+    print(f"  {'':20s}", end="")
+    for n in names:
+        print(f" {n[:6]:>6s}", end="")
+    print("  (cross-prediction accuracy)")
+
+    for cname in names:
+        pos = all_acts[cname]["positive"][10]
+        neg = all_acts[cname]["negative"][10]
+        direction = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        direction = direction / (np.linalg.norm(direction) + 1e-10)
+        threshold = np.mean(np.concatenate([pos @ direction, neg @ direction]))
+
+        print(f"  {cname:20s}", end="")
+        for target in names:
+            tp = all_acts[target]["positive"][10]
+            tn = all_acts[target]["negative"][10]
+            pos_pred = (tp @ direction > threshold).mean()
+            neg_pred = (tn @ direction <= threshold).mean()
+            acc = (pos_pred + neg_pred) / 2
+            print(f" {acc:6.2f}", end="")
+        print()
+
+    print()
+
+
+def activation_variance_decomposition(all_acts, concept_names, num_layers):
+    """Decompose activation variance into between-concept and within-concept."""
+    print("=" * 70)
+    print("PHASE 174: Activation Variance Decomposition")
+    print("=" * 70)
+
+    for layer in [0, 5, 10, 15, 23]:
+        all_data = []
+        labels = []
+        for i, cname in enumerate(concept_names):
+            pos = all_acts[cname]["positive"][layer]
+            neg = all_acts[cname]["negative"][layer]
+            all_data.extend([pos, neg])
+            labels.extend([2*i]*len(pos) + [2*i+1]*len(neg))
+        all_data = np.vstack(all_data)
+        labels = np.array(labels)
+
+        # Total variance
+        total_var = np.var(all_data, axis=0).sum()
+
+        # Between-group variance
+        grand_mean = np.mean(all_data, axis=0)
+        between_var = 0
+        for g in np.unique(labels):
+            mask = labels == g
+            group_mean = np.mean(all_data[mask], axis=0)
+            between_var += mask.sum() * np.sum((group_mean - grand_mean)**2)
+        between_var /= len(all_data)
+
+        ratio = between_var / (total_var + 1e-10)
+        print(f"  L{layer:2d}: total_var={total_var:.2f} between_var={between_var:.2f} "
+              f"ratio={ratio:.4f}")
+
+    print()
+
+
+def concept_direction_curvature(all_acts, concept_names, num_layers):
+    """Measure how much concept directions 'curve' through layer space."""
+    print("=" * 70)
+    print("PHASE 175: Concept Direction Curvature")
+    print("=" * 70)
+
+    for cname in concept_names:
+        directions = []
+        for layer in range(num_layers):
+            pos = all_acts[cname]["positive"][layer]
+            neg = all_acts[cname]["negative"][layer]
+            d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+            norm = np.linalg.norm(d)
+            if norm > 1e-10:
+                d = d / norm
+            directions.append(d)
+
+        # Curvature: second derivative of direction (angle acceleration)
+        angles = []
+        for i in range(len(directions)-1):
+            cos = np.dot(directions[i], directions[i+1])
+            angles.append(np.degrees(np.arccos(np.clip(cos, -1, 1))))
+
+        # Second derivative
+        if len(angles) >= 2:
+            curvatures = [angles[i+1] - angles[i] for i in range(len(angles)-1)]
+            max_curv_layer = int(np.argmax(np.abs(curvatures)))
+            mean_curv = np.mean(np.abs(curvatures))
+            total_angle = sum(angles)
+
+            print(f"  {cname:20s} total_rot={total_angle:.0f}° mean_curv={mean_curv:.1f}°/L "
+                  f"max_curv=L{max_curv_layer}({curvatures[max_curv_layer]:+.1f}°)")
+
+    print()
+
+
+def neuron_reliability_score(all_acts, concept_names, sparse_results):
+    """Bootstrap reliability: how often does the same neuron rank #1?"""
+    print("=" * 70)
+    print("PHASE 176: Neuron Reliability Score (Bootstrap)")
+    print("=" * 70)
+
+    rng = np.random.RandomState(42)
+    n_boot = 50
+
+    for cname in concept_names:
+        info = sparse_results[cname]
+        best_layer = info["best_layer"]
+        pos = all_acts[cname]["positive"][best_layer]
+        neg = all_acts[cname]["negative"][best_layer]
+        n_pos, n_neg = len(pos), len(neg)
+
+        top1_counts = {}
+        for _ in range(n_boot):
+            idx_p = rng.choice(n_pos, n_pos, replace=True)
+            idx_n = rng.choice(n_neg, n_neg, replace=True)
+            p_boot = pos[idx_p]
+            n_boot_data = neg[idx_n]
+            diff = np.mean(p_boot, axis=0) - np.mean(n_boot_data, axis=0)
+            pooled = np.sqrt((np.var(p_boot, axis=0) + np.var(n_boot_data, axis=0)) / 2)
+            d = np.abs(diff) / np.maximum(pooled, 1e-10)
+            top1 = int(np.argmax(d))
+            top1_counts[top1] = top1_counts.get(top1, 0) + 1
+
+        # Most common top-1 neuron
+        most_common = max(top1_counts, key=top1_counts.get)
+        reliability = top1_counts[most_common] / n_boot
+        n_unique = len(top1_counts)
+
+        print(f"  {cname:20s} most_common=N{most_common:3d} ({reliability:.0%}) "
+              f"unique_top1={n_unique}/{n_boot}")
+
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -9261,6 +9464,24 @@ def run_analysis():
 
     # Phase 170: Grand milestone summary (informational)
     grand_milestone_170(all_acts, concept_names, sparse_results, num_layers, hidden_size)
+
+    # Phase 171: Concept direction norm evolution (informational)
+    concept_direction_norm_evolution(all_acts, concept_names, num_layers)
+
+    # Phase 172: Neuron importance distribution shape (informational)
+    neuron_importance_distribution(all_acts, concept_names)
+
+    # Phase 173: Concept mutual predictability (informational)
+    concept_mutual_predictability(all_acts, concept_names)
+
+    # Phase 174: Layer-wise activation variance decomposition (informational)
+    activation_variance_decomposition(all_acts, concept_names, num_layers)
+
+    # Phase 175: Concept direction curvature (informational)
+    concept_direction_curvature(all_acts, concept_names, num_layers)
+
+    # Phase 176: Neuron reliability score (informational)
+    neuron_reliability_score(all_acts, concept_names, sparse_results)
 
     # ---- Composite Score ----
     interpretability_score = (
