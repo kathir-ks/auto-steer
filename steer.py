@@ -2935,8 +2935,110 @@ def interpretability_report(concept_names, sparse_results, locality_results,
         emerge = locality_results[c]["emergence_layer"]
         print(f"     {c:20s} {layer:5d} {neuron:7d} {acc:6.2f} {emerge:7d}")
 
-    print(f"\n  Analysis complete: 42 phases, {num_layers} layers, "
+    print(f"\n  Analysis complete: 44 phases, {num_layers} layers, "
           f"{hidden_size} neurons, {len(concept_names)} concepts")
+    print()
+
+
+# ---------------------------------------------------------------------------
+# PHASE 43: Concept Direction Stability Across Layers
+# ---------------------------------------------------------------------------
+
+def concept_direction_stability(all_acts, concept_names, num_layers):
+    """
+    Track how the optimal concept direction (diff-of-means) evolves across
+    all layers. Report cosine similarity between each layer's direction
+    and the best layer's direction.
+    """
+    print("=" * 70)
+    print("PHASE 43: Concept Direction Stability Across Layers")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        # Compute direction at each layer
+        directions = []
+        for l in range(num_layers):
+            pos = all_acts[concept_name]["positive"][l]
+            neg = all_acts[concept_name]["negative"][l]
+            d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+            d_norm = d / (np.linalg.norm(d) + 1e-12)
+            directions.append(d_norm)
+
+        # Compute similarity to final layer direction (convergence target)
+        final_dir = directions[-1]
+        sims_to_final = [np.dot(directions[l], final_dir) for l in range(num_layers)]
+
+        # Find where direction "stabilizes" (first layer with cos > 0.9 to final)
+        stable_layer = num_layers - 1
+        for l in range(num_layers):
+            if all(sims_to_final[ll] > 0.9 for ll in range(l, num_layers)):
+                stable_layer = l
+                break
+
+        # Sparkline
+        blocks = " ▁▂▃▄▅▆▇█"
+        spark = ""
+        for s in sims_to_final:
+            s_clamped = max(0, min(1, (s + 1) / 2))  # map [-1,1] to [0,1]
+            idx = min(int(s_clamped * 8), 8)
+            spark += blocks[idx]
+
+        print(f"  {concept_name:20s}: stabilizes L{stable_layer:2d} "
+              f"sim[0]={sims_to_final[0]:+.2f} sim[end]={sims_to_final[-2]:+.2f} "
+              f"[{spark}]")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
+# PHASE 44: Concept Signal-to-Noise Ratio
+# ---------------------------------------------------------------------------
+
+def concept_snr_analysis(all_acts, concept_names, sparse_results):
+    """
+    Compute signal-to-noise ratio for each concept at its best layer.
+    Signal = between-class variance along concept direction.
+    Noise = within-class variance along concept direction.
+    """
+    print("=" * 70)
+    print("PHASE 44: Concept Signal-to-Noise Ratio")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        best_layer = sparse_results[concept_name]["best_layer"]
+        pos = all_acts[concept_name]["positive"][best_layer]
+        neg = all_acts[concept_name]["negative"][best_layer]
+
+        # Direction
+        dom = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        dom_norm = dom / (np.linalg.norm(dom) + 1e-12)
+
+        # Project
+        proj_pos = pos @ dom_norm
+        proj_neg = neg @ dom_norm
+
+        # Signal: difference of means squared
+        signal = (np.mean(proj_pos) - np.mean(proj_neg)) ** 2
+
+        # Noise: pooled within-class variance
+        noise = (np.var(proj_pos) + np.var(proj_neg)) / 2.0
+
+        snr = signal / (noise + 1e-12)
+        snr_db = 10 * np.log10(snr + 1e-12)
+
+        # Also compute SNR for the top neuron alone
+        top_neuron = sparse_results[concept_name]["top_neurons"][0]
+        pos_n = pos[:, top_neuron]
+        neg_n = neg[:, top_neuron]
+        signal_n = (np.mean(pos_n) - np.mean(neg_n)) ** 2
+        noise_n = (np.var(pos_n) + np.var(neg_n)) / 2.0
+        snr_n = signal_n / (noise_n + 1e-12)
+        snr_n_db = 10 * np.log10(snr_n + 1e-12)
+
+        print(f"  {concept_name:20s} @ L{best_layer:2d}: "
+              f"direction SNR={snr_db:5.1f}dB  "
+              f"neuron N{top_neuron:3d} SNR={snr_n_db:5.1f}dB")
+
     print()
 
 
@@ -3091,6 +3193,12 @@ def run_analysis():
     # Phase 42: Interpretability report (informational)
     interpretability_report(concept_names, sparse_results, locality_results,
                            steering_vectors, num_layers, hidden_size)
+
+    # Phase 43: Concept direction stability (informational)
+    concept_direction_stability(all_acts, concept_names, num_layers)
+
+    # Phase 44: Concept SNR (informational)
+    concept_snr_analysis(all_acts, concept_names, sparse_results)
 
     # ---- Composite Score ----
     interpretability_score = (
