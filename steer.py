@@ -25376,7 +25376,8 @@ def concept_activation_concept_activation_fingerprint(all_acts, concept_names):
         signs = np.sign(d[top_k])
         fp = [(int(n), int(s)) for n, s in zip(top_k, signs)]
         fingerprints[cname] = fp
-        print(f"  {cname:20s} | fingerprint: {[(f'N{n}:{'+' if s>0 else '-'}') for n, s in fp]}")
+        fp_str = ", ".join(f"N{n}:{'+'if s>0 else '-'}" for n, s in fp)
+        print(f"  {cname:20s} | fingerprint: [{fp_str}]")
     # Check uniqueness
     fps_str = [str(fp) for fp in fingerprints.values()]
     unique = len(set(fps_str))
