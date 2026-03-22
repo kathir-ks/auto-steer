@@ -2611,6 +2611,141 @@ def concept_effective_rank(all_acts, concept_names, sparse_results):
 
 
 # ---------------------------------------------------------------------------
+# PHASE 38: Concept Predictive Power — cross-concept leakage
+# ---------------------------------------------------------------------------
+
+def concept_leakage_analysis(all_acts, concept_names, sparse_results):
+    """
+    Can you predict concept A from concept B's neurons? High predictability
+    means the concepts share information (leakage). Uses the top neuron
+    of each concept to predict all other concepts.
+    """
+    print("=" * 70)
+    print("PHASE 38: Concept Leakage — Cross-Concept Predictability")
+    print("=" * 70)
+
+    n = len(concept_names)
+    leakage = np.zeros((n, n))
+
+    # For each concept, get its top neuron activations at its best layer
+    for i, target in enumerate(concept_names):
+        best_layer = sparse_results[target]["best_layer"]
+        target_neuron = sparse_results[target]["top_neurons"][0]
+
+        for j, source in enumerate(concept_names):
+            # Use source concept's best neuron to predict target concept
+            source_layer = sparse_results[source]["best_layer"]
+            source_neuron = sparse_results[source]["top_neurons"][0]
+
+            # Get target's labels
+            pos_t = all_acts[target]["positive"][source_layer][:, source_neuron]
+            neg_t = all_acts[target]["negative"][source_layer][:, source_neuron]
+            X = np.concatenate([pos_t, neg_t]).reshape(-1, 1)
+            y = np.array([1] * len(pos_t) + [0] * len(neg_t))
+
+            clf = LogisticRegression(C=1.0, max_iter=500, random_state=42)
+            cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=42)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                acc = np.mean(cross_val_score(clf, X, y, cv=cv))
+            leakage[i, j] = acc
+
+    # Print leakage matrix (only non-trivial entries)
+    print(f"  Cross-prediction accuracy (row=predicted, col=predictor neuron):\n")
+    header = "  " + " " * 22 + "".join(f"{c[:6]:>7s}" for c in concept_names)
+    print(header)
+    for i, target in enumerate(concept_names):
+        row = f"  {target:20s}:"
+        for j in range(n):
+            val = leakage[i, j]
+            if i == j:
+                row += f"  [{val:.2f}]"
+            elif val > 0.6:
+                row += f"  {val:.2f}*"
+            else:
+                row += f"  {val:.2f} "
+        print(row)
+
+    # Most leaky pairs
+    print(f"\n  Highest cross-predictions (excluding diagonal):")
+    pairs = []
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                pairs.append((leakage[i, j], concept_names[i], concept_names[j]))
+    pairs.sort(reverse=True)
+    for acc, target, source in pairs[:5]:
+        print(f"    {source:15s} → {target:15s}: {acc:.3f}")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
+# PHASE 39: Global Summary Statistics
+# ---------------------------------------------------------------------------
+
+def global_summary_statistics(all_acts, concept_names, sparse_results, num_layers):
+    """
+    Compute global summary statistics across all concepts and layers:
+    mean activation norms, layer-wise statistics, concept clustering quality.
+    """
+    print("=" * 70)
+    print("PHASE 39: Global Summary Statistics")
+    print("=" * 70)
+
+    # Activation norms per layer (averaged over all concepts)
+    print(f"  Mean activation L2 norm per layer:")
+    layer_norms = np.zeros(num_layers)
+    for l in range(num_layers):
+        norms = []
+        for concept_name in concept_names:
+            pos = all_acts[concept_name]["positive"][l]
+            neg = all_acts[concept_name]["negative"][l]
+            norms.extend(np.linalg.norm(pos, axis=1).tolist())
+            norms.extend(np.linalg.norm(neg, axis=1).tolist())
+        layer_norms[l] = np.mean(norms)
+
+    max_norm = max(layer_norms)
+    for l in range(num_layers):
+        bar = "█" * int(layer_norms[l] / max_norm * 30)
+        print(f"    L{l:2d}: {layer_norms[l]:6.2f} {bar}")
+
+    # Concept separability summary
+    print(f"\n  Concept separability summary:")
+    for concept_name in concept_names:
+        best_layer = sparse_results[concept_name]["best_layer"]
+        pos = all_acts[concept_name]["positive"][best_layer]
+        neg = all_acts[concept_name]["negative"][best_layer]
+
+        centroid_pos = np.mean(pos, axis=0)
+        centroid_neg = np.mean(neg, axis=0)
+        inter_dist = np.linalg.norm(centroid_pos - centroid_neg)
+
+        intra_pos = np.mean(np.linalg.norm(pos - centroid_pos, axis=1))
+        intra_neg = np.mean(np.linalg.norm(neg - centroid_neg, axis=1))
+        intra_mean = (intra_pos + intra_neg) / 2.0
+
+        # Silhouette-like score
+        silhouette = (inter_dist - intra_mean) / (max(inter_dist, intra_mean) + 1e-12)
+
+        print(f"    {concept_name:20s} @ L{best_layer:2d}: "
+              f"inter={inter_dist:.2f} intra={intra_mean:.2f} "
+              f"silhouette={silhouette:.3f}")
+
+    # Overall statistics
+    all_best_layers = [sparse_results[c]["best_layer"] for c in concept_names]
+    all_min_neurons = [sparse_results[c]["min_neurons"] for c in concept_names]
+    print(f"\n  Overall:")
+    print(f"    Mean best layer:     {np.mean(all_best_layers):.1f} ± {np.std(all_best_layers):.1f}")
+    print(f"    Mean min neurons:    {np.mean(all_min_neurons):.1f} ± {np.std(all_min_neurons):.1f}")
+    print(f"    Layer range:         L{min(all_best_layers)} to L{max(all_best_layers)}")
+    print(f"    Activation norm growth: {layer_norms[0]:.1f} → {layer_norms[-1]:.1f} "
+          f"({layer_norms[-1]/layer_norms[0]:.1f}x)")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Main Analysis Pipeline
 # ---------------------------------------------------------------------------
 
@@ -2745,6 +2880,12 @@ def run_analysis():
 
     # Phase 37: Concept effective rank (informational)
     concept_effective_rank(all_acts, concept_names, sparse_results)
+
+    # Phase 38: Concept leakage (informational)
+    concept_leakage_analysis(all_acts, concept_names, sparse_results)
+
+    # Phase 39: Global summary statistics (informational)
+    global_summary_statistics(all_acts, concept_names, sparse_results, num_layers)
 
     # ---- Composite Score ----
     interpretability_score = (
