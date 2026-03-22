@@ -4940,6 +4940,92 @@ def layerwise_information_flow(all_acts, concept_names, num_layers):
     print()
 
 
+def concept_direction_stability(all_acts, concept_names, sparse_results):
+    """
+    How stable is the concept direction when estimated from different data subsets?
+    Split-half reliability of the difference-of-means direction.
+    """
+    print("=" * 70)
+    print("PHASE 83: Concept Direction Stability (Split-Half)")
+    print("=" * 70)
+
+    rng = np.random.RandomState(42)
+    N_SPLITS = 10
+
+    for concept_name in concept_names:
+        sr = sparse_results[concept_name]
+        best_layer = sr["best_layer"]
+        pos = all_acts[concept_name]["positive"][best_layer]
+        neg = all_acts[concept_name]["negative"][best_layer]
+
+        cosines = []
+        for _ in range(N_SPLITS):
+            # Random split of pos and neg
+            idx_p = rng.permutation(len(pos))
+            idx_n = rng.permutation(len(neg))
+            half_p = len(pos) // 2
+            half_n = len(neg) // 2
+
+            dir_a = np.mean(pos[idx_p[:half_p]], axis=0) - np.mean(neg[idx_n[:half_n]], axis=0)
+            dir_b = np.mean(pos[idx_p[half_p:]], axis=0) - np.mean(neg[idx_n[half_n:]], axis=0)
+
+            cos = np.dot(dir_a, dir_b) / (np.linalg.norm(dir_a) * np.linalg.norm(dir_b) + 1e-12)
+            cosines.append(cos)
+
+        mean_cos = np.mean(cosines)
+        min_cos = np.min(cosines)
+        print(f"  {concept_name:20s}: mean_cos={mean_cos:.4f} min_cos={min_cos:.4f} "
+              f"std={np.std(cosines):.4f}")
+
+    print()
+
+
+def neuron_saturation_analysis(all_acts, concept_names, sparse_results, num_layers):
+    """
+    Analyze neuron activation distributions — are neurons operating in linear regime
+    or near saturation? Check activation range utilization.
+    """
+    print("=" * 70)
+    print("PHASE 84: Neuron Saturation Analysis")
+    print("=" * 70)
+
+    # Check top neuron for each concept
+    for concept_name in concept_names:
+        sr = sparse_results[concept_name]
+        best_layer = sr["best_layer"]
+        top_neuron = sr["top_neurons"][0]
+
+        pos = all_acts[concept_name]["positive"][best_layer]
+        neg = all_acts[concept_name]["negative"][best_layer]
+        all_vals = np.concatenate([pos[:, top_neuron], neg[:, top_neuron]])
+
+        # Statistics
+        mean_val = np.mean(all_vals)
+        std_val = np.std(all_vals)
+        min_val = np.min(all_vals)
+        max_val = np.max(all_vals)
+        range_val = max_val - min_val
+
+        # Fraction of values near zero (within 1 std)
+        near_zero = np.mean(np.abs(all_vals) < std_val)
+
+        # Skewness
+        skew = np.mean(((all_vals - mean_val) / (std_val + 1e-12))**3)
+
+        # Kurtosis (excess)
+        kurt = np.mean(((all_vals - mean_val) / (std_val + 1e-12))**4) - 3.0
+
+        # Bimodality coefficient: (skew^2 + 1) / (kurt + 3)
+        # Values > 0.555 suggest bimodality
+        bimodal = (skew**2 + 1) / (kurt + 3 + 1e-12)
+
+        print(f"  {concept_name:20s} N{top_neuron:3d}@L{best_layer}: "
+              f"range=[{min_val:.2f},{max_val:.2f}] μ={mean_val:.2f} σ={std_val:.2f} "
+              f"skew={skew:.2f} kurt={kurt:.2f} bimodal={bimodal:.3f}")
+
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -5260,6 +5346,12 @@ def run_analysis():
 
     # Phase 82: Layer-wise information flow (informational)
     layerwise_information_flow(all_acts, concept_names, num_layers)
+
+    # Phase 83: Concept direction stability (informational)
+    concept_direction_stability(all_acts, concept_names, sparse_results)
+
+    # Phase 84: Neuron saturation analysis (informational)
+    neuron_saturation_analysis(all_acts, concept_names, sparse_results, num_layers)
 
     # ---- Composite Score ----
     interpretability_score = (
