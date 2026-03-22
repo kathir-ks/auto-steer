@@ -1942,6 +1942,188 @@ def concept_bottleneck_analysis(concept_names, locality_results, num_layers):
 
 
 # ---------------------------------------------------------------------------
+# PHASE 28: Concept Gradient Landscape — sensitivity to perturbation
+# ---------------------------------------------------------------------------
+
+def concept_gradient_landscape(all_acts, concept_names, sparse_results, steering_vectors):
+    """
+    Analyze the sharpness of concept boundaries by perturbing steering vectors
+    and measuring how quickly classification accuracy degrades.
+    Sharp boundaries = well-defined concepts; gradual = fuzzy/distributed.
+    """
+    print("=" * 70)
+    print("PHASE 28: Concept Gradient Landscape — Boundary Sharpness")
+    print("=" * 70)
+
+    perturbation_scales = [0.0, 0.1, 0.25, 0.5, 1.0, 2.0]
+    rng = np.random.RandomState(42)
+
+    for concept_name in concept_names:
+        best_layer = sparse_results[concept_name]["best_layer"]
+        acts_pos = all_acts[concept_name]["positive"][best_layer]
+        acts_neg = all_acts[concept_name]["negative"][best_layer]
+        X = np.vstack([acts_pos, acts_neg])
+        y = np.array([1] * len(acts_pos) + [0] * len(acts_neg))
+
+        # Get the steering vector for this concept
+        sv = steering_vectors.get(concept_name)
+        if sv is None:
+            continue
+
+        # Baseline accuracy with clean data
+        scaler = StandardScaler()
+        X_sc = scaler.fit_transform(X)
+        clf = LogisticRegression(C=1.0, max_iter=1000, random_state=42)
+        clf.fit(X_sc, y)
+        base_acc = clf.score(X_sc, y)
+
+        # Perturb: add random noise orthogonal to steering vector
+        sv_norm = sv / (np.linalg.norm(sv) + 1e-12)
+        noise_base = rng.randn(X.shape[1])
+        noise_base -= np.dot(noise_base, sv_norm) * sv_norm  # orthogonalize
+        noise_base /= (np.linalg.norm(noise_base) + 1e-12)
+
+        accs = []
+        data_std = np.std(X)
+        for scale in perturbation_scales:
+            X_perturbed = X + scale * data_std * noise_base[None, :]
+            X_p_sc = scaler.transform(X_perturbed)
+            acc = clf.score(X_p_sc, y)
+            accs.append(acc)
+
+        # Sharpness = how quickly accuracy drops (AUC under perturbation curve)
+        # Normalize: 1.0 = perfectly robust, 0.0 = collapses immediately
+        auc = np.trapezoid(accs, perturbation_scales) / (perturbation_scales[-1] - perturbation_scales[0])
+
+        # Print mini perturbation curve
+        curve = " → ".join(f"{a:.2f}" for a in accs)
+        print(f"  {concept_name:20s}: robustness={auc:.3f}  [{curve}]")
+
+    # Along-direction perturbation: shift all points along steering vector
+    print(f"\n  Along-direction sensitivity (shifting along steering vector):")
+    shifts = [-1.0, -0.5, 0.0, 0.5, 1.0]
+    for concept_name in concept_names:
+        best_layer = sparse_results[concept_name]["best_layer"]
+        acts_pos = all_acts[concept_name]["positive"][best_layer]
+        acts_neg = all_acts[concept_name]["negative"][best_layer]
+        X = np.vstack([acts_pos, acts_neg])
+        y = np.array([1] * len(acts_pos) + [0] * len(acts_neg))
+
+        sv = steering_vectors.get(concept_name)
+        if sv is None:
+            continue
+        sv_norm = sv / (np.linalg.norm(sv) + 1e-12)
+
+        scaler = StandardScaler()
+        X_sc = scaler.fit_transform(X)
+        clf = LogisticRegression(C=1.0, max_iter=1000, random_state=42)
+        clf.fit(X_sc, y)
+
+        data_std = np.std(X)
+        accs = []
+        for shift in shifts:
+            X_shifted = X + shift * data_std * sv_norm[None, :]
+            X_s_sc = scaler.transform(X_shifted)
+            acc = clf.score(X_s_sc, y)
+            accs.append(acc)
+
+        curve = " → ".join(f"{a:.2f}" for a in accs)
+        print(f"  {concept_name:20s}: [{curve}]")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
+# PHASE 29: Concept Dimensionality Reduction — t-SNE / PCA visualization data
+# ---------------------------------------------------------------------------
+
+def concept_dimensionality_reduction(all_acts, concept_names, sparse_results):
+    """
+    Compute PCA projections of activations at each concept's best layer,
+    report explained variance and cluster separation in 2D/3D.
+    """
+    print("=" * 70)
+    print("PHASE 29: Concept Dimensionality Reduction — PCA Projections")
+    print("=" * 70)
+
+    from sklearn.decomposition import PCA
+
+    # Collect all activations at a representative layer (L10 bottleneck or mid-layer)
+    # Use each concept's best layer for per-concept analysis
+    for concept_name in concept_names:
+        best_layer = sparse_results[concept_name]["best_layer"]
+        acts_pos = all_acts[concept_name]["positive"][best_layer]
+        acts_neg = all_acts[concept_name]["negative"][best_layer]
+        X = np.vstack([acts_pos, acts_neg])
+
+        pca = PCA(n_components=min(10, X.shape[0], X.shape[1]))
+        X_pca = pca.fit_transform(X)
+
+        # Explained variance
+        cumvar = np.cumsum(pca.explained_variance_ratio_)
+        dims_90 = int(np.searchsorted(cumvar, 0.90)) + 1
+        dims_95 = int(np.searchsorted(cumvar, 0.95)) + 1
+        dims_99 = int(np.searchsorted(cumvar, 0.99)) + 1
+
+        # Cluster separation in 2D: distance between centroids / mean spread
+        centroid_pos = X_pca[:len(acts_pos), :2].mean(axis=0)
+        centroid_neg = X_pca[len(acts_pos):, :2].mean(axis=0)
+        centroid_dist = np.linalg.norm(centroid_pos - centroid_neg)
+        spread_pos = np.mean(np.linalg.norm(X_pca[:len(acts_pos), :2] - centroid_pos, axis=1))
+        spread_neg = np.mean(np.linalg.norm(X_pca[len(acts_pos):, :2] - centroid_neg, axis=1))
+        separation = centroid_dist / (0.5 * (spread_pos + spread_neg) + 1e-12)
+
+        var1 = pca.explained_variance_ratio_[0] * 100
+        var2 = pca.explained_variance_ratio_[1] * 100
+        print(f"  {concept_name:20s} @ L{best_layer:2d}: "
+              f"PC1={var1:4.1f}% PC2={var2:4.1f}% | "
+              f"90%@{dims_90}d 95%@{dims_95}d 99%@{dims_99}d | "
+              f"2D-sep={separation:.2f}")
+
+    # Multi-concept PCA: project all concepts at bottleneck layer (L10)
+    bottleneck = 10
+    print(f"\n  Multi-concept PCA at bottleneck L{bottleneck}:")
+    all_X = []
+    all_labels = []
+    for i, concept_name in enumerate(concept_names):
+        acts_pos = all_acts[concept_name]["positive"][bottleneck]
+        acts_neg = all_acts[concept_name]["negative"][bottleneck]
+        all_X.append(acts_pos)
+        all_X.append(acts_neg)
+        all_labels.extend([concept_name + "+"] * len(acts_pos))
+        all_labels.extend([concept_name + "-"] * len(acts_neg))
+
+    X_all = np.vstack(all_X)
+    pca_all = PCA(n_components=min(10, X_all.shape[0]))
+    X_pca_all = pca_all.fit_transform(X_all)
+
+    cumvar = np.cumsum(pca_all.explained_variance_ratio_)
+    dims_90 = int(np.searchsorted(cumvar, 0.90)) + 1
+    dims_95 = int(np.searchsorted(cumvar, 0.95)) + 1
+
+    print(f"    Total samples: {X_all.shape[0]}, dims: {X_all.shape[1]}")
+    print(f"    Variance: PC1={pca_all.explained_variance_ratio_[0]*100:.1f}% "
+          f"PC2={pca_all.explained_variance_ratio_[1]*100:.1f}% "
+          f"PC3={pca_all.explained_variance_ratio_[2]*100:.1f}%")
+    print(f"    Dims for 90%={dims_90}, 95%={dims_95}")
+
+    # Between-concept separation in 2D
+    print(f"\n    Pairwise 2D centroid distances:")
+    centroids = {}
+    for concept_name in concept_names:
+        mask = [l.startswith(concept_name) for l in all_labels]
+        centroids[concept_name] = X_pca_all[mask, :2].mean(axis=0)
+
+    for i in range(len(concept_names)):
+        for j in range(i + 1, len(concept_names)):
+            d = np.linalg.norm(centroids[concept_names[i]] - centroids[concept_names[j]])
+            if d < 1.0:  # only report close pairs
+                print(f"      {concept_names[i]:15s} ↔ {concept_names[j]:15s}: {d:.3f} (close!)")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Main Analysis Pipeline
 # ---------------------------------------------------------------------------
 
@@ -2046,6 +2228,12 @@ def run_analysis():
 
     # Phase 27: Concept bottleneck (informational, reuses Phase 4 data)
     concept_bottleneck_analysis(concept_names, locality_results, num_layers)
+
+    # Phase 28: Concept gradient landscape (informational)
+    concept_gradient_landscape(all_acts, concept_names, sparse_results, steering_vectors)
+
+    # Phase 29: Concept dimensionality reduction (informational)
+    concept_dimensionality_reduction(all_acts, concept_names, sparse_results)
 
     # ---- Composite Score ----
     interpretability_score = (
