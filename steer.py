@@ -2746,6 +2746,132 @@ def global_summary_statistics(all_acts, concept_names, sparse_results, num_layer
 
 
 # ---------------------------------------------------------------------------
+# PHASE 40: Concept Entanglement Clusters
+# ---------------------------------------------------------------------------
+
+def concept_entanglement_clusters(all_acts, concept_names, sparse_results):
+    """
+    Build an entanglement graph from neuron-level overlap and find clusters
+    of functionally related concepts using hierarchical clustering on
+    activation correlations.
+    """
+    print("=" * 70)
+    print("PHASE 40: Concept Entanglement Clusters")
+    print("=" * 70)
+
+    # Compute pairwise correlation between concept signals at a shared layer
+    target_layer = 10  # bottleneck layer
+    n = len(concept_names)
+
+    # Difference-of-means vectors at target layer
+    dom_vectors = []
+    for concept_name in concept_names:
+        pos = all_acts[concept_name]["positive"][target_layer]
+        neg = all_acts[concept_name]["negative"][target_layer]
+        dom = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        dom_vectors.append(dom)
+    dom_matrix = np.array(dom_vectors)
+
+    # Pairwise cosine similarity
+    norms = np.linalg.norm(dom_matrix, axis=1, keepdims=True) + 1e-12
+    dom_normed = dom_matrix / norms
+    cos_sim = dom_normed @ dom_normed.T
+
+    # Hierarchical clustering on 1 - |cos_sim|
+    dist_matrix = 1.0 - np.abs(cos_sim)
+    np.fill_diagonal(dist_matrix, 0)
+    condensed = pdist(dist_matrix)
+    Z = linkage(condensed, method='average')
+    clusters = fcluster(Z, t=0.8, criterion='distance')
+
+    print(f"  Cosine similarity at L{target_layer} (difference-of-means):\n")
+    header = "  " + " " * 22 + "".join(f"{c[:6]:>7s}" for c in concept_names)
+    print(header)
+    for i in range(n):
+        row = f"  {concept_names[i]:20s}:"
+        for j in range(n):
+            val = cos_sim[i, j]
+            if i == j:
+                row += f"   1.00"
+            elif abs(val) > 0.3:
+                row += f"  {val:+.2f}"
+            else:
+                row += f"     · "
+        print(row)
+
+    # Print cluster assignments
+    n_clusters = len(set(clusters))
+    print(f"\n  Entanglement clusters ({n_clusters} clusters at distance threshold 0.8):")
+    for c in sorted(set(clusters)):
+        members = [concept_names[i] for i in range(n) if clusters[i] == c]
+        print(f"    Cluster {c}: {', '.join(members)}")
+
+    # Strongest entanglements
+    print(f"\n  Strongest entanglements (|cos| > 0.3):")
+    pairs = []
+    for i in range(n):
+        for j in range(i + 1, n):
+            pairs.append((abs(cos_sim[i, j]), cos_sim[i, j], concept_names[i], concept_names[j]))
+    pairs.sort(reverse=True)
+    for abs_val, val, c1, c2 in pairs:
+        if abs_val > 0.3:
+            direction = "aligned" if val > 0 else "opposed"
+            print(f"    {c1:15s} ↔ {c2:15s}: cos={val:+.3f} ({direction})")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
+# PHASE 41: Layer-Specific Concept Quality
+# ---------------------------------------------------------------------------
+
+def layer_concept_quality(all_acts, concept_names, num_layers):
+    """
+    For each layer, compute how well all concepts are simultaneously decodable.
+    Produces a single "concept quality" metric per layer that combines
+    individual concept accuracies.
+    """
+    print("=" * 70)
+    print("PHASE 41: Layer-Specific Concept Quality")
+    print("=" * 70)
+
+    layer_quality = np.zeros(num_layers)
+    layer_worst = np.zeros(num_layers)
+
+    for l in range(num_layers):
+        accs = []
+        for concept_name in concept_names:
+            pos = all_acts[concept_name]["positive"][l]
+            neg = all_acts[concept_name]["negative"][l]
+            X = np.vstack([pos, neg])
+            y = np.array([1] * len(pos) + [0] * len(neg))
+
+            scaler = StandardScaler()
+            X_sc = scaler.fit_transform(X)
+            clf = LogisticRegression(C=1.0, max_iter=500, random_state=42)
+            clf.fit(X_sc, y)
+            accs.append(clf.score(X_sc, y))
+
+        layer_quality[l] = np.mean(accs)
+        layer_worst[l] = np.min(accs)
+
+    best_layer = int(np.argmax(layer_quality))
+    best_minmax = int(np.argmax(layer_worst))
+
+    print(f"  Layer quality (mean acc) and worst-case (min acc):\n")
+    for l in range(num_layers):
+        bar = "█" * int(layer_quality[l] * 30)
+        markers = ""
+        if l == best_layer:
+            markers += " ◄best-mean"
+        if l == best_minmax:
+            markers += " ◄best-worst"
+        print(f"    L{l:2d}: mean={layer_quality[l]:.3f} min={layer_worst[l]:.3f} {bar}{markers}")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Main Analysis Pipeline
 # ---------------------------------------------------------------------------
 
@@ -2886,6 +3012,12 @@ def run_analysis():
 
     # Phase 39: Global summary statistics (informational)
     global_summary_statistics(all_acts, concept_names, sparse_results, num_layers)
+
+    # Phase 40: Concept entanglement clusters (informational)
+    concept_entanglement_clusters(all_acts, concept_names, sparse_results)
+
+    # Phase 41: Layer concept quality (informational)
+    layer_concept_quality(all_acts, concept_names, num_layers)
 
     # ---- Composite Score ----
     interpretability_score = (
