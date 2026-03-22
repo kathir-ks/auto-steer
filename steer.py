@@ -21712,8 +21712,9 @@ def concept_direction_final_orthogonality_check(all_acts, concept_names):
     eigvals, eigvecs = np.linalg.eigh(cov)
     W = eigvecs @ np.diag(1.0 / np.sqrt(eigvals + 1e-10)) @ eigvecs.T
     w_dirs = []
-    for d in dirs:
-        wd = W @ (all_acts[concept_names[dirs.index(d)]]["positive"][layer].mean(0) - all_acts[concept_names[dirs.index(d)]]["negative"][layer].mean(0))
+    for i, cname in enumerate(concept_names):
+        raw_d = all_acts[cname]["positive"][layer].mean(0) - all_acts[cname]["negative"][layer].mean(0)
+        wd = W @ raw_d
         wd = wd / (np.linalg.norm(wd) + 1e-10)
         w_dirs.append(wd)
     WD = np.array(w_dirs)
