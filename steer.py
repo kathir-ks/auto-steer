@@ -6676,6 +6676,84 @@ def final_comprehensive_report(all_acts, concept_names, sparse_results, num_laye
     print()
 
 
+def concept_attention_pattern(all_acts, concept_names, sparse_results, hidden_size):
+    """
+    Which neurons 'attend to' each concept? Measure the variance each neuron
+    has specifically for one concept vs others (ANOVA-like decomposition).
+    """
+    print("=" * 70)
+    print("PHASE 121: Concept Attention Pattern")
+    print("=" * 70)
+
+    target_layer = 10
+
+    for concept_name in concept_names:
+        pos = all_acts[concept_name]["positive"][target_layer]
+        neg = all_acts[concept_name]["negative"][target_layer]
+        X = np.vstack([pos, neg])
+
+        # Between-class variance for this concept
+        grand_mean = np.mean(X, axis=0)
+        pos_mean = np.mean(pos, axis=0)
+        neg_mean = np.mean(neg, axis=0)
+        between_var = (len(pos) * (pos_mean - grand_mean)**2 +
+                       len(neg) * (neg_mean - grand_mean)**2) / len(X)
+
+        # Total variance
+        total_var = np.var(X, axis=0)
+
+        # Eta-squared (effect size) per neuron
+        eta_sq = between_var / (total_var + 1e-12)
+
+        # Top 5 neurons by eta-squared
+        top5 = np.argsort(eta_sq)[-5:][::-1]
+        top5_str = ", ".join(f"N{n}({eta_sq[n]:.2f})" for n in top5)
+
+        # Mean and max eta-squared
+        print(f"  {concept_name:20s}: max_η²={np.max(eta_sq):.3f} "
+              f"mean_η²={np.mean(eta_sq):.4f} top5=[{top5_str}]")
+
+    print()
+
+
+def neuron_information_content(all_acts, concept_names, sparse_results):
+    """
+    Entropy of each concept's top neuron activation distribution.
+    Higher entropy = more informative; lower = more deterministic.
+    """
+    print("=" * 70)
+    print("PHASE 122: Neuron Information Content (Entropy)")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        sr = sparse_results[concept_name]
+        best_layer = sr["best_layer"]
+        top_neuron = sr["top_neurons"][0]
+
+        pos = all_acts[concept_name]["positive"][best_layer]
+        neg = all_acts[concept_name]["negative"][best_layer]
+        all_vals = np.concatenate([pos[:, top_neuron], neg[:, top_neuron]])
+
+        # Discretize into 20 bins for entropy calculation
+        hist, bin_edges = np.histogram(all_vals, bins=20)
+        probs = hist / (np.sum(hist) + 1e-12)
+        probs = probs[probs > 0]
+        entropy = -np.sum(probs * np.log2(probs + 1e-12))
+
+        # Max possible entropy for 20 bins
+        max_entropy = np.log2(20)
+        norm_entropy = entropy / max_entropy
+
+        # Differential entropy approximation (assuming Gaussian)
+        gauss_entropy = 0.5 * np.log2(2 * np.pi * np.e * np.var(all_vals) + 1e-12)
+
+        print(f"  {concept_name:20s} N{top_neuron:3d}@L{best_layer}: "
+              f"H={entropy:.2f}bits norm={norm_entropy:.3f} "
+              f"gauss_H={gauss_entropy:.2f}bits")
+
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -7110,6 +7188,12 @@ def run_analysis():
 
     # Phase 120: Final comprehensive report (informational)
     final_comprehensive_report(all_acts, concept_names, sparse_results, num_layers, hidden_size)
+
+    # Phase 121: Concept attention pattern (informational)
+    concept_attention_pattern(all_acts, concept_names, sparse_results, hidden_size)
+
+    # Phase 122: Neuron information content (informational)
+    neuron_information_content(all_acts, concept_names, sparse_results)
 
     # ---- Composite Score ----
     interpretability_score = (
