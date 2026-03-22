@@ -5313,6 +5313,82 @@ def cross_layer_neuron_recruitment(all_acts, concept_names, num_layers):
     print()
 
 
+def concept_embedding_distance(all_acts, concept_names, num_layers):
+    """
+    L2 distance between concept centroids (positive class) across layers.
+    How far apart are concepts in raw activation space?
+    """
+    print("=" * 70)
+    print("PHASE 91: Concept Embedding Distances")
+    print("=" * 70)
+
+    # Compute at L0, L10 (bottleneck), and L23 (final)
+    for layer_idx in [0, 10, 23]:
+        centroids = {}
+        for concept_name in concept_names:
+            pos = all_acts[concept_name]["positive"][layer_idx]
+            centroids[concept_name] = np.mean(pos, axis=0)
+
+        # Pairwise L2 distances
+        dists = []
+        for i, c1 in enumerate(concept_names):
+            for j, c2 in enumerate(concept_names):
+                if j > i:
+                    d = np.linalg.norm(centroids[c1] - centroids[c2])
+                    dists.append((d, c1, c2))
+
+        dists.sort()
+        mean_dist = np.mean([d[0] for d in dists])
+        min_d = dists[0]
+        max_d = dists[-1]
+
+        print(f"  L{layer_idx:2d}: mean={mean_dist:.3f} "
+              f"closest={min_d[1][:8]}↔{min_d[2][:8]}({min_d[0]:.3f}) "
+              f"farthest={max_d[1][:8]}↔{max_d[2][:8]}({max_d[0]:.3f})")
+
+    print()
+
+
+def neuron_specificity_spectrum(all_acts, concept_names, sparse_results, hidden_size):
+    """
+    Distribution of concept specificity across all neurons.
+    How many neurons serve 0, 1, 2, ... concepts?
+    """
+    print("=" * 70)
+    print("PHASE 92: Neuron Specificity Spectrum (Full)")
+    print("=" * 70)
+
+    target_layer = 10
+    THRESHOLD = 1.0  # Cohen's d threshold
+
+    # Compute importance for each neuron × concept
+    concept_count = np.zeros(hidden_size, dtype=int)
+    for concept_name in concept_names:
+        pos = all_acts[concept_name]["positive"][target_layer]
+        neg = all_acts[concept_name]["negative"][target_layer]
+        mu_p, mu_n = np.mean(pos, axis=0), np.mean(neg, axis=0)
+        std_p, std_n = np.std(pos, axis=0), np.std(neg, axis=0)
+        pooled = np.sqrt((std_p**2 + std_n**2) / 2.0 + 1e-12)
+        d_all = np.abs(mu_p - mu_n) / pooled
+        concept_count += (d_all > THRESHOLD).astype(int)
+
+    # Distribution
+    print(f"  At L{target_layer} (d>{THRESHOLD} threshold):")
+    for k in range(9):
+        count = np.sum(concept_count == k)
+        if count > 0:
+            pct = count / hidden_size * 100
+            bar = "█" * int(pct / 2)
+            print(f"    {k} concepts: {count:3d} neurons ({pct:5.1f}%) {bar}")
+
+    # Summary stats
+    print(f"\n  Mean concepts/neuron: {np.mean(concept_count):.2f}")
+    print(f"  Median:              {np.median(concept_count):.0f}")
+    print(f"  Max:                 {np.max(concept_count)} (N{np.argmax(concept_count)})")
+
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -5657,6 +5733,12 @@ def run_analysis():
 
     # Phase 90: Cross-layer neuron recruitment (informational)
     cross_layer_neuron_recruitment(all_acts, concept_names, num_layers)
+
+    # Phase 91: Concept embedding distance (informational)
+    concept_embedding_distance(all_acts, concept_names, num_layers)
+
+    # Phase 92: Neuron specificity spectrum (informational)
+    neuron_specificity_spectrum(all_acts, concept_names, sparse_results, hidden_size)
 
     # ---- Composite Score ----
     interpretability_score = (
