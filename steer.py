@@ -1567,6 +1567,115 @@ def concept_interaction_network(all_acts, concept_names, sparse_results):
 
 
 # ---------------------------------------------------------------------------
+# PHASE 21: Concept Transferability — cross-layer probe generalization
+# ---------------------------------------------------------------------------
+
+def concept_transferability_analysis(all_acts, concept_names, sparse_results):
+    """
+    Train a probe at one layer, test at other layers. Reveals whether
+    concept representations share a common linear direction across layers
+    or are layer-specific. High transfer = consistent encoding; low =
+    layer-specific representation.
+    """
+    print("=" * 70)
+    print("PHASE 21: Concept Transferability — Cross-Layer Generalization")
+    print("=" * 70)
+
+    sample_layers = list(range(0, 24, 4)) + [23]  # every 4th + last
+
+    for concept_name in concept_names:
+        best_layer = sparse_results[concept_name]["best_layer"]
+        # Train probe at best layer
+        pos_train = all_acts[concept_name]["positive"][best_layer]
+        neg_train = all_acts[concept_name]["negative"][best_layer]
+        X_train, y_train = make_dataset(pos_train, neg_train)
+        clf, scaler = fit_probe(X_train, y_train)
+
+        # Test at other layers
+        transfer_accs = []
+        for test_layer in sample_layers:
+            pos_test = all_acts[concept_name]["positive"][test_layer]
+            neg_test = all_acts[concept_name]["negative"][test_layer]
+            X_test, y_test = make_dataset(pos_test, neg_test)
+            X_test_s = scaler.transform(X_test)
+            preds = clf.predict(X_test_s)
+            acc = (preds == y_test).mean()
+            transfer_accs.append((test_layer, acc))
+
+        # Compute transferability = mean accuracy at non-best layers
+        other_accs = [a for l, a in transfer_accs if l != best_layer]
+        mean_transfer = np.mean(other_accs) if other_accs else 0
+        label = "UNIVERSAL" if mean_transfer > 0.85 else (
+            "LOCAL" if mean_transfer < 0.65 else "partial")
+
+        acc_str = " ".join(f"L{l}:{a:.2f}" for l, a in transfer_accs)
+        print(f"  {concept_name:20s} (train@L{best_layer}): "
+              f"transfer={mean_transfer:.3f} [{label}]")
+        print(f"    {acc_str}")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
+# PHASE 22: Gram-Schmidt Concept Basis — orthogonalized steering vectors
+# ---------------------------------------------------------------------------
+
+def gram_schmidt_analysis(all_acts, concept_names, sparse_results):
+    """
+    Apply Gram-Schmidt orthogonalization to raw steering vectors.
+    Compare the orthogonalized directions with L1 probe directions.
+    The ordering matters — concepts processed first "claim" shared variance.
+    """
+    print("=" * 70)
+    print("PHASE 22: Gram-Schmidt Orthogonalization")
+    print("=" * 70)
+
+    # Compute raw steering vectors at each concept's best layer
+    raw_vectors = {}
+    for concept_name in concept_names:
+        layer = sparse_results[concept_name]["best_layer"]
+        pos = all_acts[concept_name]["positive"][layer]
+        neg = all_acts[concept_name]["negative"][layer]
+        diff = pos.mean(axis=0) - neg.mean(axis=0)
+        raw_vectors[concept_name] = diff
+
+    # Apply Gram-Schmidt in different orderings to see sensitivity
+    orderings = [
+        ("by_layer", sorted(concept_names,
+                            key=lambda c: sparse_results[c]["best_layer"])),
+        ("reverse", sorted(concept_names,
+                           key=lambda c: -sparse_results[c]["best_layer"])),
+    ]
+
+    for order_name, ordering in orderings:
+        ortho_vectors = {}
+        residual_norms = {}
+
+        for concept_name in ordering:
+            v = raw_vectors[concept_name].copy()
+            original_norm = np.linalg.norm(v)
+
+            # Project out previously orthogonalized vectors
+            for prev_name, prev_v in ortho_vectors.items():
+                v = v - np.dot(v, prev_v) * prev_v
+
+            norm = np.linalg.norm(v)
+            residual_norms[concept_name] = norm / (original_norm + 1e-8)
+            if norm > 1e-8:
+                ortho_vectors[concept_name] = v / norm
+            else:
+                ortho_vectors[concept_name] = v
+
+        print(f"\n  Ordering: {order_name}")
+        for concept_name in ordering:
+            r = residual_norms[concept_name]
+            status = "independent" if r > 0.9 else ("shared" if r < 0.5 else "partial")
+            print(f"    {concept_name:20s}: residual_norm={r:.3f} [{status}]")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Main Analysis Pipeline
 # ---------------------------------------------------------------------------
 
@@ -1650,6 +1759,12 @@ def run_analysis():
 
     # Phase 20: Concept interaction network (informational)
     concept_interaction_network(all_acts, concept_names, sparse_results)
+
+    # Phase 21: Concept transferability (informational)
+    concept_transferability_analysis(all_acts, concept_names, sparse_results)
+
+    # Phase 22: Gram-Schmidt orthogonalization (informational)
+    gram_schmidt_analysis(all_acts, concept_names, sparse_results)
 
     # ---- Composite Score ----
     interpretability_score = (
