@@ -6403,6 +6403,103 @@ def steering_vector_norm_profile(all_acts, concept_names, num_layers):
     print()
 
 
+def concept_layer_invariance(all_acts, concept_names, sparse_results, num_layers):
+    """
+    Train probe at best layer, test at other layers.
+    Measures how transferable concept representations are across depth.
+    """
+    print("=" * 70)
+    print("PHASE 115: Concept Layer Invariance (Cross-Layer Transfer)")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        sr = sparse_results[concept_name]
+        best_layer = sr["best_layer"]
+
+        # Train at best layer
+        pos_train = all_acts[concept_name]["positive"][best_layer]
+        neg_train = all_acts[concept_name]["negative"][best_layer]
+        X_train = np.vstack([pos_train, neg_train])
+        y_train = np.array([1]*len(pos_train) + [0]*len(neg_train))
+
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X_train)
+        clf = LogisticRegression(C=1.0, max_iter=200, random_state=42)
+        clf.fit(X_scaled, y_train)
+
+        # Test at every layer
+        accs = []
+        for li in range(num_layers):
+            pos_test = all_acts[concept_name]["positive"][li]
+            neg_test = all_acts[concept_name]["negative"][li]
+            X_test = np.vstack([pos_test, neg_test])
+            y_test = np.array([1]*len(pos_test) + [0]*len(neg_test))
+            X_test_scaled = scaler.transform(X_test)
+            accs.append(clf.score(X_test_scaled, y_test))
+
+        acc_arr = np.array(accs)
+        # How many layers achieve >80%?
+        good_layers = np.sum(acc_arr > 0.80)
+
+        # Sparkline
+        spark_chars = " ▁▂▃▄▅▆▇█"
+        sparkline = "".join(spark_chars[min(8, int(a * 8))] for a in acc_arr)
+
+        print(f"  {concept_name:20s} (train@L{best_layer}): "
+              f"layers>80%={good_layers}/{num_layers} [{sparkline}]")
+
+    print()
+
+
+def global_neuron_importance(all_acts, concept_names, num_layers, hidden_size):
+    """
+    Rank all neurons by total importance across ALL concepts at L10.
+    Identify the model's most universally important neurons.
+    """
+    print("=" * 70)
+    print("PHASE 116: Global Neuron Importance Ranking")
+    print("=" * 70)
+
+    target_layer = 10
+    total_importance = np.zeros(hidden_size)
+
+    for cn in concept_names:
+        pos = all_acts[cn]["positive"][target_layer]
+        neg = all_acts[cn]["negative"][target_layer]
+        mu_p, mu_n = np.mean(pos, axis=0), np.mean(neg, axis=0)
+        std_p, std_n = np.std(pos, axis=0), np.std(neg, axis=0)
+        pooled = np.sqrt((std_p**2 + std_n**2) / 2.0 + 1e-12)
+        d = np.abs(mu_p - mu_n) / pooled
+        total_importance += d
+
+    ranked = np.argsort(total_importance)[::-1]
+
+    print(f"  Top 10 most important neurons at L{target_layer} (sum of Cohen's d across 8 concepts):")
+    for rank, n_idx in enumerate(ranked[:10]):
+        # Find which concept this neuron is best for
+        best_d = 0
+        best_concept = ""
+        for cn in concept_names:
+            pos = all_acts[cn]["positive"][target_layer]
+            neg = all_acts[cn]["negative"][target_layer]
+            mu_p, mu_n = np.mean(pos[:, n_idx]), np.mean(neg[:, n_idx])
+            std_p, std_n = np.std(pos[:, n_idx]), np.std(neg[:, n_idx])
+            pooled = np.sqrt((std_p**2 + std_n**2) / 2.0 + 1e-12)
+            d = abs(mu_p - mu_n) / pooled
+            if d > best_d:
+                best_d = d
+                best_concept = cn
+
+        print(f"    #{rank+1:2d} N{n_idx:3d}: total_d={total_importance[n_idx]:.2f} "
+              f"best={best_concept[:12]:12s} (d={best_d:.2f})")
+
+    # Summary stats
+    print(f"\n  Mean total importance: {np.mean(total_importance):.2f}")
+    print(f"  Gini coefficient: {1 - 2*np.sum((np.sort(total_importance) * np.arange(1,hidden_size+1)) / (hidden_size * np.sum(total_importance))):.3f}")
+
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -6819,6 +6916,12 @@ def run_analysis():
 
     # Phase 114: Steering vector norm profile (informational)
     steering_vector_norm_profile(all_acts, concept_names, num_layers)
+
+    # Phase 115: Concept layer invariance (informational)
+    concept_layer_invariance(all_acts, concept_names, sparse_results, num_layers)
+
+    # Phase 116: Global neuron importance (informational)
+    global_neuron_importance(all_acts, concept_names, num_layers, hidden_size)
 
     # ---- Composite Score ----
     interpretability_score = (
