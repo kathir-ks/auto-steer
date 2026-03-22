@@ -5749,6 +5749,107 @@ def grand_summary(all_acts, concept_names, sparse_results, num_layers, hidden_si
     print()
 
 
+def concept_direction_angles(all_acts, concept_names):
+    """
+    Pairwise angles between concept directions (diff-of-means) at L10.
+    Perfect orthogonality = 90°. Reveals which concept pairs are most aligned.
+    """
+    print("=" * 70)
+    print("PHASE 101: Concept Direction Angles at L10")
+    print("=" * 70)
+
+    target_layer = 10
+    directions = {}
+    for concept_name in concept_names:
+        pos = all_acts[concept_name]["positive"][target_layer]
+        neg = all_acts[concept_name]["negative"][target_layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        directions[concept_name] = d / (np.linalg.norm(d) + 1e-12)
+
+    # Pairwise angles
+    pairs = []
+    for i, c1 in enumerate(concept_names):
+        for j, c2 in enumerate(concept_names):
+            if j > i:
+                cos = np.dot(directions[c1], directions[c2])
+                angle = np.degrees(np.arccos(np.clip(cos, -1, 1)))
+                pairs.append((angle, c1, c2, cos))
+
+    pairs.sort()
+
+    print("  Most aligned (smallest angle):")
+    for angle, c1, c2, cos in pairs[:3]:
+        print(f"    {c1:20s} vs {c2:20s}: {angle:5.1f}° (cos={cos:+.3f})")
+
+    print("  Most orthogonal (closest to 90°):")
+    by_orth = sorted(pairs, key=lambda x: abs(x[0] - 90))
+    for angle, c1, c2, cos in by_orth[:3]:
+        print(f"    {c1:20s} vs {c2:20s}: {angle:5.1f}° (cos={cos:+.3f})")
+
+    mean_angle = np.mean([p[0] for p in pairs])
+    print(f"\n  Mean pairwise angle: {mean_angle:.1f}° (ideal=90°)")
+
+    print()
+
+
+def neuron_response_curves(all_acts, concept_names, sparse_results):
+    """
+    Are top neuron responses to concept stimuli linear or nonlinear?
+    Partition examples by concept strength (distance along concept direction)
+    and check if neuron activation scales linearly.
+    """
+    print("=" * 70)
+    print("PHASE 102: Neuron Response Curves")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        sr = sparse_results[concept_name]
+        best_layer = sr["best_layer"]
+        top_neuron = sr["top_neurons"][0]
+
+        pos = all_acts[concept_name]["positive"][best_layer]
+        neg = all_acts[concept_name]["negative"][best_layer]
+        X = np.vstack([pos, neg])
+
+        # Concept direction
+        dom = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        dom_norm = dom / (np.linalg.norm(dom) + 1e-12)
+
+        # Project onto concept direction (concept strength)
+        strength = X @ dom_norm
+
+        # Neuron activation
+        neuron_act = X[:, top_neuron]
+
+        # Correlation (linearity measure)
+        corr = np.corrcoef(strength, neuron_act)[0, 1]
+
+        # Split into quartiles and check linearity
+        quartiles = np.percentile(strength, [25, 50, 75])
+        q_means = []
+        for lo, hi in [(strength.min(), quartiles[0]),
+                       (quartiles[0], quartiles[1]),
+                       (quartiles[1], quartiles[2]),
+                       (quartiles[2], strength.max() + 1)]:
+            mask = (strength >= lo) & (strength < hi)
+            if np.sum(mask) > 0:
+                q_means.append(np.mean(neuron_act[mask]))
+            else:
+                q_means.append(0)
+
+        # Monotonicity: are quartile means in order?
+        diffs = np.diff(q_means)
+        if np.all(diffs >= 0) or np.all(diffs <= 0):
+            monotonic = "yes"
+        else:
+            monotonic = "no"
+
+        print(f"  {concept_name:20s} N{top_neuron:3d}: r={corr:+.3f} "
+              f"monotonic={monotonic:3s} Q=[{','.join(f'{m:.3f}' for m in q_means)}]")
+
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -6123,6 +6224,12 @@ def run_analysis():
 
     # Phase 100: Grand summary (informational)
     grand_summary(all_acts, concept_names, sparse_results, num_layers, hidden_size)
+
+    # Phase 101: Concept direction angles (informational)
+    concept_direction_angles(all_acts, concept_names)
+
+    # Phase 102: Neuron response curves (informational)
+    neuron_response_curves(all_acts, concept_names, sparse_results)
 
     # ---- Composite Score ----
     interpretability_score = (
