@@ -32654,6 +32654,228 @@ def concept_activation_cluster_silhouette_score(all_acts, concept_names):
     print()
 
 
+def concept_direction_rank_deficiency_analysis(all_acts, concept_names):
+    """Phase 1181: Analyze rank deficiency of the concept direction matrix."""
+    print("=" * 70)
+    print("PHASE 1181: DIRECTION MATRIX RANK DEFICIENCY")
+    print("=" * 70)
+    layer = 10
+    dir_matrix = []
+    for cname in concept_names:
+        d = all_acts[cname]["positive"][layer].mean(0) - all_acts[cname]["negative"][layer].mean(0)
+        dir_matrix.append(d)
+    dir_matrix = np.array(dir_matrix)
+    svals = np.linalg.svd(dir_matrix, compute_uv=False)
+    rank_90 = np.searchsorted(np.cumsum(svals ** 2) / (np.sum(svals ** 2) + 1e-10), 0.90) + 1
+    rank_99 = np.searchsorted(np.cumsum(svals ** 2) / (np.sum(svals ** 2) + 1e-10), 0.99) + 1
+    print(f"  Direction matrix shape: {dir_matrix.shape}")
+    print(f"  Singular values: {svals[:8]}")
+    print(f"  Rank for 90% energy: {rank_90} | 99% energy: {rank_99}")
+    print(f"  Condition number: {svals[0]/(svals[-1]+1e-10):.2f}")
+    print()
+
+
+def concept_neuron_dead_alive_ratio(all_acts, concept_names):
+    """Phase 1182: Ratio of dead (near-zero) vs alive neurons per concept."""
+    print("=" * 70)
+    print("PHASE 1182: DEAD vs ALIVE NEURON RATIO")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        combined = np.vstack([pos, neg])
+        max_abs = np.abs(combined).max(0)
+        dead = (max_abs < 0.01).sum()
+        alive = combined.shape[1] - dead
+        print(f"  {cname:20s} | alive: {alive} | dead: {dead} | ratio: {alive/(dead+1):.1f}")
+    print()
+
+
+def concept_direction_projection_distribution_overlap(all_acts, concept_names):
+    """Phase 1183: Overlap between pos/neg projection distributions."""
+    print("=" * 70)
+    print("PHASE 1183: PROJECTION DISTRIBUTION OVERLAP")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        direction = pos.mean(0) - neg.mean(0)
+        direction = direction / (np.linalg.norm(direction) + 1e-10)
+        pos_proj = pos @ direction
+        neg_proj = neg @ direction
+        # Overlap: fraction of neg projections above min(pos) and pos below max(neg)
+        overlap_region = max(0, min(pos_proj.max(), neg_proj.max()) - max(pos_proj.min(), neg_proj.min()))
+        total_range = max(pos_proj.max(), neg_proj.max()) - min(pos_proj.min(), neg_proj.min())
+        overlap_frac = overlap_region / (total_range + 1e-10)
+        print(f"  {cname:20s} | overlap: {overlap_frac:.4f} | pos range: [{pos_proj.min():.2f}, {pos_proj.max():.2f}] | neg range: [{neg_proj.min():.2f}, {neg_proj.max():.2f}]")
+    print()
+
+
+def concept_activation_pca_explained_variance(all_acts, concept_names):
+    """Phase 1184: PCA explained variance for concept activations."""
+    print("=" * 70)
+    print("PHASE 1184: PCA EXPLAINED VARIANCE")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        combined = np.vstack([pos, neg])
+        centered = combined - combined.mean(0)
+        cov = np.cov(centered.T)
+        eigvals = np.linalg.eigvalsh(cov)[::-1]
+        cumvar = np.cumsum(eigvals) / (eigvals.sum() + 1e-10)
+        n_for_90 = np.searchsorted(cumvar, 0.90) + 1
+        n_for_95 = np.searchsorted(cumvar, 0.95) + 1
+        print(f"  {cname:20s} | dims for 90%: {n_for_90} | 95%: {n_for_95} | PC1: {eigvals[0]/eigvals.sum()*100:.1f}%")
+    print()
+
+
+def concept_neuron_response_symmetry_test(all_acts, concept_names):
+    """Phase 1185: Test symmetry of neuron responses (positive vs negative concept)."""
+    print("=" * 70)
+    print("PHASE 1185: NEURON RESPONSE SYMMETRY TEST")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        pos_mean = pos.mean(0)
+        neg_mean = neg.mean(0)
+        grand_mean = np.vstack([pos, neg]).mean(0)
+        pos_dev = pos_mean - grand_mean
+        neg_dev = neg_mean - grand_mean
+        # Perfect symmetry: pos_dev = -neg_dev
+        symmetry = np.corrcoef(pos_dev, -neg_dev)[0, 1]
+        asym_norm = np.linalg.norm(pos_dev + neg_dev) / (np.linalg.norm(pos_dev) + 1e-10)
+        print(f"  {cname:20s} | symmetry corr: {symmetry:.6f} | asymmetry norm: {asym_norm:.6f}")
+    print()
+
+
+def concept_direction_concept_direction_gram_schmidt_residuals(all_acts, concept_names):
+    """Phase 1186: Gram-Schmidt residual norms after orthogonalization."""
+    print("=" * 70)
+    print("PHASE 1186: GRAM-SCHMIDT RESIDUAL NORMS")
+    print("=" * 70)
+    layer = 10
+    dirs = []
+    for cname in concept_names:
+        d = all_acts[cname]["positive"][layer].mean(0) - all_acts[cname]["negative"][layer].mean(0)
+        dirs.append(d)
+    # Gram-Schmidt
+    ortho = []
+    residual_norms = []
+    for i, d in enumerate(dirs):
+        v = d.copy()
+        for u in ortho:
+            v = v - (v @ u) * u
+        norm = np.linalg.norm(v)
+        residual_norms.append(norm / (np.linalg.norm(d) + 1e-10))
+        if norm > 1e-10:
+            ortho.append(v / norm)
+    for i, (cname, rn) in enumerate(zip(concept_names, residual_norms)):
+        print(f"  {cname:20s} (order {i}) | residual fraction: {rn:.6f}")
+    print()
+
+
+def concept_activation_extreme_sample_analysis(all_acts, concept_names):
+    """Phase 1187: Analyze extreme (outlier) samples per concept."""
+    print("=" * 70)
+    print("PHASE 1187: EXTREME SAMPLE ANALYSIS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        direction = pos.mean(0) - neg.mean(0)
+        direction = direction / (np.linalg.norm(direction) + 1e-10)
+        pos_proj = pos @ direction
+        neg_proj = neg @ direction
+        pos_extreme = pos_proj.max()
+        neg_extreme = neg_proj.min()
+        pos_median = np.median(pos_proj)
+        neg_median = np.median(neg_proj)
+        print(f"  {cname:20s} | pos extreme/median: {pos_extreme/pos_median:.3f} | neg extreme/median: {neg_extreme/(neg_median+1e-10):.3f}")
+    print()
+
+
+def concept_direction_cross_concept_projection_matrix(all_acts, concept_names):
+    """Phase 1188: Cross-concept projection matrix (project each onto all others)."""
+    print("=" * 70)
+    print("PHASE 1188: CROSS-CONCEPT PROJECTION MATRIX")
+    print("=" * 70)
+    layer = 10
+    dirs = {}
+    for cname in concept_names:
+        d = all_acts[cname]["positive"][layer].mean(0) - all_acts[cname]["negative"][layer].mean(0)
+        dirs[cname] = d / (np.linalg.norm(d) + 1e-10)
+    # Print projection of each concept's positive samples onto other concept directions
+    print(f"  {'':20s} | " + " | ".join(f"{c[:6]:>6s}" for c in concept_names))
+    for c1 in concept_names[:4]:
+        pos = all_acts[c1]["positive"][layer]
+        projs = []
+        for c2 in concept_names:
+            mean_proj = abs(float(pos.mean(0) @ dirs[c2]))
+            projs.append(f"{mean_proj:6.2f}")
+        print(f"  {c1:20s} | " + " | ".join(projs))
+    print()
+
+
+def concept_neuron_top_concept_assignment(all_acts, concept_names):
+    """Phase 1189: Assign each neuron to its top concept by discrimination."""
+    print("=" * 70)
+    print("PHASE 1189: NEURON TOP CONCEPT ASSIGNMENT")
+    print("=" * 70)
+    layer = 10
+    n_neurons = all_acts[concept_names[0]]["positive"][layer].shape[1]
+    assignments = {c: 0 for c in concept_names}
+    for j in range(n_neurons):
+        best_concept = None
+        best_disc = 0
+        for cname in concept_names:
+            pos_mean = all_acts[cname]["positive"][layer][:, j].mean()
+            neg_mean = all_acts[cname]["negative"][layer][:, j].mean()
+            disc = abs(pos_mean - neg_mean)
+            if disc > best_disc:
+                best_disc = disc
+                best_concept = cname
+        if best_concept:
+            assignments[best_concept] += 1
+    for cname in concept_names:
+        print(f"  {cname:20s} | assigned neurons: {assignments[cname]} ({100*assignments[cname]/n_neurons:.1f}%)")
+    print()
+
+
+def concept_direction_layer_best_separation_summary(all_acts, concept_names):
+    """Phase 1190: Summary of best layer for separation per concept."""
+    print("=" * 70)
+    print("PHASE 1190: BEST SEPARATION LAYER SUMMARY")
+    print("=" * 70)
+    for cname in concept_names:
+        best_layer = -1
+        best_sep = 0
+        for l in range(24):
+            pos = all_acts[cname]["positive"][l]
+            neg = all_acts[cname]["negative"][l]
+            d = pos.mean(0) - neg.mean(0)
+            sep = np.linalg.norm(d)
+            if sep > best_sep:
+                best_sep = sep
+                best_layer = l
+        worst_layer = -1
+        worst_sep = float('inf')
+        for l in range(24):
+            d = all_acts[cname]["positive"][l].mean(0) - all_acts[cname]["negative"][l].mean(0)
+            sep = np.linalg.norm(d)
+            if sep < worst_sep:
+                worst_sep = sep
+                worst_layer = l
+        print(f"  {cname:20s} | best: L{best_layer} ({best_sep:.2f}) | worst: L{worst_layer} ({worst_sep:.2f}) | ratio: {best_sep/(worst_sep+1e-10):.1f}x")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -36268,6 +36490,36 @@ def run_analysis():
 
     # Phase 1180: Concept cluster silhouette score (informational)
     concept_activation_cluster_silhouette_score(all_acts, concept_names)
+
+    # Phase 1181: Direction matrix rank deficiency (informational)
+    concept_direction_rank_deficiency_analysis(all_acts, concept_names)
+
+    # Phase 1182: Dead vs alive neuron ratio (informational)
+    concept_neuron_dead_alive_ratio(all_acts, concept_names)
+
+    # Phase 1183: Projection distribution overlap (informational)
+    concept_direction_projection_distribution_overlap(all_acts, concept_names)
+
+    # Phase 1184: PCA explained variance (informational)
+    concept_activation_pca_explained_variance(all_acts, concept_names)
+
+    # Phase 1185: Neuron response symmetry test (informational)
+    concept_neuron_response_symmetry_test(all_acts, concept_names)
+
+    # Phase 1186: Gram-Schmidt residual norms (informational)
+    concept_direction_concept_direction_gram_schmidt_residuals(all_acts, concept_names)
+
+    # Phase 1187: Extreme sample analysis (informational)
+    concept_activation_extreme_sample_analysis(all_acts, concept_names)
+
+    # Phase 1188: Cross-concept projection matrix (informational)
+    concept_direction_cross_concept_projection_matrix(all_acts, concept_names)
+
+    # Phase 1189: Neuron top concept assignment (informational)
+    concept_neuron_top_concept_assignment(all_acts, concept_names)
+
+    # Phase 1190: Best separation layer summary (informational)
+    concept_direction_layer_best_separation_summary(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
