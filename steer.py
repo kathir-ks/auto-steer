@@ -7642,6 +7642,83 @@ def neuron_activation_quantiles(all_acts, concept_names, sparse_results):
     print()
 
 
+def concept_norm_predictability(all_acts, concept_names, num_layers):
+    """
+    Can activation norms alone (without direction) predict concepts?
+    Tests whether concept information is purely directional or also in magnitude.
+    """
+    print("=" * 70)
+    print("PHASE 143: Concept Predictability from Norms Alone")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        for li in [0, 10, 23]:
+            pos = all_acts[concept_name]["positive"][li]
+            neg = all_acts[concept_name]["negative"][li]
+
+            # Use only the L2 norm as feature
+            pos_norms = np.linalg.norm(pos, axis=1).reshape(-1, 1)
+            neg_norms = np.linalg.norm(neg, axis=1).reshape(-1, 1)
+            X_norm = np.vstack([pos_norms, neg_norms])
+            y = np.array([1]*len(pos) + [0]*len(neg))
+
+            clf = LogisticRegression(C=1.0, max_iter=200, random_state=42)
+            clf.fit(X_norm, y)
+            norm_acc = clf.score(X_norm, y)
+
+            if li == 10:
+                print(f"  {concept_name:20s} L{li:2d}: norm_acc={norm_acc:.3f} "
+                      f"({'useful' if norm_acc > 0.6 else 'no signal'})")
+
+    print()
+
+
+def inter_concept_distance_evolution(all_acts, concept_names, num_layers):
+    """
+    How do pairwise distances between concept centroids evolve across layers?
+    """
+    print("=" * 70)
+    print("PHASE 144: Inter-Concept Distance Evolution")
+    print("=" * 70)
+
+    # Track distance for the most similar pair (sentiment↔emotion) and most different
+    pairs_to_track = [
+        ("sentiment", "emotion_joy_anger", "close"),
+        ("sentiment", "complexity", "far"),
+    ]
+
+    for c1, c2, label in pairs_to_track:
+        dists = []
+        for li in range(num_layers):
+            cent1 = np.mean(all_acts[c1]["positive"][li], axis=0)
+            cent2 = np.mean(all_acts[c2]["positive"][li], axis=0)
+            dists.append(np.linalg.norm(cent1 - cent2))
+
+        d_arr = np.array(dists)
+        # Normalize for sparkline
+        d_norm = d_arr / (np.max(d_arr) + 1e-12)
+        spark_chars = " ▁▂▃▄▅▆▇█"
+        sparkline = "".join(spark_chars[min(8, int(v * 8))] for v in d_norm)
+
+        print(f"  {c1[:8]:8s}↔{c2[:8]:8s} ({label:5s}): "
+              f"L0={d_arr[0]:.2f} L10={d_arr[10]:.2f} L23={d_arr[-1]:.2f} "
+              f"[{sparkline}]")
+
+    # Also print the growth ratio for all pairs
+    print(f"\n  Growth ratios (L23/L0):")
+    for i, c1 in enumerate(concept_names):
+        for j, c2 in enumerate(concept_names):
+            if j == i + 1:
+                d0 = np.linalg.norm(np.mean(all_acts[c1]["positive"][0], axis=0) -
+                                     np.mean(all_acts[c2]["positive"][0], axis=0))
+                d23 = np.linalg.norm(np.mean(all_acts[c1]["positive"][23], axis=0) -
+                                      np.mean(all_acts[c2]["positive"][23], axis=0))
+                ratio = d23 / (d0 + 1e-12)
+                print(f"    {c1[:10]:10s}↔{c2[:10]:10s}: {ratio:.0f}x")
+
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -8142,6 +8219,12 @@ def run_analysis():
 
     # Phase 142: Neuron activation quantiles (informational)
     neuron_activation_quantiles(all_acts, concept_names, sparse_results)
+
+    # Phase 143: Concept norm predictability (informational)
+    concept_norm_predictability(all_acts, concept_names, num_layers)
+
+    # Phase 144: Inter-concept distance evolution (informational)
+    inter_concept_distance_evolution(all_acts, concept_names, num_layers)
 
     # ---- Composite Score ----
     interpretability_score = (
