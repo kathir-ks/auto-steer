@@ -31751,6 +31751,223 @@ def grand_milestone_1140():
     print()
 
 
+def concept_activation_energy_landscape_barrier(all_acts, concept_names):
+    """Phase 1141: Analyze energy landscape of concept activations using potential energy analogy."""
+    print("=" * 70)
+    print("PHASE 1141: ACTIVATION ENERGY LANDSCAPE BARRIER ANALYSIS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        combined = np.vstack([pos, neg])
+        centroid = combined.mean(0)
+        pos_dists = np.linalg.norm(pos - centroid, axis=1)
+        neg_dists = np.linalg.norm(neg - centroid, axis=1)
+        pos_energy = np.mean(pos_dists ** 2)
+        neg_energy = np.mean(neg_dists ** 2)
+        barrier = np.linalg.norm(pos.mean(0) - neg.mean(0)) ** 2
+        print(f"  {cname:20s} | pos_energy: {pos_energy:.2f} | neg_energy: {neg_energy:.2f} | barrier: {barrier:.2f} | ratio: {barrier/(pos_energy+neg_energy+1e-10):.3f}")
+    print()
+
+
+def concept_activation_kurtosis_layer_profile(all_acts, concept_names):
+    """Phase 1142: Kurtosis profile of concept activations across layers."""
+    print("=" * 70)
+    print("PHASE 1142: ACTIVATION KURTOSIS LAYER PROFILE")
+    print("=" * 70)
+    from scipy.stats import kurtosis
+    for cname in concept_names[:4]:
+        kurt_vals = []
+        for l in range(24):
+            pos = all_acts[cname]["positive"][l]
+            neg = all_acts[cname]["negative"][l]
+            combined = np.vstack([pos, neg])
+            k = kurtosis(combined, axis=0, fisher=True)
+            kurt_vals.append(np.mean(k))
+        peak_layer = int(np.argmax(kurt_vals))
+        print(f"  {cname:20s} | peak kurtosis layer: {peak_layer} | peak val: {kurt_vals[peak_layer]:.3f} | mean: {np.mean(kurt_vals):.3f}")
+    print()
+
+
+def concept_direction_projection_asymmetry(all_acts, concept_names):
+    """Phase 1143: Check if projections onto concept directions are symmetric."""
+    print("=" * 70)
+    print("PHASE 1143: DIRECTION PROJECTION ASYMMETRY")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        direction = pos.mean(0) - neg.mean(0)
+        direction = direction / (np.linalg.norm(direction) + 1e-10)
+        pos_proj = pos @ direction
+        neg_proj = neg @ direction
+        pos_skew = float(np.mean((pos_proj - pos_proj.mean()) ** 3) / (np.std(pos_proj) ** 3 + 1e-10))
+        neg_skew = float(np.mean((neg_proj - neg_proj.mean()) ** 3) / (np.std(neg_proj) ** 3 + 1e-10))
+        asymmetry = abs(pos_skew - neg_skew)
+        print(f"  {cname:20s} | pos_skew: {pos_skew:+.3f} | neg_skew: {neg_skew:+.3f} | asymmetry: {asymmetry:.3f}")
+    print()
+
+
+def concept_neuron_activation_bimodality_gap_test(all_acts, concept_names):
+    """Phase 1144: Test whether individual neuron activations are bimodal for each concept."""
+    print("=" * 70)
+    print("PHASE 1144: NEURON ACTIVATION BIMODALITY GAP TEST")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        combined = np.vstack([pos, neg])
+        bimodal_count = 0
+        for j in range(combined.shape[1]):
+            vals = combined[:, j]
+            median = np.median(vals)
+            lower = vals[vals <= median]
+            upper = vals[vals > median]
+            if len(lower) > 1 and len(upper) > 1:
+                gap = upper.min() - lower.max()
+                spread = vals.std()
+                if gap > 0.5 * spread:
+                    bimodal_count += 1
+        print(f"  {cname:20s} | bimodal neurons: {bimodal_count}/{combined.shape[1]} ({100*bimodal_count/combined.shape[1]:.1f}%)")
+    print()
+
+
+def concept_direction_curvature_estimate(all_acts, concept_names):
+    """Phase 1145: Estimate curvature of concept manifold near the direction."""
+    print("=" * 70)
+    print("PHASE 1145: CONCEPT MANIFOLD CURVATURE ESTIMATE")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        direction = pos.mean(0) - neg.mean(0)
+        direction = direction / (np.linalg.norm(direction) + 1e-10)
+        # Project out direction, measure residual variance
+        pos_proj = pos @ direction
+        pos_residual = pos - np.outer(pos_proj, direction)
+        neg_proj = neg @ direction
+        neg_residual = neg - np.outer(neg_proj, direction)
+        # Curvature proxy: correlation between projection and residual norm
+        pos_res_norms = np.linalg.norm(pos_residual, axis=1)
+        neg_res_norms = np.linalg.norm(neg_residual, axis=1)
+        all_proj = np.concatenate([pos_proj, neg_proj])
+        all_res = np.concatenate([pos_res_norms, neg_res_norms])
+        corr = np.corrcoef(all_proj, all_res)[0, 1]
+        print(f"  {cname:20s} | proj-residual corr: {corr:+.4f} (0=flat, !=0 curved)")
+    print()
+
+
+def concept_cross_layer_direction_drift_rate(all_acts, concept_names):
+    """Phase 1146: Rate at which concept directions change between adjacent layers."""
+    print("=" * 70)
+    print("PHASE 1146: CROSS-LAYER DIRECTION DRIFT RATE")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        drifts = []
+        for l in range(23):
+            pos1 = all_acts[cname]["positive"][l]
+            neg1 = all_acts[cname]["negative"][l]
+            d1 = pos1.mean(0) - neg1.mean(0)
+            d1 = d1 / (np.linalg.norm(d1) + 1e-10)
+            pos2 = all_acts[cname]["positive"][l + 1]
+            neg2 = all_acts[cname]["negative"][l + 1]
+            d2 = pos2.mean(0) - neg2.mean(0)
+            d2 = d2 / (np.linalg.norm(d2) + 1e-10)
+            drift = 1 - abs(float(d1 @ d2))
+            drifts.append(drift)
+        max_drift_layer = int(np.argmax(drifts))
+        print(f"  {cname:20s} | max drift: {drifts[max_drift_layer]:.4f} at L{max_drift_layer}->{max_drift_layer+1} | mean drift: {np.mean(drifts):.4f}")
+    print()
+
+
+def concept_neuron_response_linearity_test(all_acts, concept_names):
+    """Phase 1147: Test linearity of neuron responses to concept direction."""
+    print("=" * 70)
+    print("PHASE 1147: NEURON RESPONSE LINEARITY TEST")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        direction = pos.mean(0) - neg.mean(0)
+        direction = direction / (np.linalg.norm(direction) + 1e-10)
+        combined = np.vstack([pos, neg])
+        proj = combined @ direction
+        # For top neurons, check linearity
+        importances = np.abs(direction)
+        top_neurons = np.argsort(importances)[-5:]
+        linearities = []
+        for n in top_neurons:
+            corr = np.corrcoef(proj, combined[:, n])[0, 1]
+            linearities.append(abs(corr))
+        print(f"  {cname:20s} | top-5 neuron linearity: {np.mean(linearities):.4f} | min: {np.min(linearities):.4f} | max: {np.max(linearities):.4f}")
+    print()
+
+
+def concept_activation_entropy_across_layers(all_acts, concept_names):
+    """Phase 1148: Entropy of discretized activations across layers."""
+    print("=" * 70)
+    print("PHASE 1148: ACTIVATION ENTROPY ACROSS LAYERS")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        entropies = []
+        for l in range(24):
+            pos = all_acts[cname]["positive"][l]
+            neg = all_acts[cname]["negative"][l]
+            combined = np.vstack([pos, neg])
+            # Discretize activations into bins and compute entropy
+            flat = combined.flatten()
+            hist, _ = np.histogram(flat, bins=50)
+            hist = hist / (hist.sum() + 1e-10)
+            ent = -np.sum(hist * np.log(hist + 1e-10))
+            entropies.append(ent)
+        peak_layer = int(np.argmax(entropies))
+        print(f"  {cname:20s} | peak entropy layer: L{peak_layer} ({entropies[peak_layer]:.3f}) | min: L{int(np.argmin(entropies))} ({min(entropies):.3f})")
+    print()
+
+
+def concept_pairwise_direction_stability_across_layers(all_acts, concept_names):
+    """Phase 1149: How stable are pairwise concept angles across layers."""
+    print("=" * 70)
+    print("PHASE 1149: PAIRWISE DIRECTION STABILITY ACROSS LAYERS")
+    print("=" * 70)
+    pairs = [(concept_names[i], concept_names[j]) for i in range(len(concept_names)) for j in range(i+1, len(concept_names))]
+    for c1, c2 in pairs[:6]:
+        angles = []
+        for l in range(24):
+            d1 = all_acts[c1]["positive"][l].mean(0) - all_acts[c1]["negative"][l].mean(0)
+            d2 = all_acts[c2]["positive"][l].mean(0) - all_acts[c2]["negative"][l].mean(0)
+            cos = float(d1 @ d2 / (np.linalg.norm(d1) * np.linalg.norm(d2) + 1e-10))
+            angles.append(np.degrees(np.arccos(np.clip(abs(cos), 0, 1))))
+        print(f"  {c1:12s} vs {c2:12s} | angle range: [{min(angles):.1f}, {max(angles):.1f}] | std: {np.std(angles):.2f}")
+    print()
+
+
+def concept_direction_concept_direction_signal_noise_decomposition(all_acts, concept_names):
+    """Phase 1150: Decompose activation variance into signal and noise components."""
+    print("=" * 70)
+    print("PHASE 1150: SIGNAL-NOISE VARIANCE DECOMPOSITION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        combined = np.vstack([pos, neg])
+        total_var = np.var(combined, axis=0).sum()
+        # Signal variance: variance explained by group means
+        grand_mean = combined.mean(0)
+        signal_var = len(pos) * np.sum((pos.mean(0) - grand_mean) ** 2) + len(neg) * np.sum((neg.mean(0) - grand_mean) ** 2)
+        signal_var /= len(combined)
+        noise_var = total_var - signal_var
+        snr = signal_var / (noise_var + 1e-10)
+        print(f"  {cname:20s} | signal_var: {signal_var:.2f} | noise_var: {noise_var:.2f} | SNR: {snr:.4f} | signal%: {100*signal_var/total_var:.2f}%")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -35245,6 +35462,36 @@ def run_analysis():
 
     # Phase 1140: 1140-phase milestone (informational)
     grand_milestone_1140()
+
+    # Phase 1141: Activation energy landscape barrier (informational)
+    concept_activation_energy_landscape_barrier(all_acts, concept_names)
+
+    # Phase 1142: Activation kurtosis layer profile (informational)
+    concept_activation_kurtosis_layer_profile(all_acts, concept_names)
+
+    # Phase 1143: Direction projection asymmetry (informational)
+    concept_direction_projection_asymmetry(all_acts, concept_names)
+
+    # Phase 1144: Neuron activation bimodality gap test (informational)
+    concept_neuron_activation_bimodality_gap_test(all_acts, concept_names)
+
+    # Phase 1145: Concept manifold curvature estimate (informational)
+    concept_direction_curvature_estimate(all_acts, concept_names)
+
+    # Phase 1146: Cross-layer direction drift rate (informational)
+    concept_cross_layer_direction_drift_rate(all_acts, concept_names)
+
+    # Phase 1147: Neuron response linearity test (informational)
+    concept_neuron_response_linearity_test(all_acts, concept_names)
+
+    # Phase 1148: Activation entropy across layers (informational)
+    concept_activation_entropy_across_layers(all_acts, concept_names)
+
+    # Phase 1149: Pairwise direction stability across layers (informational)
+    concept_pairwise_direction_stability_across_layers(all_acts, concept_names)
+
+    # Phase 1150: Signal-noise variance decomposition (informational)
+    concept_direction_concept_direction_signal_noise_decomposition(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
