@@ -2935,7 +2935,7 @@ def interpretability_report(concept_names, sparse_results, locality_results,
         emerge = locality_results[c]["emergence_layer"]
         print(f"     {c:20s} {layer:5d} {neuron:7d} {acc:6.2f} {emerge:7d}")
 
-    print(f"\n  Analysis complete: 44 phases, {num_layers} layers, "
+    print(f"\n  Analysis complete: 50 phases, {num_layers} layers, "
           f"{hidden_size} neurons, {len(concept_names)} concepts")
     print()
 
@@ -3242,6 +3242,100 @@ def concept_encoding_summary(all_acts, concept_names, sparse_results):
 
 
 # ---------------------------------------------------------------------------
+# PHASE 49: Layer Norm Correlation
+# ---------------------------------------------------------------------------
+
+def layer_norm_correlation(all_acts, concept_names, num_layers):
+    """
+    Does the L2 norm of activations correlate with concept labels?
+    If yes, concept information leaks into the norm (a "shortcut").
+    """
+    print("=" * 70)
+    print("PHASE 49: Layer Norm Correlation with Concept Labels")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        # Check at 3 layers
+        norm_corrs = []
+        for l in [0, num_layers // 2, num_layers - 1]:
+            pos = all_acts[concept_name]["positive"][l]
+            neg = all_acts[concept_name]["negative"][l]
+
+            norms_pos = np.linalg.norm(pos, axis=1)
+            norms_neg = np.linalg.norm(neg, axis=1)
+
+            # Point-biserial correlation (difference of means / pooled std)
+            diff = np.mean(norms_pos) - np.mean(norms_neg)
+            pooled_std = np.sqrt((np.var(norms_pos) + np.var(norms_neg)) / 2.0)
+            corr = diff / (pooled_std + 1e-12)
+            norm_corrs.append(corr)
+
+        has_shortcut = any(abs(c) > 1.0 for c in norm_corrs)
+        status = "SHORTCUT!" if has_shortcut else "clean"
+        corr_str = " ".join(f"L{l}={c:+.2f}" for l, c in
+                           zip([0, num_layers // 2, num_layers - 1], norm_corrs))
+        print(f"  {concept_name:20s}: {corr_str} → {status}")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
+# PHASE 50: Analysis Pipeline Summary
+# ---------------------------------------------------------------------------
+
+def pipeline_summary(num_phases=50):
+    """
+    Print a summary of the entire analysis pipeline.
+    """
+    print("=" * 70)
+    print(f"PHASE 50: Pipeline Summary — {num_phases} Analysis Phases Complete")
+    print("=" * 70)
+
+    phases = [
+        "Sparse Probing", "Monosemanticity", "Orthogonality", "Layer Locality",
+        "Neuron Role Summary", "Concept Composition", "Causal Ablation",
+        "Activation Patching", "ICA Decomposition", "Hierarchical Clustering",
+        "Cross-Layer Tracking", "MI Analysis", "NMF Decomposition",
+        "INLP Nullspace", "Concept Geometry", "RSA Across Layers",
+        "Probing Robustness", "Superposition Analysis", "Sparse Dictionary",
+        "Concept Interaction", "Concept Transferability", "Gram-Schmidt",
+        "Activation Distributions", "Neuron Co-activation", "Concept Emergence",
+        "Neuron Specificity", "Concept Bottleneck", "Gradient Landscape",
+        "PCA Projections", "Concept Polarity", "Layer Transitions",
+        "Concept Interference", "Decision Boundaries", "Concept Prototypes",
+        "Residual Analysis", "Bootstrap Stability", "Effective Rank",
+        "Concept Leakage", "Global Summary", "Entanglement Clusters",
+        "Layer Quality", "Interpretability Report", "Direction Stability",
+        "Concept SNR", "Activation Regimes", "Encoding Capacity",
+        "Neuron Census", "Bits Per Neuron", "Norm Correlation",
+        "Pipeline Summary",
+    ]
+
+    categories = {
+        "Scoring (4)": phases[:4],
+        "Core Analysis (4)": phases[4:8],
+        "Decomposition (5)": phases[8:13],
+        "Advanced Probing (6)": phases[13:19],
+        "Network Topology (4)": phases[19:23],
+        "Visualization (4)": phases[23:27],
+        "Sensitivity (4)": phases[27:31],
+        "Interference (4)": phases[31:35],
+        "Statistics (5)": phases[35:40],
+        "Summary (5)": phases[40:45],
+        "Final Analysis (5)": phases[45:50],
+    }
+
+    for cat_name, cat_phases in categories.items():
+        print(f"\n  {cat_name}:")
+        for i, p in enumerate(cat_phases):
+            global_idx = phases.index(p) + 1
+            print(f"    {global_idx:2d}. {p}")
+
+    print(f"\n  Total: {len(phases)} phases")
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Main Analysis Pipeline
 # ---------------------------------------------------------------------------
 
@@ -3410,6 +3504,12 @@ def run_analysis():
 
     # Phase 48: Concept encoding bits (informational)
     concept_encoding_summary(all_acts, concept_names, sparse_results)
+
+    # Phase 49: Norm correlation (informational)
+    layer_norm_correlation(all_acts, concept_names, num_layers)
+
+    # Phase 50: Pipeline summary (informational)
+    pipeline_summary()
 
     # ---- Composite Score ----
     interpretability_score = (
