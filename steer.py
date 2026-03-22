@@ -26,7 +26,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import cross_val_score, StratifiedKFold
 from sklearn.preprocessing import StandardScaler
 from sklearn.feature_selection import mutual_info_classif
-from sklearn.decomposition import FastICA, NMF
+from sklearn.decomposition import FastICA, NMF, DictionaryLearning
 from scipy.cluster.hierarchy import linkage, fcluster
 from scipy.spatial.distance import pdist
 
@@ -1402,6 +1402,89 @@ def superposition_analysis(all_acts, concept_names, sparse_results):
 
 
 # ---------------------------------------------------------------------------
+# PHASE 19: Sparse Dictionary Learning — SAE-inspired feature discovery
+# ---------------------------------------------------------------------------
+
+def sparse_dictionary_analysis(all_acts, concept_names, sparse_results):
+    """
+    Train sparse dictionary (SAE-like) on activations to discover
+    overcomplete sparse features. Check if learned dictionary atoms
+    correspond to individual concepts.
+    """
+    print("=" * 70)
+    print("PHASE 19: Sparse Dictionary Learning — Feature Discovery")
+    print("=" * 70)
+
+    # Group concepts by layer
+    layer_concepts = {}
+    for concept_name in concept_names:
+        layer = sparse_results[concept_name]["best_layer"]
+        layer_concepts.setdefault(layer, []).append(concept_name)
+
+    for layer_idx, concepts_at_layer in sorted(layer_concepts.items()):
+        # Collect all activations at this layer
+        all_X = []
+        concept_ranges = {}
+        offset = 0
+        for concept_name in concepts_at_layer:
+            pos = all_acts[concept_name]["positive"][layer_idx]
+            neg = all_acts[concept_name]["negative"][layer_idx]
+            all_X.extend([pos, neg])
+            n_pos, n_neg = len(pos), len(neg)
+            concept_ranges[concept_name] = (offset, offset + n_pos, offset + n_pos + n_neg)
+            offset += n_pos + n_neg
+
+        X_all = np.vstack(all_X)
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X_all)
+
+        # Train sparse dictionary with overcomplete basis
+        n_atoms = min(len(concepts_at_layer) * 4, 32)
+        try:
+            dl = DictionaryLearning(
+                n_components=n_atoms, alpha=1.0, max_iter=200,
+                transform_algorithm='lasso_lars', random_state=42)
+            codes = dl.fit_transform(X_scaled)  # sparse codes
+            dictionary = dl.components_  # atoms x features
+        except Exception:
+            print(f"  Layer {layer_idx}: Dictionary learning failed, skipping")
+            continue
+
+        # For each concept, find most selective atom
+        print(f"\n  Layer {layer_idx} ({', '.join(concepts_at_layer)}): "
+              f"{n_atoms} atoms")
+
+        for concept_name in concepts_at_layer:
+            start, mid, end = concept_ranges[concept_name]
+            pos_codes = codes[start:mid]
+            neg_codes = codes[mid:end]
+
+            best_atom = -1
+            best_d = 0
+            for a in range(n_atoms):
+                d = abs(pos_codes[:, a].mean() - neg_codes[:, a].mean()) / (
+                    np.sqrt((pos_codes[:, a].var() + neg_codes[:, a].var()) / 2) + 1e-8)
+                if d > best_d:
+                    best_d = d
+                    best_atom = a
+
+            # How sparse are the codes?
+            pos_sparsity = (np.abs(pos_codes) < 1e-6).mean()
+            neg_sparsity = (np.abs(neg_codes) < 1e-6).mean()
+            mean_sparsity = (pos_sparsity + neg_sparsity) / 2
+
+            # How many neurons does the best atom use?
+            if best_atom >= 0:
+                atom_weights = dictionary[best_atom]
+                n_active = int((np.abs(atom_weights) > np.abs(atom_weights).max() * 0.1).sum())
+                print(f"    {concept_name:20s}: best_atom={best_atom}, "
+                      f"d={best_d:.2f}, atom_size={n_active}, "
+                      f"code_sparsity={mean_sparsity:.1%}")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Main Analysis Pipeline
 # ---------------------------------------------------------------------------
 
@@ -1479,6 +1562,9 @@ def run_analysis():
 
     # Phase 18: Superposition analysis (informational)
     superposition_analysis(all_acts, concept_names, sparse_results)
+
+    # Phase 19: Sparse dictionary learning (informational)
+    sparse_dictionary_analysis(all_acts, concept_names, sparse_results)
 
     # ---- Composite Score ----
     interpretability_score = (
