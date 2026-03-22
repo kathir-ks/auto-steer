@@ -7570,6 +7570,78 @@ def pipeline_summary_140(elapsed):
     print()
 
 
+def concept_plasticity(all_acts, concept_names, sparse_results):
+    """
+    How much does the concept direction change when you leave out 1 sample?
+    Jackknife-style sensitivity analysis.
+    """
+    print("=" * 70)
+    print("PHASE 141: Concept Plasticity (Leave-One-Out Sensitivity)")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        sr = sparse_results[concept_name]
+        best_layer = sr["best_layer"]
+        pos = all_acts[concept_name]["positive"][best_layer]
+        neg = all_acts[concept_name]["negative"][best_layer]
+
+        # Full direction
+        full_dir = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        full_dir_norm = full_dir / (np.linalg.norm(full_dir) + 1e-12)
+
+        # Leave-one-out from positive class
+        cosines = []
+        for i in range(len(pos)):
+            pos_loo = np.delete(pos, i, axis=0)
+            loo_dir = np.mean(pos_loo, axis=0) - np.mean(neg, axis=0)
+            loo_dir_norm = loo_dir / (np.linalg.norm(loo_dir) + 1e-12)
+            cosines.append(np.dot(full_dir_norm, loo_dir_norm))
+
+        min_cos = np.min(cosines)
+        mean_cos = np.mean(cosines)
+        most_influential = np.argmin(cosines)
+
+        print(f"  {concept_name:20s}: mean_cos={mean_cos:.4f} "
+              f"min_cos={min_cos:.4f} (sample #{most_influential} most influential)")
+
+    print()
+
+
+def neuron_activation_quantiles(all_acts, concept_names, sparse_results):
+    """
+    Characterize top neuron activation distributions using quantiles.
+    """
+    print("=" * 70)
+    print("PHASE 142: Neuron Activation Quantiles")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        sr = sparse_results[concept_name]
+        best_layer = sr["best_layer"]
+        top_neuron = sr["top_neurons"][0]
+
+        pos = all_acts[concept_name]["positive"][best_layer][:, top_neuron]
+        neg = all_acts[concept_name]["negative"][best_layer][:, top_neuron]
+
+        # Quantiles for each class
+        pos_q = np.percentile(pos, [5, 25, 50, 75, 95])
+        neg_q = np.percentile(neg, [5, 25, 50, 75, 95])
+
+        # IQR overlap
+        pos_iqr = (pos_q[1], pos_q[3])
+        neg_iqr = (neg_q[1], neg_q[3])
+        overlap_lo = max(pos_iqr[0], neg_iqr[0])
+        overlap_hi = min(pos_iqr[1], neg_iqr[1])
+        iqr_overlap = max(0, overlap_hi - overlap_lo)
+
+        print(f"  {concept_name:20s} N{top_neuron:3d}: "
+              f"pos=[{pos_q[0]:.3f},{pos_q[2]:.3f},{pos_q[4]:.3f}] "
+              f"neg=[{neg_q[0]:.3f},{neg_q[2]:.3f},{neg_q[4]:.3f}] "
+              f"IQR_overlap={iqr_overlap:.3f}")
+
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -8064,6 +8136,12 @@ def run_analysis():
 
     # Phase 140: Pipeline summary (informational)
     pipeline_summary_140(time.time() - t0)
+
+    # Phase 141: Concept plasticity (informational)
+    concept_plasticity(all_acts, concept_names, sparse_results)
+
+    # Phase 142: Neuron activation quantiles (informational)
+    neuron_activation_quantiles(all_acts, concept_names, sparse_results)
 
     # ---- Composite Score ----
     interpretability_score = (
