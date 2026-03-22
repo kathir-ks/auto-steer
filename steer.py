@@ -5554,6 +5554,101 @@ def neuron_dead_zone_analysis(all_acts, concept_names, num_layers, hidden_size):
     print()
 
 
+def concept_signal_persistence(all_acts, concept_names, num_layers):
+    """
+    Once a concept becomes decodable, does it stay decodable through all remaining layers?
+    Measure whether concept signal is persistent or transient.
+    """
+    print("=" * 70)
+    print("PHASE 97: Concept Signal Persistence")
+    print("=" * 70)
+
+    DECODABLE_THRESHOLD = 1.5  # max Cohen's d threshold
+
+    for concept_name in concept_names:
+        d_per_layer = []
+        for layer_idx in range(num_layers):
+            pos = all_acts[concept_name]["positive"][layer_idx]
+            neg = all_acts[concept_name]["negative"][layer_idx]
+            mu_p, mu_n = np.mean(pos, axis=0), np.mean(neg, axis=0)
+            std_p, std_n = np.std(pos, axis=0), np.std(neg, axis=0)
+            pooled = np.sqrt((std_p**2 + std_n**2) / 2.0 + 1e-12)
+            d_all = np.abs(mu_p - mu_n) / pooled
+            d_per_layer.append(np.max(d_all))
+
+        d_arr = np.array(d_per_layer)
+
+        # First layer where decodable
+        first_decodable = num_layers
+        for li in range(num_layers):
+            if d_arr[li] >= DECODABLE_THRESHOLD:
+                first_decodable = li
+                break
+
+        # After first decodable, count layers where it drops below threshold
+        drops = 0
+        if first_decodable < num_layers:
+            for li in range(first_decodable, num_layers):
+                if d_arr[li] < DECODABLE_THRESHOLD:
+                    drops += 1
+
+        persistent_pct = 1.0 - drops / max(1, num_layers - first_decodable)
+
+        print(f"  {concept_name:20s}: first@L{first_decodable} "
+              f"drops={drops} persistence={persistent_pct:.1%}")
+
+    print()
+
+
+def neuron_cooperation_patterns(all_acts, concept_names, sparse_results):
+    """
+    Among top-3 neurons for each concept, do they activate together or in alternation?
+    Compute co-activation rate: fraction of samples where all top neurons agree in polarity.
+    """
+    print("=" * 70)
+    print("PHASE 98: Neuron Cooperation Patterns")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        sr = sparse_results[concept_name]
+        best_layer = sr["best_layer"]
+        top_neurons = sr["top_neurons"][:3]
+
+        pos = all_acts[concept_name]["positive"][best_layer]
+        neg = all_acts[concept_name]["negative"][best_layer]
+        X = np.vstack([pos, neg])
+
+        # For each top neuron, compute its median as a threshold
+        activations = []
+        for n_idx in top_neurons:
+            vals = X[:, n_idx]
+            median = np.median(vals)
+            above = vals > median
+            activations.append(above)
+
+        if len(activations) >= 2:
+            # Co-activation: all neurons above their median simultaneously
+            all_above = np.all(activations, axis=0)
+            all_below = np.all([~a for a in activations], axis=0)
+            coact_rate = np.mean(all_above) + np.mean(all_below)
+
+            # Agreement rate: pairwise
+            pair_agreements = []
+            for i in range(len(activations)):
+                for j in range(i+1, len(activations)):
+                    agree = np.mean(activations[i] == activations[j])
+                    pair_agreements.append(agree)
+
+            mean_agree = np.mean(pair_agreements)
+
+            print(f"  {concept_name:20s}: co-activation={coact_rate:.3f} "
+                  f"pairwise_agree={mean_agree:.3f}")
+        else:
+            print(f"  {concept_name:20s}: (only 1 top neuron)")
+
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -5916,6 +6011,12 @@ def run_analysis():
 
     # Phase 96: Neuron dead zone analysis (informational)
     neuron_dead_zone_analysis(all_acts, concept_names, num_layers, hidden_size)
+
+    # Phase 97: Concept signal persistence (informational)
+    concept_signal_persistence(all_acts, concept_names, num_layers)
+
+    # Phase 98: Neuron cooperation patterns (informational)
+    neuron_cooperation_patterns(all_acts, concept_names, sparse_results)
 
     # ---- Composite Score ----
     interpretability_score = (
