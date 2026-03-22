@@ -6754,6 +6754,92 @@ def neuron_information_content(all_acts, concept_names, sparse_results):
     print()
 
 
+def concept_boundary_thickness(all_acts, concept_names, sparse_results):
+    """
+    How wide is the transition zone between pos/neg classes?
+    Thinner boundary = sharper, more reliable classification.
+    """
+    print("=" * 70)
+    print("PHASE 123: Concept Boundary Thickness")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        sr = sparse_results[concept_name]
+        best_layer = sr["best_layer"]
+        pos = all_acts[concept_name]["positive"][best_layer]
+        neg = all_acts[concept_name]["negative"][best_layer]
+
+        # Project onto concept direction
+        dom = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        dom_norm = dom / (np.linalg.norm(dom) + 1e-12)
+        X = np.vstack([pos, neg])
+        proj = X @ dom_norm
+
+        pos_proj = proj[:len(pos)]
+        neg_proj = proj[len(pos):]
+
+        # Boundary region: between the closest pos and neg samples
+        if np.mean(pos_proj) > np.mean(neg_proj):
+            boundary_low = np.max(neg_proj)
+            boundary_high = np.min(pos_proj)
+        else:
+            boundary_low = np.max(pos_proj)
+            boundary_high = np.min(neg_proj)
+
+        thickness = boundary_high - boundary_low  # negative = overlap
+
+        # Normalized by total spread
+        total_spread = np.max(proj) - np.min(proj)
+        rel_thickness = thickness / (total_spread + 1e-12)
+
+        # Samples in the boundary zone (within 10% of midpoint)
+        midpoint = (np.mean(pos_proj) + np.mean(neg_proj)) / 2
+        zone_width = 0.1 * total_spread
+        in_zone = np.mean((proj > midpoint - zone_width) & (proj < midpoint + zone_width))
+
+        print(f"  {concept_name:20s}: thickness={thickness:.4f} "
+              f"rel={rel_thickness:.3f} in_zone={in_zone:.1%}")
+
+    print()
+
+
+def layer_capacity_utilization(all_acts, concept_names, num_layers, hidden_size):
+    """
+    At each layer, how much of the representation space is used by concepts?
+    Measure via PCA: how many dimensions do the 8 concept directions span?
+    """
+    print("=" * 70)
+    print("PHASE 124: Layer Capacity Utilization")
+    print("=" * 70)
+
+    for layer_idx in [0, 5, 10, 15, 23]:
+        # Collect concept directions at this layer
+        directions = []
+        for cn in concept_names:
+            pos = all_acts[cn]["positive"][layer_idx]
+            neg = all_acts[cn]["negative"][layer_idx]
+            d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+            directions.append(d)
+
+        D = np.array(directions)  # 8 x hidden_size
+
+        # SVD of direction matrix
+        U, S, Vt = np.linalg.svd(D, full_matrices=False)
+        var_explained = S**2 / (np.sum(S**2) + 1e-12)
+
+        # Effective rank (participation ratio)
+        pr = np.sum(S**2)**2 / (np.sum(S**4) + 1e-12)
+
+        # How much of hidden_size is "used"?
+        utilization = pr / hidden_size
+
+        print(f"  L{layer_idx:2d}: eff_rank={pr:.1f}/{len(concept_names)} "
+              f"utilization={utilization:.4f} "
+              f"top-1={var_explained[0]:.1%} top-3={np.sum(var_explained[:3]):.1%}")
+
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -7194,6 +7280,12 @@ def run_analysis():
 
     # Phase 122: Neuron information content (informational)
     neuron_information_content(all_acts, concept_names, sparse_results)
+
+    # Phase 123: Concept boundary thickness (informational)
+    concept_boundary_thickness(all_acts, concept_names, sparse_results)
+
+    # Phase 124: Layer capacity utilization (informational)
+    layer_capacity_utilization(all_acts, concept_names, num_layers, hidden_size)
 
     # ---- Composite Score ----
     interpretability_score = (
