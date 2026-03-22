@@ -3889,6 +3889,135 @@ def activation_space_geometry(all_acts, concept_names, num_layers):
 
 
 # ---------------------------------------------------------------------------
+# PHASE 61: Layer-Wise Concept Orthogonality Evolution
+# ---------------------------------------------------------------------------
+
+def layerwise_orthogonality(all_acts, concept_names, num_layers):
+    """
+    Track how orthogonality between concept directions changes across layers.
+    Shows when the model separates entangled concepts.
+    """
+    print("=" * 70)
+    print("PHASE 61: Layer-Wise Orthogonality Evolution")
+    print("=" * 70)
+
+    # Track sentiment vs emotion_joy_anger (the most entangled pair)
+    key_pairs = [
+        ("sentiment", "emotion_joy_anger"),
+        ("complexity", "subjectivity"),
+        ("certainty", "instruction"),
+    ]
+
+    for c1, c2 in key_pairs:
+        sims = []
+        for l in range(num_layers):
+            pos1 = all_acts[c1]["positive"][l]
+            neg1 = all_acts[c1]["negative"][l]
+            d1 = np.mean(pos1, axis=0) - np.mean(neg1, axis=0)
+            d1 /= (np.linalg.norm(d1) + 1e-12)
+
+            pos2 = all_acts[c2]["positive"][l]
+            neg2 = all_acts[c2]["negative"][l]
+            d2 = np.mean(pos2, axis=0) - np.mean(neg2, axis=0)
+            d2 /= (np.linalg.norm(d2) + 1e-12)
+
+            sims.append(np.dot(d1, d2))
+
+        # Sparkline
+        blocks = " ▁▂▃▄▅▆▇█"
+        spark = ""
+        for s in sims:
+            val = (abs(s)) * 8  # scale |cos| to 0-8
+            idx = min(int(val), 8)
+            spark += blocks[idx]
+
+        peak_l = int(np.argmax(np.abs(sims)))
+        print(f"  {c1[:10]:10s}↔{c2[:10]:10s}: "
+              f"peak=L{peak_l}(cos={sims[peak_l]:+.2f}) "
+              f"mean|cos|={np.mean(np.abs(sims)):.3f} [{spark}]")
+
+    # Mean orthogonality across all pairs per layer
+    print(f"\n  Mean pairwise |cos| per layer:")
+    n = len(concept_names)
+    for l in range(num_layers):
+        directions = []
+        for c in concept_names:
+            pos = all_acts[c]["positive"][l]
+            neg = all_acts[c]["negative"][l]
+            d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+            d /= (np.linalg.norm(d) + 1e-12)
+            directions.append(d)
+
+        total_cos = 0
+        count = 0
+        for i in range(n):
+            for j in range(i + 1, n):
+                total_cos += abs(np.dot(directions[i], directions[j]))
+                count += 1
+        mean_cos = total_cos / count
+
+        bar = "█" * int(mean_cos * 50)
+        print(f"    L{l:2d}: {mean_cos:.4f} {bar}")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
+# PHASE 62: Concept Weight Sparsity Profile
+# ---------------------------------------------------------------------------
+
+def concept_weight_sparsity_profile(all_acts, concept_names, sparse_results):
+    """
+    Analyze the full weight vector of concept probes — how sparse are they?
+    Report Gini coefficient, L1/L2 ratio, and fraction of near-zero weights.
+    """
+    print("=" * 70)
+    print("PHASE 62: Concept Probe Weight Sparsity Profile")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        best_layer = sparse_results[concept_name]["best_layer"]
+        pos = all_acts[concept_name]["positive"][best_layer]
+        neg = all_acts[concept_name]["negative"][best_layer]
+        X = np.vstack([pos, neg])
+        y = np.array([1] * len(pos) + [0] * len(neg))
+
+        scaler = StandardScaler()
+        X_sc = scaler.fit_transform(X)
+
+        # L1 probe
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            clf = LogisticRegression(C=1.0, penalty="l1", solver="saga",
+                                     max_iter=2000, random_state=42)
+            clf.fit(X_sc, y)
+
+        w = clf.coef_[0]
+        abs_w = np.abs(w)
+
+        # Sparsity metrics
+        n_nonzero = np.sum(abs_w > 1e-8)
+        frac_nonzero = n_nonzero / len(w)
+
+        # Gini coefficient
+        sorted_w = np.sort(abs_w)
+        n = len(sorted_w)
+        cumsum = np.cumsum(sorted_w)
+        gini = 1.0 - 2.0 * cumsum.sum() / (n * cumsum[-1] + 1e-12)
+
+        # L1/L2 ratio (higher = sparser)
+        l1 = np.sum(abs_w)
+        l2 = np.sqrt(np.sum(w ** 2))
+        l1_l2 = l1 / (l2 * np.sqrt(len(w)) + 1e-12)
+
+        print(f"  {concept_name:20s} @ L{best_layer:2d}: "
+              f"nonzero={n_nonzero:3d}/{len(w)} ({frac_nonzero:.1%}) "
+              f"gini={gini:.3f} L1/L2={l1_l2:.3f}")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Main Analysis Pipeline
 # ---------------------------------------------------------------------------
 
@@ -4093,6 +4222,12 @@ def run_analysis():
 
     # Phase 60: Activation space geometry (informational)
     activation_space_geometry(all_acts, concept_names, num_layers)
+
+    # Phase 61: Layer-wise orthogonality (informational)
+    layerwise_orthogonality(all_acts, concept_names, num_layers)
+
+    # Phase 62: Weight sparsity profile (informational)
+    concept_weight_sparsity_profile(all_acts, concept_names, sparse_results)
 
     # ---- Composite Score ----
     interpretability_score = (
