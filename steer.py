@@ -11815,7 +11815,7 @@ def grand_milestone_270():
     print()
 
 
-def concept_mutual_exclusivity(all_acts, concept_names):
+def concept_mutual_exclusivity_subspace(all_acts, concept_names):
     """Do concept directions occupy mutually exclusive subspaces?"""
     print("=" * 70)
     print("PHASE 271: Concept Mutual Exclusivity")
@@ -12925,8 +12925,8 @@ def run_analysis():
     # Phase 270: 270-phase milestone (informational)
     grand_milestone_270()
 
-    # Phase 271: Concept encoding mutual exclusivity (informational)
-    concept_mutual_exclusivity(all_acts, concept_names)
+    # Phase 271: Concept encoding mutual exclusivity subspace (informational)
+    concept_mutual_exclusivity_subspace(all_acts, concept_names)
 
     # Phase 272: Layer-wise neuron activation statistics (informational)
     layerwise_neuron_stats(all_acts, concept_names, num_layers)
