@@ -7224,6 +7224,89 @@ def neuron_phase_space(all_acts, concept_names, sparse_results):
     print()
 
 
+def concept_signal_bandwidth(all_acts, concept_names, num_layers):
+    """
+    Spectral analysis of concept signal strength across layers.
+    Is the concept signal smooth (low-frequency) or oscillatory (high-frequency)?
+    """
+    print("=" * 70)
+    print("PHASE 133: Concept Signal Bandwidth")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        # Get max Cohen's d per layer
+        d_per_layer = []
+        for li in range(num_layers):
+            pos = all_acts[concept_name]["positive"][li]
+            neg = all_acts[concept_name]["negative"][li]
+            mu_p, mu_n = np.mean(pos, axis=0), np.mean(neg, axis=0)
+            std_p, std_n = np.std(pos, axis=0), np.std(neg, axis=0)
+            pooled = np.sqrt((std_p**2 + std_n**2) / 2.0 + 1e-12)
+            d_per_layer.append(np.max(np.abs(mu_p - mu_n) / pooled))
+
+        d_arr = np.array(d_per_layer)
+
+        # FFT to analyze frequency content
+        fft = np.fft.rfft(d_arr - np.mean(d_arr))
+        power = np.abs(fft)**2
+        total_power = np.sum(power)
+
+        # Low-frequency power (first 3 components) vs high-frequency
+        low_freq_power = np.sum(power[:4]) / (total_power + 1e-12)
+        high_freq_power = 1 - low_freq_power
+
+        # Smoothness: mean absolute difference between adjacent layers
+        roughness = np.mean(np.abs(np.diff(d_arr)))
+
+        print(f"  {concept_name:20s}: low_freq={low_freq_power:.1%} "
+              f"high_freq={high_freq_power:.1%} roughness={roughness:.3f}")
+
+    print()
+
+
+def neuron_influence_propagation(all_acts, concept_names, num_layers):
+    """
+    Does a neuron's importance at layer L predict its importance at L+1?
+    Measures how stable neuron identities are across the network.
+    """
+    print("=" * 70)
+    print("PHASE 134: Neuron Influence Propagation")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        layer_correlations = []
+        for li in range(num_layers - 1):
+            # Importance at layer li
+            pos_l = all_acts[concept_name]["positive"][li]
+            neg_l = all_acts[concept_name]["negative"][li]
+            mu_p_l, mu_n_l = np.mean(pos_l, axis=0), np.mean(neg_l, axis=0)
+            std_p_l, std_n_l = np.std(pos_l, axis=0), np.std(neg_l, axis=0)
+            pooled_l = np.sqrt((std_p_l**2 + std_n_l**2) / 2.0 + 1e-12)
+            d_l = np.abs(mu_p_l - mu_n_l) / pooled_l
+
+            # Importance at layer li+1
+            pos_l1 = all_acts[concept_name]["positive"][li + 1]
+            neg_l1 = all_acts[concept_name]["negative"][li + 1]
+            mu_p_l1, mu_n_l1 = np.mean(pos_l1, axis=0), np.mean(neg_l1, axis=0)
+            std_p_l1, std_n_l1 = np.std(pos_l1, axis=0), np.std(neg_l1, axis=0)
+            pooled_l1 = np.sqrt((std_p_l1**2 + std_n_l1**2) / 2.0 + 1e-12)
+            d_l1 = np.abs(mu_p_l1 - mu_n_l1) / pooled_l1
+
+            # Rank correlation between layers
+            r = np.corrcoef(d_l, d_l1)[0, 1]
+            layer_correlations.append(r)
+
+        corr_arr = np.array(layer_correlations)
+        mean_corr = np.mean(corr_arr)
+        min_corr = np.min(corr_arr)
+        min_layer = np.argmin(corr_arr)
+
+        print(f"  {concept_name:20s}: mean_r={mean_corr:.3f} "
+              f"min_r={min_corr:.3f}@L{min_layer}→L{min_layer+1}")
+
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -7694,6 +7777,12 @@ def run_analysis():
 
     # Phase 132: Neuron phase space (informational)
     neuron_phase_space(all_acts, concept_names, sparse_results)
+
+    # Phase 133: Concept signal bandwidth (informational)
+    concept_signal_bandwidth(all_acts, concept_names, num_layers)
+
+    # Phase 134: Neuron influence propagation (informational)
+    neuron_influence_propagation(all_acts, concept_names, num_layers)
 
     # ---- Composite Score ----
     interpretability_score = (
