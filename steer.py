@@ -7307,6 +7307,99 @@ def neuron_influence_propagation(all_acts, concept_names, num_layers):
     print()
 
 
+def concept_encoding_sparsity_profile(all_acts, concept_names, num_layers):
+    """
+    At each layer, how sparse is each concept's neuron representation?
+    Use Gini coefficient of Cohen's d values as sparsity measure.
+    """
+    print("=" * 70)
+    print("PHASE 135: Concept Encoding Sparsity Profile")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        ginis = []
+        for li in range(num_layers):
+            pos = all_acts[concept_name]["positive"][li]
+            neg = all_acts[concept_name]["negative"][li]
+            mu_p, mu_n = np.mean(pos, axis=0), np.mean(neg, axis=0)
+            std_p, std_n = np.std(pos, axis=0), np.std(neg, axis=0)
+            pooled = np.sqrt((std_p**2 + std_n**2) / 2.0 + 1e-12)
+            d = np.abs(mu_p - mu_n) / pooled
+
+            # Gini coefficient
+            sorted_d = np.sort(d)
+            n = len(sorted_d)
+            index = np.arange(1, n + 1)
+            gini = (2 * np.sum(index * sorted_d) / (n * np.sum(sorted_d) + 1e-12)) - (n + 1) / n
+            ginis.append(gini)
+
+        g_arr = np.array(ginis)
+
+        # Sparkline
+        g_norm = (g_arr - g_arr.min()) / (g_arr.max() - g_arr.min() + 1e-12)
+        spark_chars = " ▁▂▃▄▅▆▇█"
+        sparkline = "".join(spark_chars[min(8, int(v * 8))] for v in g_norm)
+
+        print(f"  {concept_name:20s}: mean_gini={np.mean(g_arr):.3f} "
+              f"peak_L{np.argmax(g_arr)}={np.max(g_arr):.3f} [{sparkline}]")
+
+    print()
+
+
+def model_capacity_saturation(all_acts, concept_names, hidden_size):
+    """
+    How close is the model to its representational limits?
+    Compare concept count to available dimensions and measure saturation.
+    """
+    print("=" * 70)
+    print("PHASE 136: Model Capacity Saturation")
+    print("=" * 70)
+
+    target_layer = 10
+
+    # Concept direction matrix
+    directions = []
+    for cn in concept_names:
+        pos = all_acts[cn]["positive"][target_layer]
+        neg = all_acts[cn]["negative"][target_layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        directions.append(d / (np.linalg.norm(d) + 1e-12))
+
+    D = np.array(directions)
+    n_concepts = len(concept_names)
+
+    # Gram matrix: cosine similarities between concept directions
+    gram = D @ D.T
+
+    # Condition number of Gram matrix (high = near singularity = saturated)
+    eigvals = np.linalg.eigvalsh(gram)
+    eigvals = eigvals[eigvals > 1e-10]
+    cond_number = np.max(eigvals) / np.min(eigvals) if len(eigvals) > 0 else float('inf')
+
+    # Minimum eigenvalue (how close to linear dependence)
+    min_eigval = np.min(eigvals) if len(eigvals) > 0 else 0
+
+    # Volume of concept parallelepiped (det of Gram matrix)
+    det = np.linalg.det(gram)
+
+    # Theoretical max: n_concepts orthogonal vectors → det = 1.0
+    volume_ratio = abs(det)  # 1.0 = perfectly orthogonal, 0 = degenerate
+
+    # How many more concepts could we fit?
+    headroom = hidden_size - n_concepts
+
+    print(f"  At L{target_layer}:")
+    print(f"    Concepts: {n_concepts}")
+    print(f"    Hidden size: {hidden_size}")
+    print(f"    Gram matrix condition: {cond_number:.1f}")
+    print(f"    Min eigenvalue: {min_eigval:.4f}")
+    print(f"    Volume ratio: {volume_ratio:.4f} (1.0 = perfect orthogonality)")
+    print(f"    Headroom: {headroom} unused dimensions")
+    print(f"    Saturation: {n_concepts/hidden_size:.1%}")
+
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -7783,6 +7876,12 @@ def run_analysis():
 
     # Phase 134: Neuron influence propagation (informational)
     neuron_influence_propagation(all_acts, concept_names, num_layers)
+
+    # Phase 135: Concept encoding sparsity profile (informational)
+    concept_encoding_sparsity_profile(all_acts, concept_names, num_layers)
+
+    # Phase 136: Model capacity saturation (informational)
+    model_capacity_saturation(all_acts, concept_names, hidden_size)
 
     # ---- Composite Score ----
     interpretability_score = (
