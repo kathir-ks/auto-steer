@@ -4384,6 +4384,102 @@ def concept_compression_analysis(all_acts, concept_names, sparse_results):
 
 
 # ---------------------------------------------------------------------------
+# PHASE 71: Concept Gradient Sensitivity
+# ---------------------------------------------------------------------------
+
+def concept_gradient_sensitivity(all_acts, concept_names, sparse_results):
+    """
+    Estimate which neurons have the largest sensitivity to concept label flips.
+    Approximates ∂(loss)/∂(activation) using finite differences.
+    """
+    print("=" * 70)
+    print("PHASE 71: Concept Gradient Sensitivity — Most Responsive Neurons")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        best_layer = sparse_results[concept_name]["best_layer"]
+        pos = all_acts[concept_name]["positive"][best_layer]
+        neg = all_acts[concept_name]["negative"][best_layer]
+        X = np.vstack([pos, neg])
+        y = np.array([1] * len(pos) + [0] * len(neg))
+
+        scaler = StandardScaler()
+        X_sc = scaler.fit_transform(X)
+        clf = LogisticRegression(C=1.0, max_iter=500, random_state=42)
+        clf.fit(X_sc, y)
+
+        # Weight magnitude = proxy for gradient sensitivity
+        sensitivity = np.abs(clf.coef_[0])
+
+        # Top-5 most sensitive
+        top5 = np.argsort(sensitivity)[::-1][:5]
+        top5_str = " ".join(f"N{n}({sensitivity[n]:.2f})" for n in top5)
+
+        # Concentration: what % of total sensitivity is in top-5?
+        total_sens = sensitivity.sum()
+        top5_pct = sensitivity[top5].sum() / (total_sens + 1e-12) * 100
+
+        print(f"  {concept_name:20s}: top5={top5_str} ({top5_pct:.0f}% of total)")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
+# PHASE 72: Concept Mutual Exclusivity
+# ---------------------------------------------------------------------------
+
+def concept_mutual_exclusivity(all_acts, concept_names, sparse_results):
+    """
+    For each pair of concepts, test if their positive examples can be
+    distinguished from each other (not just from negative).
+    High accuracy = mutually exclusive; low = overlapping positive sets.
+    """
+    print("=" * 70)
+    print("PHASE 72: Concept Mutual Exclusivity — Positive vs Positive")
+    print("=" * 70)
+
+    target_layer = 10
+    n = len(concept_names)
+
+    results = np.zeros((n, n))
+    for i in range(n):
+        for j in range(i + 1, n):
+            pos_i = all_acts[concept_names[i]]["positive"][target_layer]
+            pos_j = all_acts[concept_names[j]]["positive"][target_layer]
+
+            X = np.vstack([pos_i, pos_j])
+            y = np.array([0] * len(pos_i) + [1] * len(pos_j))
+
+            scaler = StandardScaler()
+            X_sc = scaler.fit_transform(X)
+            clf = LogisticRegression(C=1.0, max_iter=200, random_state=42)
+            clf.fit(X_sc, y)
+            acc = clf.score(X_sc, y)
+            results[i, j] = results[j, i] = acc
+
+    # Print only pairs with acc < 0.85 (hard to distinguish)
+    print(f"  Pairs of positive examples that are HARD to distinguish (acc < 0.85):\n")
+    found = False
+    for i in range(n):
+        for j in range(i + 1, n):
+            if results[i, j] < 0.85:
+                print(f"    {concept_names[i]:15s} ↔ {concept_names[j]:15s}: {results[i, j]:.3f}")
+                found = True
+
+    if not found:
+        print(f"    All pairs distinguishable (all acc ≥ 0.85)")
+
+    # Most and least distinguishable
+    pairs = [(results[i, j], concept_names[i], concept_names[j])
+             for i in range(n) for j in range(i + 1, n)]
+    pairs.sort()
+    print(f"\n  Least distinguishable: {pairs[0][1]} ↔ {pairs[0][2]} ({pairs[0][0]:.3f})")
+    print(f"  Most distinguishable:  {pairs[-1][1]} ↔ {pairs[-1][2]} ({pairs[-1][0]:.3f})")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Main Analysis Pipeline
 # ---------------------------------------------------------------------------
 
@@ -4619,6 +4715,12 @@ def run_analysis():
 
     # Phase 70: Compression analysis (informational)
     concept_compression_analysis(all_acts, concept_names, sparse_results)
+
+    # Phase 71: Gradient sensitivity (informational)
+    concept_gradient_sensitivity(all_acts, concept_names, sparse_results)
+
+    # Phase 72: Mutual exclusivity (informational)
+    concept_mutual_exclusivity(all_acts, concept_names, sparse_results)
 
     # ---- Composite Score ----
     interpretability_score = (
