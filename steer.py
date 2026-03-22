@@ -9012,6 +9012,198 @@ def grand_milestone_180(all_acts, concept_names, sparse_results, num_layers, hid
     print()
 
 
+def concept_class_balance(all_acts, concept_names, sparse_results):
+    """Are positive and negative classes balanced in activation space?"""
+    print("=" * 70)
+    print("PHASE 181: Concept Class Balance in Activation Space")
+    print("=" * 70)
+
+    for cname in concept_names:
+        info = sparse_results[cname]
+        best_layer = info["best_layer"]
+        pos = all_acts[cname]["positive"][best_layer]
+        neg = all_acts[cname]["negative"][best_layer]
+
+        # Compare norms, spread, distances to origin
+        pos_norm = np.mean(np.linalg.norm(pos, axis=1))
+        neg_norm = np.mean(np.linalg.norm(neg, axis=1))
+        norm_ratio = pos_norm / (neg_norm + 1e-10)
+
+        # Within-class variance
+        pos_var = np.mean(np.var(pos, axis=0))
+        neg_var = np.mean(np.var(neg, axis=0))
+        var_ratio = pos_var / (neg_var + 1e-10)
+
+        balance = "balanced" if 0.9 < norm_ratio < 1.1 and 0.8 < var_ratio < 1.2 else "asymmetric"
+
+        print(f"  {cname:20s} norm_ratio={norm_ratio:.3f} var_ratio={var_ratio:.3f} [{balance}]")
+
+    print()
+
+
+def layer_importance_ranking(all_acts, concept_names, num_layers):
+    """Which layers contribute most to concept decoding?"""
+    print("=" * 70)
+    print("PHASE 182: Layer Importance Ranking")
+    print("=" * 70)
+
+    layer_scores = np.zeros(num_layers)
+    for cname in concept_names:
+        for layer in range(num_layers):
+            pos = all_acts[cname]["positive"][layer]
+            neg = all_acts[cname]["negative"][layer]
+            diff = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+            pooled = np.sqrt((np.var(pos, axis=0) + np.var(neg, axis=0)) / 2)
+            d = np.abs(diff) / np.maximum(pooled, 1e-10)
+            layer_scores[layer] += np.mean(np.sort(d)[-5:])  # top-5 mean
+
+    layer_scores /= len(concept_names)
+    ranked = np.argsort(layer_scores)[::-1]
+
+    print("  Ranking (by mean top-5 Cohen's d across all concepts):")
+    for rank, layer in enumerate(ranked[:10]):
+        bar = "█" * int(layer_scores[layer] / max(layer_scores) * 30)
+        print(f"    #{rank+1:2d} L{layer:2d}: score={layer_scores[layer]:.2f} {bar}")
+
+    print()
+
+
+def concept_direction_noise_stability(all_acts, concept_names, sparse_results):
+    """How stable is the concept direction under Gaussian noise?"""
+    print("=" * 70)
+    print("PHASE 183: Concept Direction Noise Stability")
+    print("=" * 70)
+
+    rng = np.random.RandomState(42)
+    noise_levels = [0.01, 0.05, 0.1, 0.5]
+
+    for cname in concept_names:
+        info = sparse_results[cname]
+        best_layer = info["best_layer"]
+        pos = all_acts[cname]["positive"][best_layer]
+        neg = all_acts[cname]["negative"][best_layer]
+
+        # Clean direction
+        clean_dir = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        clean_dir = clean_dir / (np.linalg.norm(clean_dir) + 1e-10)
+
+        cosines = []
+        for sigma in noise_levels:
+            trial_cos = []
+            for _ in range(10):
+                pos_noisy = pos + rng.randn(*pos.shape) * sigma
+                neg_noisy = neg + rng.randn(*neg.shape) * sigma
+                noisy_dir = np.mean(pos_noisy, axis=0) - np.mean(neg_noisy, axis=0)
+                noisy_dir = noisy_dir / (np.linalg.norm(noisy_dir) + 1e-10)
+                trial_cos.append(np.dot(clean_dir, noisy_dir))
+            cosines.append(np.mean(trial_cos))
+
+        cos_str = " ".join(f"{c:.4f}" for c in cosines)
+        print(f"  {cname:20s} σ=[.01,.05,.1,.5]: cos=[{cos_str}]")
+
+    print()
+
+
+def neuron_activation_modes(all_acts, concept_names, sparse_results):
+    """Is the top neuron's activation bimodal or unimodal?"""
+    print("=" * 70)
+    print("PHASE 184: Neuron Activation Mode Analysis")
+    print("=" * 70)
+
+    for cname in concept_names:
+        info = sparse_results[cname]
+        best_layer = info["best_layer"]
+        pos = all_acts[cname]["positive"][best_layer]
+        neg = all_acts[cname]["negative"][best_layer]
+        top_n = info["top_neurons"][0]
+
+        all_vals = np.concatenate([pos[:, top_n], neg[:, top_n]])
+
+        # Bimodality coefficient: (skew^2 + 1) / (kurtosis + 3 * (n-1)^2/((n-2)(n-3)))
+        n = len(all_vals)
+        from scipy.stats import skew, kurtosis
+        s = skew(all_vals)
+        k = kurtosis(all_vals)  # excess
+        bc = (s**2 + 1) / (k + 3)
+
+        # Dip statistic proxy: gap between class means / pooled std
+        gap = abs(np.mean(pos[:, top_n]) - np.mean(neg[:, top_n]))
+        pooled_std = np.sqrt((np.var(pos[:, top_n]) + np.var(neg[:, top_n])) / 2)
+        sep = gap / (pooled_std + 1e-10)
+
+        mode = "bimodal" if bc > 0.555 else "unimodal"
+
+        print(f"  {cname:20s} N{top_n:3d}: BC={bc:.3f} sep={sep:.2f} [{mode}]")
+
+    print()
+
+
+def concept_encoding_asymmetry(all_acts, concept_names, sparse_results):
+    """Compare positive vs negative class encoding strength."""
+    print("=" * 70)
+    print("PHASE 185: Concept Encoding Asymmetry")
+    print("=" * 70)
+
+    for cname in concept_names:
+        info = sparse_results[cname]
+        best_layer = info["best_layer"]
+        pos = all_acts[cname]["positive"][best_layer]
+        neg = all_acts[cname]["negative"][best_layer]
+
+        # Direction
+        direction = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        direction = direction / (np.linalg.norm(direction) + 1e-10)
+        midpoint = (np.mean(pos @ direction) + np.mean(neg @ direction)) / 2
+
+        # Distance from midpoint for each class
+        pos_dist = np.mean(np.abs(pos @ direction - midpoint))
+        neg_dist = np.mean(np.abs(neg @ direction - midpoint))
+
+        # Variance along direction
+        pos_var = np.var(pos @ direction)
+        neg_var = np.var(neg @ direction)
+
+        asym = pos_dist / (neg_dist + 1e-10)
+        var_asym = pos_var / (neg_var + 1e-10)
+
+        label = "pos-dominant" if asym > 1.2 else "neg-dominant" if asym < 0.8 else "symmetric"
+
+        print(f"  {cname:20s} dist_ratio={asym:.2f} var_ratio={var_asym:.2f} [{label}]")
+
+    print()
+
+
+def layerwise_concept_independence(all_acts, concept_names, num_layers):
+    """Test concept independence at each layer using mean absolute cosine."""
+    print("=" * 70)
+    print("PHASE 186: Layer-wise Concept Independence")
+    print("=" * 70)
+
+    names = list(concept_names)
+    for layer in range(0, num_layers, 3):  # every 3 layers
+        directions = []
+        for cname in names:
+            pos = all_acts[cname]["positive"][layer]
+            neg = all_acts[cname]["negative"][layer]
+            d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+            d = d / (np.linalg.norm(d) + 1e-10)
+            directions.append(d)
+
+        # Mean |cosine|
+        cosines = []
+        for i in range(len(directions)):
+            for j in range(i+1, len(directions)):
+                cosines.append(abs(np.dot(directions[i], directions[j])))
+
+        mean_cos = np.mean(cosines)
+        max_cos = np.max(cosines)
+        bar = "█" * int(mean_cos * 40)
+
+        print(f"  L{layer:2d}: mean|cos|={mean_cos:.4f} max|cos|={max_cos:.4f} {bar}")
+
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -9626,6 +9818,24 @@ def run_analysis():
 
     # Phase 180: Grand 180 milestone (informational)
     grand_milestone_180(all_acts, concept_names, sparse_results, num_layers, hidden_size)
+
+    # Phase 181: Concept class balance in activation space (informational)
+    concept_class_balance(all_acts, concept_names, sparse_results)
+
+    # Phase 182: Layer importance ranking (informational)
+    layer_importance_ranking(all_acts, concept_names, num_layers)
+
+    # Phase 183: Concept direction noise stability (informational)
+    concept_direction_noise_stability(all_acts, concept_names, sparse_results)
+
+    # Phase 184: Neuron activation mode analysis (informational)
+    neuron_activation_modes(all_acts, concept_names, sparse_results)
+
+    # Phase 185: Concept encoding asymmetry (informational)
+    concept_encoding_asymmetry(all_acts, concept_names, sparse_results)
+
+    # Phase 186: Layer-wise concept independence (informational)
+    layerwise_concept_independence(all_acts, concept_names, num_layers)
 
     # ---- Composite Score ----
     interpretability_score = (
