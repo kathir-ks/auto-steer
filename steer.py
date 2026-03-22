@@ -2372,6 +2372,150 @@ def concept_decision_boundary_analysis(all_acts, concept_names, sparse_results):
 
 
 # ---------------------------------------------------------------------------
+# PHASE 34: Concept Prototypes — most/least typical examples
+# ---------------------------------------------------------------------------
+
+def concept_prototype_analysis(all_acts, concept_names, sparse_results, steering_vectors):
+    """
+    For each concept, find the most and least prototypical examples based on
+    projection onto the difference-of-means direction. Compute margin statistics.
+    """
+    print("=" * 70)
+    print("PHASE 34: Concept Prototypes — Most/Least Typical Examples")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        best_layer = sparse_results[concept_name]["best_layer"]
+
+        pos = all_acts[concept_name]["positive"][best_layer]
+        neg = all_acts[concept_name]["negative"][best_layer]
+
+        # Use difference-of-means as direction (not L1 probe weight)
+        dom = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        dom_norm = dom / (np.linalg.norm(dom) + 1e-12)
+
+        # Project onto direction
+        proj_pos = pos @ dom_norm
+        proj_neg = neg @ dom_norm
+
+        # Boundary at midpoint between class means
+        boundary = (np.mean(proj_pos) + np.mean(proj_neg)) / 2.0
+        proto_pos = proj_pos - boundary
+        proto_neg = boundary - proj_neg
+
+        # Margin distribution
+        margin_pos = np.min(proto_pos)
+        margin_neg = np.min(proto_neg)
+        mean_margin = (np.mean(proto_pos) + np.mean(proto_neg)) / 2.0
+
+        # Separability: fraction of correctly-sided examples
+        correct_pos = np.mean(proto_pos > 0)
+        correct_neg = np.mean(proto_neg > 0)
+
+        # Spread ratio: how tight is the clustering?
+        spread_pos = np.std(proto_pos)
+        spread_neg = np.std(proto_neg)
+
+        print(f"  {concept_name:20s} @ L{best_layer:2d}: "
+              f"margin={mean_margin:.3f} min+={margin_pos:+.3f} min-={margin_neg:+.3f} "
+              f"sep={correct_pos:.0%}/{correct_neg:.0%} "
+              f"spread={spread_pos:.3f}/{spread_neg:.3f}")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
+# PHASE 35: Residual Analysis — what's beyond the 8 concepts?
+# ---------------------------------------------------------------------------
+
+def residual_analysis(all_acts, concept_names, sparse_results, steering_vectors, num_layers):
+    """
+    Project out all known concept directions and analyze what remains.
+    How much variance is explained by our 8 concepts? What structure
+    exists in the residual?
+    """
+    print("=" * 70)
+    print("PHASE 35: Residual Analysis — Variance Beyond Known Concepts")
+    print("=" * 70)
+
+    # Use bottleneck layer (L10) for analysis
+    target_layer = 10
+
+    # Collect all activations at target layer
+    all_X = []
+    for concept_name in concept_names:
+        pos = all_acts[concept_name]["positive"][target_layer]
+        neg = all_acts[concept_name]["negative"][target_layer]
+        all_X.append(pos)
+        all_X.append(neg)
+    X = np.vstack(all_X)
+
+    # Compute concept subspace from difference-of-means directions (denser than L1)
+    sv_list = []
+    for concept_name in concept_names:
+        # Use best_layer for each concept's direction at target_layer
+        pos = all_acts[concept_name]["positive"][target_layer]
+        neg = all_acts[concept_name]["negative"][target_layer]
+        dom = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        dom_norm = dom / (np.linalg.norm(dom) + 1e-12)
+        sv_list.append(dom_norm)
+
+    if len(sv_list) < 2:
+        print("  Not enough steering vectors for analysis.")
+        print()
+        return
+
+    V = np.array(sv_list)  # (n_concepts, hidden_size)
+
+    # Project data onto concept subspace and residual
+    # Use SVD of V to get orthonormal basis for concept space
+    U, S, Vt = np.linalg.svd(V, full_matrices=False)
+    basis = Vt[:len(sv_list)]  # orthonormal basis for concept space
+
+    X_centered = X - X.mean(axis=0)
+    total_var = np.var(X_centered, axis=0).sum()
+
+    # Projection onto concept subspace
+    proj = X_centered @ basis.T @ basis
+    concept_var = np.var(proj, axis=0).sum()
+
+    # Residual
+    residual = X_centered - proj
+    residual_var = np.var(residual, axis=0).sum()
+
+    pct_concept = concept_var / total_var * 100
+    pct_residual = residual_var / total_var * 100
+
+    print(f"  At L{target_layer} ({X.shape[0]} samples, {X.shape[1]} dims):")
+    print(f"    Total variance:   {total_var:.2f}")
+    print(f"    Concept space:    {concept_var:.2f} ({pct_concept:.1f}%)")
+    print(f"    Residual:         {residual_var:.2f} ({pct_residual:.1f}%)")
+    print(f"    Concept dims:     {len(sv_list)} / {X.shape[1]}")
+
+    # PCA on residual to find dominant non-concept directions
+    from sklearn.decomposition import PCA
+    pca_res = PCA(n_components=min(10, residual.shape[0], residual.shape[1]))
+    pca_res.fit(residual)
+
+    print(f"\n    Top PCA components of residual:")
+    cumvar = np.cumsum(pca_res.explained_variance_ratio_)
+    for k in range(min(5, len(pca_res.explained_variance_ratio_))):
+        print(f"      PC{k+1}: {pca_res.explained_variance_ratio_[k]*100:.1f}% "
+              f"(cumulative: {cumvar[k]*100:.1f}%)")
+
+    # Per-concept: how much variance does each concept direction explain?
+    print(f"\n    Per-concept variance explained:")
+    for i, concept_name in enumerate(concept_names):
+        if i < len(sv_list):
+            proj_c = X_centered @ sv_list[i]
+            var_c = np.var(proj_c)
+            pct = var_c / total_var * 100
+            print(f"      {concept_name:20s}: {pct:.2f}%")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Main Analysis Pipeline
 # ---------------------------------------------------------------------------
 
@@ -2494,6 +2638,12 @@ def run_analysis():
 
     # Phase 33: Decision boundary linearity (informational)
     concept_decision_boundary_analysis(all_acts, concept_names, sparse_results)
+
+    # Phase 34: Concept prototypes (informational)
+    concept_prototype_analysis(all_acts, concept_names, sparse_results, steering_vectors)
+
+    # Phase 35: Residual analysis (informational)
+    residual_analysis(all_acts, concept_names, sparse_results, steering_vectors, num_layers)
 
     # ---- Composite Score ----
     interpretability_score = (
