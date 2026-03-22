@@ -2248,6 +2248,130 @@ def layer_transition_dynamics(all_acts, concept_names, num_layers):
 
 
 # ---------------------------------------------------------------------------
+# PHASE 32: Concept Interference — steering vector cross-talk
+# ---------------------------------------------------------------------------
+
+def concept_interference_analysis(all_acts, concept_names, sparse_results, steering_vectors):
+    """
+    Measure how injecting one concept's steering vector affects classification
+    of other concepts. Goes beyond cosine similarity to measure functional
+    interference.
+    """
+    print("=" * 70)
+    print("PHASE 32: Concept Interference — Steering Vector Cross-Talk")
+    print("=" * 70)
+
+    n_concepts = len(concept_names)
+    interference = np.zeros((n_concepts, n_concepts))
+
+    for i, target in enumerate(concept_names):
+        best_layer = sparse_results[target]["best_layer"]
+        pos = all_acts[target]["positive"][best_layer]
+        neg = all_acts[target]["negative"][best_layer]
+        X = np.vstack([pos, neg])
+        y = np.array([1] * len(pos) + [0] * len(neg))
+
+        scaler = StandardScaler()
+        X_sc = scaler.fit_transform(X)
+        clf = LogisticRegression(C=1.0, max_iter=1000, random_state=42)
+        clf.fit(X_sc, y)
+        base_acc = clf.score(X_sc, y)
+
+        for j, source in enumerate(concept_names):
+            if i == j:
+                interference[i, j] = 0.0
+                continue
+
+            sv = steering_vectors.get(source)
+            if sv is None:
+                continue
+
+            # Inject source steering vector (1 std magnitude)
+            sv_scaled = sv / (np.linalg.norm(sv) + 1e-12) * np.std(X)
+            X_perturbed = X + sv_scaled[None, :]
+            X_p_sc = scaler.transform(X_perturbed)
+            perturbed_acc = clf.score(X_p_sc, y)
+
+            interference[i, j] = base_acc - perturbed_acc  # positive = interference
+
+    # Print interference matrix
+    print(f"  Interference matrix (row=target, col=injected, values=accuracy drop):\n")
+    header = "  " + " " * 22 + "".join(f"{c[:6]:>7s}" for c in concept_names)
+    print(header)
+    for i, target in enumerate(concept_names):
+        row = f"  {target:20s}:"
+        for j in range(n_concepts):
+            val = interference[i, j]
+            if val > 0.1:
+                row += f"  {val:+.2f}"
+            elif val > 0.01:
+                row += f"  {val:+.2f}"
+            else:
+                row += f"     ·"
+        print(row)
+
+    # Summary: most interfered-with and most interfering concepts
+    mean_received = np.mean(interference, axis=1)  # how much each concept is affected
+    mean_caused = np.mean(interference, axis=0)  # how much each concept affects others
+    print(f"\n  Most vulnerable (receives interference):")
+    for i in np.argsort(mean_received)[::-1][:3]:
+        print(f"    {concept_names[i]:20s}: mean drop={mean_received[i]:.3f}")
+    print(f"\n  Most disruptive (causes interference):")
+    for j in np.argsort(mean_caused)[::-1][:3]:
+        print(f"    {concept_names[j]:20s}: mean drop={mean_caused[j]:.3f}")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
+# PHASE 33: Concept Decision Boundaries — nonlinearity analysis
+# ---------------------------------------------------------------------------
+
+def concept_decision_boundary_analysis(all_acts, concept_names, sparse_results):
+    """
+    Test how linear vs nonlinear the concept boundaries are by comparing
+    linear probe accuracy to polynomial feature accuracy. Large gap = concept
+    requires nonlinear decision boundary.
+    """
+    print("=" * 70)
+    print("PHASE 33: Concept Decision Boundaries — Linearity Analysis")
+    print("=" * 70)
+
+    from sklearn.preprocessing import PolynomialFeatures
+
+    for concept_name in concept_names:
+        best_layer = sparse_results[concept_name]["best_layer"]
+        top_neurons = sparse_results[concept_name]["top_neurons"][:5]
+
+        pos = all_acts[concept_name]["positive"][best_layer][:, top_neurons]
+        neg = all_acts[concept_name]["negative"][best_layer][:, top_neurons]
+        X = np.vstack([pos, neg])
+        y = np.array([1] * len(pos) + [0] * len(neg))
+
+        scaler = StandardScaler()
+        X_sc = scaler.fit_transform(X)
+
+        # Linear probe
+        clf_lin = LogisticRegression(C=1.0, max_iter=1000, random_state=42)
+        cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+        acc_lin = np.mean(cross_val_score(clf_lin, X_sc, y, cv=cv))
+
+        # Quadratic features
+        poly = PolynomialFeatures(degree=2, interaction_only=True, include_bias=False)
+        X_poly = poly.fit_transform(X_sc)
+        clf_poly = LogisticRegression(C=0.1, max_iter=1000, random_state=42)
+        acc_poly = np.mean(cross_val_score(clf_poly, X_poly, y, cv=cv))
+
+        gap = acc_poly - acc_lin
+        linearity = "linear" if gap < 0.02 else ("slightly nonlinear" if gap < 0.05 else "nonlinear")
+
+        print(f"  {concept_name:20s}: linear={acc_lin:.3f} quad={acc_poly:.3f} "
+              f"gap={gap:+.3f} → {linearity}")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Main Analysis Pipeline
 # ---------------------------------------------------------------------------
 
@@ -2364,6 +2488,12 @@ def run_analysis():
 
     # Phase 31: Layer transition dynamics (informational)
     layer_transition_dynamics(all_acts, concept_names, num_layers)
+
+    # Phase 32: Concept interference (informational)
+    concept_interference_analysis(all_acts, concept_names, sparse_results, steering_vectors)
+
+    # Phase 33: Decision boundary linearity (informational)
+    concept_decision_boundary_analysis(all_acts, concept_names, sparse_results)
 
     # ---- Composite Score ----
     interpretability_score = (
