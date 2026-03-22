@@ -4018,6 +4018,92 @@ def concept_weight_sparsity_profile(all_acts, concept_names, sparse_results):
 
 
 # ---------------------------------------------------------------------------
+# PHASE 63: Concept Centroid Distance Matrix
+# ---------------------------------------------------------------------------
+
+def concept_centroid_distances(all_acts, concept_names):
+    """
+    Compute Euclidean distances between concept positive centroids at L10.
+    Complements cosine similarity with magnitude information.
+    """
+    print("=" * 70)
+    print("PHASE 63: Concept Centroid Distances at Bottleneck (L10)")
+    print("=" * 70)
+
+    target_layer = 10
+    centroids = {}
+    for concept_name in concept_names:
+        pos = all_acts[concept_name]["positive"][target_layer]
+        neg = all_acts[concept_name]["negative"][target_layer]
+        # Use difference of centroids as concept "location"
+        centroids[concept_name] = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+
+    n = len(concept_names)
+    print(f"  L2 distances between concept centroids:\n")
+    header = "  " + " " * 22 + "".join(f"{c[:6]:>7s}" for c in concept_names)
+    print(header)
+    for i in range(n):
+        row = f"  {concept_names[i]:20s}:"
+        for j in range(n):
+            if i == j:
+                d = np.linalg.norm(centroids[concept_names[i]])
+                row += f"  |{d:.1f}|"
+            else:
+                d = np.linalg.norm(centroids[concept_names[i]] - centroids[concept_names[j]])
+                row += f"  {d:5.1f}"
+        print(row)
+
+    print()
+
+
+# ---------------------------------------------------------------------------
+# PHASE 64: Neuron Activation Histogram Characterization
+# ---------------------------------------------------------------------------
+
+def neuron_histogram_analysis(all_acts, concept_names, sparse_results):
+    """
+    Characterize the activation distribution shape for each concept's top neuron.
+    Reports skewness, kurtosis, modality, and range.
+    """
+    print("=" * 70)
+    print("PHASE 64: Neuron Activation Histogram — Distribution Shape")
+    print("=" * 70)
+
+    from scipy.stats import skew, kurtosis
+
+    for concept_name in concept_names:
+        best_layer = sparse_results[concept_name]["best_layer"]
+        top_neuron = sparse_results[concept_name]["top_neurons"][0]
+
+        pos = all_acts[concept_name]["positive"][best_layer][:, top_neuron]
+        neg = all_acts[concept_name]["negative"][best_layer][:, top_neuron]
+        all_a = np.concatenate([pos, neg])
+
+        sk = skew(all_a)
+        ku = kurtosis(all_a)  # excess kurtosis (normal = 0)
+
+        # Simple histogram: count in 5 bins
+        bins = np.linspace(np.min(all_a), np.max(all_a), 6)
+        hist, _ = np.histogram(all_a, bins=bins)
+        total = hist.sum()
+        hist_str = "".join(f"{'█' * max(1, int(h / total * 20))}" for h in hist)
+
+        # Separation: overlap between pos and neg distributions
+        overlap = max(0, min(np.max(pos), np.max(neg)) - max(np.min(pos), np.min(neg)))
+        overlap_frac = overlap / (np.max(all_a) - np.min(all_a) + 1e-12)
+
+        shape = "normal" if abs(ku) < 1 else ("heavy-tail" if ku > 1 else "light-tail")
+        if abs(sk) > 1:
+            shape += "/skewed"
+
+        print(f"  {concept_name:20s} N{top_neuron:3d}@L{best_layer:2d}: "
+              f"skew={sk:+.2f} kurt={ku:+.2f} overlap={overlap_frac:.0%} "
+              f"→ {shape} |{hist_str}|")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Main Analysis Pipeline
 # ---------------------------------------------------------------------------
 
@@ -4228,6 +4314,12 @@ def run_analysis():
 
     # Phase 62: Weight sparsity profile (informational)
     concept_weight_sparsity_profile(all_acts, concept_names, sparse_results)
+
+    # Phase 63: Concept centroid distances (informational)
+    concept_centroid_distances(all_acts, concept_names)
+
+    # Phase 64: Neuron histogram analysis (informational)
+    neuron_histogram_analysis(all_acts, concept_names, sparse_results)
 
     # ---- Composite Score ----
     interpretability_score = (
