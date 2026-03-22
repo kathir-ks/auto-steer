@@ -841,7 +841,70 @@ def neuron_clustering_analysis(all_acts, concept_names, sparse_results):
 
 
 # ---------------------------------------------------------------------------
-# PHASE 11: Information-Theoretic Analysis — MI between neurons and concepts
+# PHASE 11: Cross-Layer Concept Tracking — representation evolution
+# ---------------------------------------------------------------------------
+
+def cross_layer_tracking(all_acts, concept_names, sparse_results, num_layers):
+    """
+    Track how concept representations evolve across layers. For each concept's
+    top neuron, measure its discriminative power at every layer. Also track
+    how the steering vector direction rotates across layers.
+    """
+    print("=" * 70)
+    print("PHASE 11: Cross-Layer Concept Tracking")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        best_layer = sparse_results[concept_name]["best_layer"]
+        top_neuron = sparse_results[concept_name]["top_neurons"][0]
+
+        # Track the top neuron's Cohen's d across all layers
+        ds = []
+        for layer_idx in range(num_layers):
+            pos = all_acts[concept_name]["positive"][layer_idx][:, top_neuron]
+            neg = all_acts[concept_name]["negative"][layer_idx][:, top_neuron]
+            pooled_std = np.sqrt((pos.var() + neg.var()) / 2) + 1e-8
+            d = abs(pos.mean() - neg.mean()) / pooled_std
+            ds.append(d)
+
+        ds = np.array(ds)
+        peak_layer = int(np.argmax(ds))
+        peak_d = ds[peak_layer]
+
+        # Track steering vector rotation: compute direction at each layer
+        # and measure cosine similarity with best-layer direction
+        best_pos = all_acts[concept_name]["positive"][best_layer]
+        best_neg = all_acts[concept_name]["negative"][best_layer]
+        ref_dir = best_pos.mean(axis=0) - best_neg.mean(axis=0)
+        ref_norm = np.linalg.norm(ref_dir) + 1e-8
+        ref_dir = ref_dir / ref_norm
+
+        rotations = []
+        for layer_idx in range(num_layers):
+            pos_l = all_acts[concept_name]["positive"][layer_idx]
+            neg_l = all_acts[concept_name]["negative"][layer_idx]
+            dir_l = pos_l.mean(axis=0) - neg_l.mean(axis=0)
+            norm_l = np.linalg.norm(dir_l) + 1e-8
+            cos_sim = np.dot(ref_dir, dir_l / norm_l)
+            rotations.append(cos_sim)
+
+        rotations = np.array(rotations)
+        # Find where direction stabilizes (first layer with >0.8 similarity to best)
+        stable_layers = np.where(rotations > 0.8)[0]
+        stabilize_at = int(stable_layers[0]) if len(stable_layers) > 0 else num_layers
+
+        # Compact layer-by-layer summary
+        d_curve = " ".join(f"{ds[i]:.1f}" for i in range(0, num_layers, 4))
+        print(f"  {concept_name:20s}: best_L={best_layer:2d}, N{top_neuron} "
+              f"peak@L{peak_layer}(d={peak_d:.1f}), "
+              f"dir_stable@L{stabilize_at}")
+        print(f"    d every 4 layers: {d_curve}")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
+# PHASE 12: Information-Theoretic Analysis — MI between neurons and concepts
 # ---------------------------------------------------------------------------
 
 def information_theoretic_analysis(all_acts, concept_names, sparse_results):
@@ -942,7 +1005,10 @@ def run_analysis():
     # Phase 10: Hierarchical clustering (informational)
     neuron_clustering_analysis(all_acts, concept_names, sparse_results)
 
-    # Phase 11: Information-theoretic analysis (informational)
+    # Phase 11: Cross-layer concept tracking (informational)
+    cross_layer_tracking(all_acts, concept_names, sparse_results, num_layers)
+
+    # Phase 12: Information-theoretic analysis (informational)
     information_theoretic_analysis(all_acts, concept_names, sparse_results)
 
     # ---- Composite Score ----
