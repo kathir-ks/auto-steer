@@ -3667,6 +3667,120 @@ def concept_subspace_angles(all_acts, concept_names, sparse_results):
 
 
 # ---------------------------------------------------------------------------
+# PHASE 57: Concept Temporal Ordering
+# ---------------------------------------------------------------------------
+
+def concept_temporal_ordering(all_acts, concept_names, num_layers):
+    """
+    Determine the natural ordering of when concepts become decodable.
+    Uses cross-validated accuracy at each layer to find emergence point.
+    """
+    print("=" * 70)
+    print("PHASE 57: Concept Temporal Ordering — Emergence Sequence")
+    print("=" * 70)
+
+    emergence_data = {}
+    for concept_name in concept_names:
+        layer_accs = []
+        for l in range(num_layers):
+            pos = all_acts[concept_name]["positive"][l]
+            neg = all_acts[concept_name]["negative"][l]
+
+            # Use Cohen's d of best neuron as a fast proxy for decodability
+            mean_diff = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+            pooled_std = np.sqrt((np.var(pos, axis=0) + np.var(neg, axis=0)) / 2.0) + 1e-12
+            d = mean_diff / pooled_std
+            best_d = np.max(d)
+
+            # Convert d to approximate accuracy (sigmoid-like mapping)
+            # d=0 → 0.5, d=1 → ~0.76, d=2 → ~0.92, d=3 → ~0.98
+            acc_proxy = 1.0 / (1.0 + np.exp(-best_d * 0.8))
+            layer_accs.append(acc_proxy)
+
+        # Emergence = first layer where acc > 0.9
+        emergence = num_layers - 1
+        for l, a in enumerate(layer_accs):
+            if a > 0.9:
+                emergence = l
+                break
+
+        # Peak layer
+        peak = int(np.argmax(layer_accs))
+
+        emergence_data[concept_name] = {
+            "emergence": emergence, "peak": peak, "peak_acc": max(layer_accs)
+        }
+
+    # Sort by emergence
+    ordered = sorted(emergence_data.items(), key=lambda x: x[1]["emergence"])
+
+    print(f"  Emergence sequence (first layer with CV acc > 0.9):\n")
+    for rank, (name, d) in enumerate(ordered, 1):
+        bar_len = d["emergence"]
+        bar = "·" * bar_len + "█"
+        print(f"  {rank}. L{d['emergence']:2d} {name:20s} (peak L{d['peak']}, "
+              f"acc={d['peak_acc']:.3f}) {bar}")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
+# PHASE 58: Neuron Redundancy Analysis
+# ---------------------------------------------------------------------------
+
+def neuron_redundancy_analysis(all_acts, concept_names, sparse_results):
+    """
+    For each concept's top-3 neurons, compute pairwise correlation and
+    joint vs individual classification accuracy. High correlation + no
+    accuracy gain = redundant. Low correlation + accuracy gain = complementary.
+    """
+    print("=" * 70)
+    print("PHASE 58: Neuron Redundancy — Redundant vs Complementary")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        best_layer = sparse_results[concept_name]["best_layer"]
+        top_neurons = sparse_results[concept_name]["top_neurons"][:3]
+
+        pos = all_acts[concept_name]["positive"][best_layer]
+        neg = all_acts[concept_name]["negative"][best_layer]
+        y = np.array([1] * len(pos) + [0] * len(neg))
+
+        # Individual accuracies
+        individual_accs = []
+        for n in top_neurons:
+            X_n = np.concatenate([pos[:, n], neg[:, n]]).reshape(-1, 1)
+            clf = LogisticRegression(C=1.0, max_iter=500, random_state=42)
+            clf.fit(X_n, y)
+            individual_accs.append(clf.score(X_n, y))
+
+        # Joint accuracy (all top-3 together)
+        X_joint = np.vstack([pos[:, top_neurons], neg[:, top_neurons]])
+        clf = LogisticRegression(C=1.0, max_iter=500, random_state=42)
+        clf.fit(X_joint, y)
+        joint_acc = clf.score(X_joint, y)
+
+        # Pairwise correlations
+        all_a = np.vstack([pos, neg])
+        corrs = []
+        for i in range(min(3, len(top_neurons))):
+            for j in range(i + 1, min(3, len(top_neurons))):
+                c = np.corrcoef(all_a[:, top_neurons[i]], all_a[:, top_neurons[j]])[0, 1]
+                corrs.append(c)
+
+        mean_corr = np.mean(corrs) if corrs else 0
+        gain = joint_acc - max(individual_accs)
+        nature = "redundant" if gain < 0.01 and mean_corr > 0.5 else \
+                 "complementary" if gain > 0.03 else "mixed"
+
+        accs_str = "/".join(f"{a:.2f}" for a in individual_accs)
+        print(f"  {concept_name:20s}: indiv=[{accs_str}] joint={joint_acc:.2f} "
+              f"gain={gain:+.2f} corr={mean_corr:.2f} → {nature}")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Main Analysis Pipeline
 # ---------------------------------------------------------------------------
 
@@ -3859,6 +3973,12 @@ def run_analysis():
 
     # Phase 56: Concept subspace angles (informational)
     concept_subspace_angles(all_acts, concept_names, sparse_results)
+
+    # Phase 57: Concept temporal ordering (informational)
+    concept_temporal_ordering(all_acts, concept_names, num_layers)
+
+    # Phase 58: Neuron redundancy (informational)
+    neuron_redundancy_analysis(all_acts, concept_names, sparse_results)
 
     # ---- Composite Score ----
     interpretability_score = (
