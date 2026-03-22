@@ -4635,6 +4635,120 @@ def concept_encoding_efficiency(all_acts, concept_names, sparse_results, hidden_
     print()
 
 
+def concept_vocabulary(all_acts, concept_names, sparse_results, hidden_size):
+    """
+    Identify each concept's 'vocabulary' — neurons uniquely important for it
+    vs shared across multiple concepts.
+    """
+    print("=" * 70)
+    print("PHASE 77: Concept Vocabulary (Private vs Shared Neurons)")
+    print("=" * 70)
+
+    # Build importance matrix at each concept's best layer using Cohen's d
+    importance = {}  # concept -> array of size hidden_size
+    for concept_name in concept_names:
+        sr = sparse_results[concept_name]
+        best_layer = sr["best_layer"]
+        pos = all_acts[concept_name]["positive"][best_layer]
+        neg = all_acts[concept_name]["negative"][best_layer]
+        mu_p, mu_n = np.mean(pos, axis=0), np.mean(neg, axis=0)
+        std_p, std_n = np.std(pos, axis=0), np.std(neg, axis=0)
+        pooled = np.sqrt((std_p**2 + std_n**2) / 2.0 + 1e-12)
+        importance[concept_name] = np.abs(mu_p - mu_n) / pooled
+
+    # For each concept, find neurons where it's the #1 concept (private)
+    # vs neurons important for 2+ concepts (shared)
+    THRESHOLD = 1.5  # Cohen's d threshold for "important"
+
+    total_private = 0
+    total_shared_set = set()
+    for concept_name in concept_names:
+        imp = importance[concept_name]
+        important_neurons = set(np.where(imp > THRESHOLD)[0])
+
+        # Check which of these are private (no other concept has d > threshold)
+        private = set()
+        shared = set()
+        for n_idx in important_neurons:
+            is_private = True
+            for other in concept_names:
+                if other == concept_name:
+                    continue
+                if importance[other][n_idx] > THRESHOLD:
+                    is_private = False
+                    break
+            if is_private:
+                private.add(n_idx)
+            else:
+                shared.add(n_idx)
+
+        total_private += len(private)
+        total_shared_set.update(shared)
+
+        print(f"  {concept_name:20s}: {len(important_neurons):3d} important, "
+              f"{len(private):3d} private, {len(shared):3d} shared")
+
+    print(f"\n  Total unique private: {total_private}")
+    print(f"  Total shared pool:   {len(total_shared_set)}")
+    print()
+
+
+def activation_topology(all_acts, concept_names, sparse_results):
+    """
+    Measure topological separability of concept clusters using
+    k-nearest-neighbor purity at the best layer.
+    """
+    print("=" * 70)
+    print("PHASE 78: Activation Topology (kNN Purity)")
+    print("=" * 70)
+
+    K = 5  # neighbors to check
+
+    for concept_name in concept_names:
+        sr = sparse_results[concept_name]
+        best_layer = sr["best_layer"]
+        pos = all_acts[concept_name]["positive"][best_layer]
+        neg = all_acts[concept_name]["negative"][best_layer]
+        X = np.vstack([pos, neg])
+        y = np.array([1] * len(pos) + [0] * len(neg))
+        n = len(X)
+
+        # Compute pairwise distances
+        dists = np.zeros((n, n))
+        for i in range(n):
+            dists[i] = np.linalg.norm(X - X[i], axis=1)
+            dists[i, i] = np.inf  # exclude self
+
+        # kNN purity
+        purities = []
+        for i in range(n):
+            nn_idx = np.argsort(dists[i])[:K]
+            purity = np.mean(y[nn_idx] == y[i])
+            purities.append(purity)
+
+        mean_purity = np.mean(purities)
+
+        # Also compute silhouette-like score
+        pos_mask = y == 1
+        neg_mask = y == 0
+        sil_scores = []
+        for i in range(n):
+            if y[i] == 1:
+                a = np.mean(dists[i][pos_mask & (np.arange(n) != i)])
+                b = np.mean(dists[i][neg_mask])
+            else:
+                a = np.mean(dists[i][neg_mask & (np.arange(n) != i)])
+                b = np.mean(dists[i][pos_mask])
+            sil_scores.append((b - a) / (max(a, b) + 1e-12))
+
+        mean_sil = np.mean(sil_scores)
+
+        print(f"  {concept_name:20s}: kNN-{K} purity={mean_purity:.3f} "
+              f"silhouette={mean_sil:.3f}")
+
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -4937,6 +5051,12 @@ def run_analysis():
 
     # Phase 76: Concept formation rate (informational)
     concept_formation_rate(all_acts, concept_names, num_layers)
+
+    # Phase 77: Concept vocabulary (informational)
+    concept_vocabulary(all_acts, concept_names, sparse_results, hidden_size)
+
+    # Phase 78: Activation topology (informational)
+    activation_topology(all_acts, concept_names, sparse_results)
 
     # ---- Composite Score ----
     interpretability_score = (
