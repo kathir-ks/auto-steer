@@ -5389,6 +5389,94 @@ def neuron_specificity_spectrum_full(all_acts, concept_names, sparse_results, hi
     print()
 
 
+def probe_confidence_calibration(all_acts, concept_names, sparse_results):
+    """
+    Are probe confidence scores well-calibrated?
+    Compare predicted probabilities to actual accuracy in probability bins.
+    """
+    print("=" * 70)
+    print("PHASE 93: Probe Confidence Calibration")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        sr = sparse_results[concept_name]
+        best_layer = sr["best_layer"]
+        pos = all_acts[concept_name]["positive"][best_layer]
+        neg = all_acts[concept_name]["negative"][best_layer]
+        X = np.vstack([pos, neg])
+        y = np.array([1] * len(pos) + [0] * len(neg))
+
+        top_n = sr["top_neurons"][:3]
+        X_sparse = X[:, top_n]
+
+        clf = LogisticRegression(C=1.0, max_iter=200, random_state=42)
+        clf.fit(X_sparse, y)
+        probs = clf.predict_proba(X_sparse)[:, 1]
+
+        # Calibration: bin predictions, compare to actual
+        bins = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
+        ece = 0.0  # expected calibration error
+        for i in range(len(bins) - 1):
+            mask = (probs >= bins[i]) & (probs < bins[i+1])
+            if np.sum(mask) > 0:
+                mean_pred = np.mean(probs[mask])
+                mean_true = np.mean(y[mask])
+                ece += np.sum(mask) * abs(mean_pred - mean_true)
+
+        ece /= len(y)
+
+        # Confidence stats
+        mean_conf = np.mean(np.maximum(probs, 1 - probs))
+        min_conf = np.min(np.maximum(probs, 1 - probs))
+
+        print(f"  {concept_name:20s}: ECE={ece:.4f} mean_conf={mean_conf:.3f} "
+              f"min_conf={min_conf:.3f}")
+
+    print()
+
+
+def activation_anisotropy_per_layer(all_acts, concept_names, num_layers):
+    """
+    How directionally biased are activations at each layer?
+    High anisotropy means activations cluster in a cone; low means uniform on sphere.
+    """
+    print("=" * 70)
+    print("PHASE 94: Activation Anisotropy per Layer")
+    print("=" * 70)
+
+    # Sample from all concepts for a global view
+    anisotropy_scores = []
+    for layer_idx in range(num_layers):
+        all_vecs = []
+        for concept_name in concept_names:
+            pos = all_acts[concept_name]["positive"][layer_idx]
+            neg = all_acts[concept_name]["negative"][layer_idx]
+            all_vecs.append(pos)
+            all_vecs.append(neg)
+        X = np.vstack(all_vecs)
+
+        # Anisotropy: fraction of variance explained by first PC
+        centered = X - np.mean(X, axis=0)
+        U, S, Vt = np.linalg.svd(centered, full_matrices=False)
+        var_explained = S**2 / (np.sum(S**2) + 1e-12)
+        anisotropy = var_explained[0]  # first PC's share
+        top3_share = np.sum(var_explained[:3])
+        anisotropy_scores.append(anisotropy)
+
+        if layer_idx in [0, 6, 12, 18, 23]:
+            print(f"  L{layer_idx:2d}: anisotropy={anisotropy:.4f} "
+                  f"top-3 PCs={top3_share:.4f}")
+
+    # Trend
+    anis = np.array(anisotropy_scores)
+    print(f"\n  Min anisotropy: L{np.argmin(anis)} ({np.min(anis):.4f})")
+    print(f"  Max anisotropy: L{np.argmax(anis)} ({np.max(anis):.4f})")
+    print(f"  Trend: {'increasing' if anis[-1] > anis[0] else 'decreasing'} "
+          f"(L0={anis[0]:.4f} → L23={anis[-1]:.4f})")
+
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -5739,6 +5827,12 @@ def run_analysis():
 
     # Phase 92: Neuron specificity spectrum (informational)
     neuron_specificity_spectrum_full(all_acts, concept_names, sparse_results, hidden_size)
+
+    # Phase 93: Probe confidence calibration (informational)
+    probe_confidence_calibration(all_acts, concept_names, sparse_results)
+
+    # Phase 94: Activation anisotropy per layer (informational)
+    activation_anisotropy_per_layer(all_acts, concept_names, num_layers)
 
     # ---- Composite Score ----
     interpretability_score = (
