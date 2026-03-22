@@ -6049,6 +6049,91 @@ def neuron_activation_dynamics(all_acts, concept_names, sparse_results, num_laye
     print()
 
 
+def concept_representation_efficiency_global(all_acts, concept_names, num_layers, hidden_size):
+    """
+    How efficiently does the model use its representation space for concepts?
+    Measure the fraction of total activation variance that's concept-relevant.
+    """
+    print("=" * 70)
+    print("PHASE 107: Concept Representation Efficiency")
+    print("=" * 70)
+
+    for layer_idx in [0, 10, 23]:
+        # Total variance at this layer (from all samples)
+        all_X = []
+        for cn in concept_names:
+            all_X.append(all_acts[cn]["positive"][layer_idx])
+            all_X.append(all_acts[cn]["negative"][layer_idx])
+        X = np.vstack(all_X)
+        total_var = np.sum(np.var(X, axis=0))
+
+        # Concept-explained variance: variance of concept centroids
+        centroids = []
+        for cn in concept_names:
+            pos = all_acts[cn]["positive"][layer_idx]
+            neg = all_acts[cn]["negative"][layer_idx]
+            centroids.append(np.mean(pos, axis=0))
+            centroids.append(np.mean(neg, axis=0))
+        C = np.array(centroids)
+        between_var = np.sum(np.var(C, axis=0))
+
+        ratio = between_var / (total_var + 1e-12)
+
+        # Bits per dimension (using concept direction magnitudes)
+        concept_norms = []
+        for cn in concept_names:
+            pos = all_acts[cn]["positive"][layer_idx]
+            neg = all_acts[cn]["negative"][layer_idx]
+            dom = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+            concept_norms.append(np.linalg.norm(dom))
+
+        mean_norm = np.mean(concept_norms)
+        print(f"  L{layer_idx:2d}: concept_var/total_var={ratio:.4f} "
+              f"mean_dir_norm={mean_norm:.3f} "
+              f"total_var={total_var:.1f}")
+
+    print()
+
+
+def layer_transition_mechanism(all_acts, concept_names, num_layers):
+    """
+    Does concept signal transfer through residual stream (correlation across layers)
+    or get recomputed? Measure correlation between concept direction at adjacent layers.
+    """
+    print("=" * 70)
+    print("PHASE 108: Layer Transition Mechanism")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        correlations = []
+        for li in range(num_layers - 1):
+            pos_l = all_acts[concept_name]["positive"][li]
+            neg_l = all_acts[concept_name]["negative"][li]
+            dir_l = np.mean(pos_l, axis=0) - np.mean(neg_l, axis=0)
+
+            pos_l1 = all_acts[concept_name]["positive"][li + 1]
+            neg_l1 = all_acts[concept_name]["negative"][li + 1]
+            dir_l1 = np.mean(pos_l1, axis=0) - np.mean(neg_l1, axis=0)
+
+            cos = np.dot(dir_l, dir_l1) / (
+                np.linalg.norm(dir_l) * np.linalg.norm(dir_l1) + 1e-12)
+            correlations.append(cos)
+
+        corr_arr = np.array(correlations)
+        mean_corr = np.mean(corr_arr)
+        min_corr = np.min(corr_arr)
+        min_layer = np.argmin(corr_arr)
+
+        # Classification: residual-like (high corr) vs recomputed (low corr)
+        mechanism = "residual" if mean_corr > 0.7 else "mixed" if mean_corr > 0.4 else "recomputed"
+
+        print(f"  {concept_name:20s}: mean_cos={mean_corr:.3f} "
+              f"min_cos={min_corr:.3f}@L{min_layer}→L{min_layer+1} "
+              f"mechanism={mechanism}")
+
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -6441,6 +6526,12 @@ def run_analysis():
 
     # Phase 106: Neuron activation dynamics (informational)
     neuron_activation_dynamics(all_acts, concept_names, sparse_results, num_layers)
+
+    # Phase 107: Concept representation efficiency (informational)
+    concept_representation_efficiency_global(all_acts, concept_names, num_layers, hidden_size)
+
+    # Phase 108: Layer transition mechanism (informational)
+    layer_transition_mechanism(all_acts, concept_names, num_layers)
 
     # ---- Composite Score ----
     interpretability_score = (
