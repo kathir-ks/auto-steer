@@ -6840,6 +6840,107 @@ def layer_capacity_utilization(all_acts, concept_names, num_layers, hidden_size)
     print()
 
 
+def concept_null_space(all_acts, concept_names, hidden_size):
+    """
+    What fraction of the representation space is orthogonal to ALL concept directions?
+    The null space is where non-concept information lives.
+    """
+    print("=" * 70)
+    print("PHASE 125: Concept Null Space Analysis")
+    print("=" * 70)
+
+    target_layer = 10
+
+    # Collect all concept directions
+    directions = []
+    for cn in concept_names:
+        pos = all_acts[cn]["positive"][target_layer]
+        neg = all_acts[cn]["negative"][target_layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        directions.append(d / (np.linalg.norm(d) + 1e-12))
+
+    D = np.array(directions)  # 8 x hidden_size
+
+    # SVD to find the concept subspace rank
+    U, S, Vt = np.linalg.svd(D, full_matrices=False)
+
+    # Effective rank (how many truly independent concept directions)
+    threshold = 0.01 * S[0]  # 1% of largest singular value
+    rank = np.sum(S > threshold)
+
+    # Null space dimensionality
+    null_dim = hidden_size - rank
+    null_frac = null_dim / hidden_size
+
+    # Variance in null space: project all data into concept space and measure residual
+    all_X = []
+    for cn in concept_names:
+        all_X.append(all_acts[cn]["positive"][target_layer])
+        all_X.append(all_acts[cn]["negative"][target_layer])
+    X = np.vstack(all_X)
+
+    # Project onto concept subspace (top rank singular vectors)
+    concept_basis = Vt[:rank]  # rank x hidden_size
+    X_proj = X @ concept_basis.T @ concept_basis  # project and reconstruct
+    residual = X - X_proj
+    concept_var = np.sum(np.var(X_proj, axis=0))
+    null_var = np.sum(np.var(residual, axis=0))
+    total_var = np.sum(np.var(X, axis=0))
+
+    print(f"  At L{target_layer}:")
+    print(f"    Concept subspace rank: {rank}/{hidden_size}")
+    print(f"    Null space dimensions: {null_dim} ({null_frac:.1%} of space)")
+    print(f"    Concept variance:  {concept_var:.2f} ({concept_var/total_var:.1%})")
+    print(f"    Null variance:     {null_var:.2f} ({null_var/total_var:.1%})")
+    print(f"    Information ratio:  {concept_var/(null_var+1e-12):.4f}")
+
+    print()
+
+
+def neuron_firing_rate_correlation(all_acts, concept_names, sparse_results):
+    """
+    Do top neurons for different concepts fire at similar rates?
+    Compare mean activation levels across concepts.
+    """
+    print("=" * 70)
+    print("PHASE 126: Neuron Firing Rate Comparison")
+    print("=" * 70)
+
+    target_layer = 10
+
+    # Gather all data at L10
+    all_X = []
+    for cn in concept_names:
+        all_X.append(all_acts[cn]["positive"][target_layer])
+        all_X.append(all_acts[cn]["negative"][target_layer])
+    X = np.vstack(all_X)
+
+    # For each concept's top neuron, report global statistics
+    for concept_name in concept_names:
+        sr = sparse_results[concept_name]
+        top_neuron = sr["top_neurons"][0]
+
+        global_vals = X[:, top_neuron]
+        global_mean = np.mean(global_vals)
+        global_std = np.std(global_vals)
+
+        # Concept-specific firing
+        pos = all_acts[concept_name]["positive"][target_layer][:, top_neuron]
+        neg = all_acts[concept_name]["negative"][target_layer][:, top_neuron]
+
+        pos_rate = np.mean(pos > global_mean + global_std)  # above 1σ
+        neg_rate = np.mean(neg > global_mean + global_std)
+
+        selectivity = pos_rate - neg_rate  # positive = fires more for pos class
+
+        print(f"  {concept_name:20s} N{top_neuron:3d}: "
+              f"μ={global_mean:+.3f} σ={global_std:.3f} "
+              f"pos_fire={pos_rate:.1%} neg_fire={neg_rate:.1%} "
+              f"selectivity={selectivity:+.1%}")
+
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -7286,6 +7387,12 @@ def run_analysis():
 
     # Phase 124: Layer capacity utilization (informational)
     layer_capacity_utilization(all_acts, concept_names, num_layers, hidden_size)
+
+    # Phase 125: Concept null space (informational)
+    concept_null_space(all_acts, concept_names, hidden_size)
+
+    # Phase 126: Neuron firing rate comparison (informational)
+    neuron_firing_rate_correlation(all_acts, concept_names, sparse_results)
 
     # ---- Composite Score ----
     interpretability_score = (
