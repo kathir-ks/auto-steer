@@ -4287,6 +4287,103 @@ def cross_layer_neuron_tracking(all_acts, concept_names, sparse_results, num_lay
 
 
 # ---------------------------------------------------------------------------
+# PHASE 69: Concept Feature Importance Landscape
+# ---------------------------------------------------------------------------
+
+def feature_importance_landscape(all_acts, concept_names, sparse_results, hidden_size):
+    """
+    Which neurons are important for the MOST concepts? Find "hub" neurons
+    that participate in multiple concept representations.
+    """
+    print("=" * 70)
+    print("PHASE 69: Feature Importance Landscape — Hub Neurons")
+    print("=" * 70)
+
+    # For each concept, get Cohen's d at best layer for all neurons
+    neuron_importance = np.zeros((len(concept_names), hidden_size))
+    for i, concept_name in enumerate(concept_names):
+        best_layer = sparse_results[concept_name]["best_layer"]
+        pos = all_acts[concept_name]["positive"][best_layer]
+        neg = all_acts[concept_name]["negative"][best_layer]
+        mean_diff = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+        pooled_std = np.sqrt((np.var(pos, axis=0) + np.var(neg, axis=0)) / 2.0) + 1e-12
+        neuron_importance[i] = mean_diff / pooled_std
+
+    # Count how many concepts each neuron is "important" for (d > 1.0)
+    important_for = np.sum(neuron_importance > 1.0, axis=0)
+
+    # Hub neurons (important for 2+ concepts)
+    hubs = np.where(important_for >= 2)[0]
+    print(f"  Neurons important for 2+ concepts: {len(hubs)}")
+    for n in hubs[:10]:  # top 10
+        concepts = [concept_names[i] for i in range(len(concept_names))
+                    if neuron_importance[i, n] > 1.0]
+        max_d = np.max(neuron_importance[:, n])
+        print(f"    N{n:3d}: {len(concepts)} concepts (max d={max_d:.2f}) — {', '.join(concepts)}")
+
+    # Distribution of importance counts
+    print(f"\n  Importance distribution:")
+    for k in range(max(int(np.max(important_for)) + 1, 4)):
+        count = np.sum(important_for == k)
+        bar = "█" * min(count // 10, 30)
+        print(f"    {k} concepts: {count:3d} neurons {bar}")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
+# PHASE 70: Concept Information Compression
+# ---------------------------------------------------------------------------
+
+def concept_compression_analysis(all_acts, concept_names, sparse_results):
+    """
+    How compressible is each concept's representation? Measured by how
+    many PCA components are needed to retain classification accuracy.
+    """
+    print("=" * 70)
+    print("PHASE 70: Concept Information Compression")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        best_layer = sparse_results[concept_name]["best_layer"]
+        pos = all_acts[concept_name]["positive"][best_layer]
+        neg = all_acts[concept_name]["negative"][best_layer]
+        X = np.vstack([pos, neg])
+        y = np.array([1] * len(pos) + [0] * len(neg))
+
+        from sklearn.decomposition import PCA
+
+        # Full accuracy
+        scaler = StandardScaler()
+        X_sc = scaler.fit_transform(X)
+        clf = LogisticRegression(C=1.0, max_iter=200, random_state=42)
+        clf.fit(X_sc, y)
+        full_acc = clf.score(X_sc, y)
+
+        # Compressed at different dimensions
+        results = []
+        for n_comp in [1, 2, 5, 10, 20]:
+            pca = PCA(n_components=n_comp)
+            X_pca = pca.fit_transform(X_sc)
+            clf_p = LogisticRegression(C=1.0, max_iter=200, random_state=42)
+            clf_p.fit(X_pca, y)
+            acc_p = clf_p.score(X_pca, y)
+            results.append((n_comp, acc_p))
+
+        accs_str = " ".join(f"d{n}={a:.2f}" for n, a in results)
+        # Minimum dimensions for 95% of full accuracy
+        min_dims = 896
+        for n_comp, acc_p in results:
+            if acc_p >= full_acc * 0.95:
+                min_dims = n_comp
+                break
+
+        print(f"  {concept_name:20s}: {accs_str} | min_dims≥95%={min_dims}")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Main Analysis Pipeline
 # ---------------------------------------------------------------------------
 
@@ -4516,6 +4613,12 @@ def run_analysis():
 
     # Phase 68: Cross-layer neuron tracking (informational)
     cross_layer_neuron_tracking(all_acts, concept_names, sparse_results, num_layers)
+
+    # Phase 69: Feature importance landscape (informational)
+    feature_importance_landscape(all_acts, concept_names, sparse_results, hidden_size)
+
+    # Phase 70: Compression analysis (informational)
+    concept_compression_analysis(all_acts, concept_names, sparse_results)
 
     # ---- Composite Score ----
     interpretability_score = (
