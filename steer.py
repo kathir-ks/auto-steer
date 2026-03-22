@@ -9668,6 +9668,216 @@ def grand_milestone_200(all_acts, concept_names, sparse_results, num_layers, hid
     print()
 
 
+def concept_principal_angle_spectrum(all_acts, concept_names, num_layers):
+    """Principal angles between concept subspaces at different layers."""
+    print("=" * 70)
+    print("PHASE 201: Concept Principal Angle Spectrum")
+    print("=" * 70)
+
+    for layer in [0, 10, 23]:
+        # Build 5-dim subspace for each concept
+        subspaces = {}
+        for cname in concept_names:
+            pos = all_acts[cname]["positive"][layer]
+            neg = all_acts[cname]["negative"][layer]
+            X = np.vstack([pos, neg])
+            centered = X - np.mean(X, axis=0)
+            _, _, Vt = np.linalg.svd(centered, full_matrices=False)
+            subspaces[cname] = Vt[:3]  # top-3
+
+        # Mean minimum principal angle
+        names = list(concept_names)
+        min_angles = []
+        for i in range(len(names)):
+            for j in range(i+1, len(names)):
+                M = subspaces[names[i]] @ subspaces[names[j]].T
+                _, sigmas, _ = np.linalg.svd(M)
+                sigmas = np.clip(sigmas, 0, 1)
+                angles = np.degrees(np.arccos(sigmas))
+                min_angles.append(angles[-1])
+
+        print(f"  L{layer:2d}: mean_min_angle={np.mean(min_angles):.1f}° "
+              f"min={np.min(min_angles):.1f}° max={np.max(min_angles):.1f}°")
+
+    print()
+
+
+def neuron_sign_consistency(all_acts, concept_names, sparse_results):
+    """Does the top neuron always fire with the same sign for a given class?"""
+    print("=" * 70)
+    print("PHASE 202: Neuron Sign Consistency")
+    print("=" * 70)
+
+    for cname in concept_names:
+        info = sparse_results[cname]
+        best_layer = info["best_layer"]
+        pos = all_acts[cname]["positive"][best_layer]
+        neg = all_acts[cname]["negative"][best_layer]
+        top_n = info["top_neurons"][0]
+
+        # What fraction of pos class has positive activation?
+        pos_positive = np.mean(pos[:, top_n] > 0)
+        neg_positive = np.mean(neg[:, top_n] > 0)
+
+        # Sign consistency: how often does sign match expected
+        if np.mean(pos[:, top_n]) > np.mean(neg[:, top_n]):
+            consistency = (pos_positive + (1 - neg_positive)) / 2
+        else:
+            consistency = ((1 - pos_positive) + neg_positive) / 2
+
+        print(f"  {cname:20s} N{top_n:3d}: pos_frac_positive={pos_positive:.2f} "
+              f"neg_frac_positive={neg_positive:.2f} sign_consistency={consistency:.2f}")
+
+    print()
+
+
+def concept_rsa_extremes(all_acts, concept_names):
+    """RSA between L0 and L23 — how much does geometry change end-to-end?"""
+    print("=" * 70)
+    print("PHASE 203: Concept RSA: L0 vs L23")
+    print("=" * 70)
+
+    for layer_name, layer in [("L0", 0), ("L23", 23)]:
+        centroids = []
+        for cname in concept_names:
+            pos = all_acts[cname]["positive"][layer]
+            neg = all_acts[cname]["negative"][layer]
+            # Use pos centroid - neg centroid as concept vector
+            centroids.append(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+        centroids = np.vstack(centroids)
+        rdm = 1 - np.corrcoef(centroids)
+        print(f"  {layer_name} RDM (concept dissimilarity):")
+        names_short = [c[:6] for c in concept_names]
+        print(f"    {'':8s}", end="")
+        for n in names_short:
+            print(f" {n:>6s}", end="")
+        print()
+        for i, row in enumerate(rdm):
+            print(f"    {names_short[i]:8s}", end="")
+            for v in row:
+                print(f" {v:6.3f}", end="")
+            print()
+
+    # Correlation between L0 and L23 RDMs
+    centroids_0 = []
+    centroids_23 = []
+    for cname in concept_names:
+        centroids_0.append(np.mean(all_acts[cname]["positive"][0], axis=0) -
+                          np.mean(all_acts[cname]["negative"][0], axis=0))
+        centroids_23.append(np.mean(all_acts[cname]["positive"][23], axis=0) -
+                           np.mean(all_acts[cname]["negative"][23], axis=0))
+    rdm0 = 1 - np.corrcoef(np.vstack(centroids_0))
+    rdm23 = 1 - np.corrcoef(np.vstack(centroids_23))
+    # Upper triangle correlation
+    tri0 = rdm0[np.triu_indices(len(concept_names), k=1)]
+    tri23 = rdm23[np.triu_indices(len(concept_names), k=1)]
+    rsa_corr = np.corrcoef(tri0, tri23)[0, 1]
+    print(f"\n  L0↔L23 RSA correlation: {rsa_corr:.4f}")
+    print()
+
+
+def layerwise_effective_dim(all_acts, concept_names, num_layers):
+    """Effective dimensionality of concept directions at each layer."""
+    print("=" * 70)
+    print("PHASE 204: Layer-wise Effective Dimensionality")
+    print("=" * 70)
+
+    dims = []
+    for layer in range(num_layers):
+        directions = []
+        for cname in concept_names:
+            pos = all_acts[cname]["positive"][layer]
+            neg = all_acts[cname]["negative"][layer]
+            d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+            directions.append(d)
+        D = np.vstack(directions)
+        _, S, _ = np.linalg.svd(D, full_matrices=False)
+        S_norm = S / (S.sum() + 1e-10)
+        eff_dim = np.exp(-np.sum(S_norm * np.log(S_norm + 1e-10)))
+        dims.append(eff_dim)
+
+    bars = "▁▂▃▄▅▆▇█"
+    max_d = max(dims)
+    spark = ""
+    for d in dims:
+        idx = min(int(d / max_d * 8), 7) if max_d > 0 else 0
+        spark += bars[idx]
+
+    print(f"  Effective dim: [{spark}]")
+    print(f"  L0={dims[0]:.2f} L5={dims[5]:.2f} L10={dims[10]:.2f} "
+          f"L15={dims[15]:.2f} L23={dims[23]:.2f}")
+    print(f"  Peak: L{int(np.argmax(dims))} ({max(dims):.2f})")
+    print()
+
+
+def concept_neuron_economy(all_acts, concept_names, sparse_results):
+    """Neurons per concept needed for different accuracy thresholds."""
+    print("=" * 70)
+    print("PHASE 205: Concept Neuron Economy")
+    print("=" * 70)
+
+    for cname in concept_names:
+        info = sparse_results[cname]
+        best_layer = info["best_layer"]
+        pos = all_acts[cname]["positive"][best_layer]
+        neg = all_acts[cname]["negative"][best_layer]
+
+        # Rank neurons by Cohen's d
+        diff = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        pooled = np.sqrt((np.var(pos, axis=0) + np.var(neg, axis=0)) / 2)
+        d = np.abs(diff) / np.maximum(pooled, 1e-10)
+        ranked = np.argsort(d)[::-1]
+
+        # Test at budgets
+        y = np.array([1]*len(pos) + [0]*len(neg))
+        results = []
+        for budget in [1, 3, 5, 10]:
+            neurons = ranked[:budget]
+            X = np.vstack([pos[:, neurons], neg[:, neurons]])
+            clf = LogisticRegression(C=1.0, max_iter=200, random_state=42)
+            clf.fit(X, y)
+            acc = clf.score(X, y)
+            results.append(f"{budget}N={acc:.2f}")
+
+        print(f"  {cname:20s} {' '.join(results)}")
+
+    print()
+
+
+def activation_outlier_analysis(all_acts, concept_names, sparse_results):
+    """Detect outlier samples in activation space."""
+    print("=" * 70)
+    print("PHASE 206: Activation Outlier Analysis")
+    print("=" * 70)
+
+    for cname in concept_names:
+        info = sparse_results[cname]
+        best_layer = info["best_layer"]
+        pos = all_acts[cname]["positive"][best_layer]
+        neg = all_acts[cname]["negative"][best_layer]
+
+        # For each class, find samples far from centroid
+        pos_center = np.mean(pos, axis=0)
+        neg_center = np.mean(neg, axis=0)
+        pos_dists = np.linalg.norm(pos - pos_center, axis=1)
+        neg_dists = np.linalg.norm(neg - neg_center, axis=1)
+
+        # Z-score threshold
+        pos_z = (pos_dists - np.mean(pos_dists)) / (np.std(pos_dists) + 1e-10)
+        neg_z = (neg_dists - np.mean(neg_dists)) / (np.std(neg_dists) + 1e-10)
+
+        n_outliers_pos = np.sum(pos_z > 2.0)
+        n_outliers_neg = np.sum(neg_z > 2.0)
+        worst_pos = int(np.argmax(pos_z))
+        worst_neg = int(np.argmax(neg_z))
+
+        print(f"  {cname:20s} outliers: pos={n_outliers_pos} neg={n_outliers_neg} "
+              f"worst_pos=#{worst_pos}(z={pos_z[worst_pos]:.1f}) "
+              f"worst_neg=#{worst_neg}(z={neg_z[worst_neg]:.1f})")
+
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -10342,6 +10552,24 @@ def run_analysis():
 
     # Phase 200: Grand 200-phase milestone (informational)
     grand_milestone_200(all_acts, concept_names, sparse_results, num_layers, hidden_size)
+
+    # Phase 201: Concept direction principal angle spectrum (informational)
+    concept_principal_angle_spectrum(all_acts, concept_names, num_layers)
+
+    # Phase 202: Neuron contribution sign consistency (informational)
+    neuron_sign_consistency(all_acts, concept_names, sparse_results)
+
+    # Phase 203: Concept representational similarity at extremes (informational)
+    concept_rsa_extremes(all_acts, concept_names)
+
+    # Phase 204: Layer-wise effective dimensionality (informational)
+    layerwise_effective_dim(all_acts, concept_names, num_layers)
+
+    # Phase 205: Concept-specific neuron economy (informational)
+    concept_neuron_economy(all_acts, concept_names, sparse_results)
+
+    # Phase 206: Activation outlier analysis (informational)
+    activation_outlier_analysis(all_acts, concept_names, sparse_results)
 
     # ---- Composite Score ----
     interpretability_score = (
