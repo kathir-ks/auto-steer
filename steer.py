@@ -7031,6 +7031,104 @@ def neuron_ablation_impact(all_acts, concept_names, sparse_results):
     print()
 
 
+def sparse_ablation_impact(all_acts, concept_names, sparse_results):
+    """
+    Ablate top neurons from the SPARSE probe (3-neuron) — should show larger impact
+    than full-dimensional ablation since sparse probes depend on fewer neurons.
+    """
+    print("=" * 70)
+    print("PHASE 129: Sparse Probe Ablation Impact")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        sr = sparse_results[concept_name]
+        best_layer = sr["best_layer"]
+        top_neurons = sr["top_neurons"][:3]
+
+        pos = all_acts[concept_name]["positive"][best_layer]
+        neg = all_acts[concept_name]["negative"][best_layer]
+        X = np.vstack([pos, neg])
+        y = np.array([1]*len(pos) + [0]*len(neg))
+
+        # Train sparse probe on top-3 neurons only
+        X_sparse = X[:, top_neurons]
+        clf = LogisticRegression(C=1.0, max_iter=200, random_state=42)
+        clf.fit(X_sparse, y)
+        full_acc = clf.score(X_sparse, y)
+
+        # Ablate each
+        impacts = []
+        for i, n_idx in enumerate(top_neurons):
+            X_abl = X_sparse.copy()
+            X_abl[:, i] = 0.0
+            abl_acc = clf.score(X_abl, y)
+            impact = full_acc - abl_acc
+            impacts.append((n_idx, impact, abl_acc))
+
+        impact_str = " ".join(f"N{n}(Δ={imp:+.3f},rem={acc:.2f})"
+                             for n, imp, acc in impacts)
+        print(f"  {concept_name:20s}: full={full_acc:.3f} [{impact_str}]")
+
+    print()
+
+
+def concept_difficulty_ranking(all_acts, concept_names, sparse_results, num_layers):
+    """
+    Rank concepts by overall 'difficulty' — composite of multiple metrics:
+    margin, stability, noise robustness, Cohen's d.
+    """
+    print("=" * 70)
+    print("PHASE 130: Concept Difficulty Ranking")
+    print("=" * 70)
+
+    difficulties = {}
+    for concept_name in concept_names:
+        sr = sparse_results[concept_name]
+        best_layer = sr["best_layer"]
+        top_neuron = sr["top_neurons"][0]
+
+        pos = all_acts[concept_name]["positive"][best_layer]
+        neg = all_acts[concept_name]["negative"][best_layer]
+
+        # 1. Cohen's d (inverse = harder)
+        mu_p, mu_n = np.mean(pos[:, top_neuron]), np.mean(neg[:, top_neuron])
+        std_p, std_n = np.std(pos[:, top_neuron]), np.std(neg[:, top_neuron])
+        pooled = np.sqrt((std_p**2 + std_n**2) / 2 + 1e-12)
+        d = abs(mu_p - mu_n) / pooled
+
+        # 2. 1-neuron accuracy (inverse = harder)
+        acc_1 = sr["budget_curve"].get("1", sr["budget_curve"].get(1, 0.0))
+
+        # 3. Direction stability (from split-half, estimate)
+        rng = np.random.RandomState(42)
+        cosines = []
+        for _ in range(5):
+            idx_p = rng.permutation(len(pos))
+            idx_n = rng.permutation(len(neg))
+            hp, hn = len(pos)//2, len(neg)//2
+            d_a = np.mean(pos[idx_p[:hp]], axis=0) - np.mean(neg[idx_n[:hn]], axis=0)
+            d_b = np.mean(pos[idx_p[hp:]], axis=0) - np.mean(neg[idx_n[hn:]], axis=0)
+            cos = np.dot(d_a, d_b) / (np.linalg.norm(d_a) * np.linalg.norm(d_b) + 1e-12)
+            cosines.append(cos)
+        stability = np.mean(cosines)
+
+        # Difficulty score (higher = harder)
+        difficulty = (1/d) + (1 - acc_1) * 5 + (1 - stability) * 3
+        difficulties[concept_name] = {
+            "d": d, "acc_1": acc_1, "stability": stability, "score": difficulty
+        }
+
+    # Rank by difficulty
+    ranked = sorted(difficulties.items(), key=lambda x: x[1]["score"], reverse=True)
+    print(f"  {'Rank':>4s} {'Concept':20s} {'d':>6s} {'1N-Acc':>6s} {'Stab':>5s} {'Diff':>6s}")
+    print(f"  {'-'*4} {'-'*20} {'-'*6} {'-'*6} {'-'*5} {'-'*6}")
+    for rank, (cn, m) in enumerate(ranked, 1):
+        print(f"  {rank:4d} {cn:20s} {m['d']:6.2f} {m['acc_1']:6.3f} "
+              f"{m['stability']:5.3f} {m['score']:6.3f}")
+
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -7489,6 +7587,12 @@ def run_analysis():
 
     # Phase 128: Neuron ablation impact (informational)
     neuron_ablation_impact(all_acts, concept_names, sparse_results)
+
+    # Phase 129: Sparse ablation impact (informational)
+    sparse_ablation_impact(all_acts, concept_names, sparse_results)
+
+    # Phase 130: Concept difficulty ranking (informational)
+    concept_difficulty_ranking(all_acts, concept_names, sparse_results, num_layers)
 
     # ---- Composite Score ----
     interpretability_score = (
