@@ -3439,6 +3439,130 @@ def concept_difficulty_ranking(all_acts, concept_names, sparse_results):
 
 
 # ---------------------------------------------------------------------------
+# PHASE 53: Concept Suppression Analysis
+# ---------------------------------------------------------------------------
+
+def concept_suppression_analysis(all_acts, concept_names, sparse_results):
+    """
+    Project out one concept direction and measure effect on other concepts.
+    Suppressing concept A should only affect concept A, not B.
+    """
+    print("=" * 70)
+    print("PHASE 53: Concept Suppression — Effect of Direction Removal")
+    print("=" * 70)
+
+    n = len(concept_names)
+
+    # Compute directions at bottleneck
+    directions = {}
+    for concept_name in concept_names:
+        best_layer = sparse_results[concept_name]["best_layer"]
+        pos = all_acts[concept_name]["positive"][best_layer]
+        neg = all_acts[concept_name]["negative"][best_layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        d /= (np.linalg.norm(d) + 1e-12)
+        directions[concept_name] = d
+
+    print(f"  Effect of suppressing each concept direction on other concepts:\n")
+    header = "  " + " " * 22 + "".join(f"{c[:6]:>7s}" for c in concept_names)
+    print(header)
+
+    for suppressed in concept_names:
+        d_sup = directions[suppressed]
+        row = f"  -{suppressed[:20]:20s}:"
+
+        for target in concept_names:
+            best_layer = sparse_results[target]["best_layer"]
+            pos = all_acts[target]["positive"][best_layer]
+            neg = all_acts[target]["negative"][best_layer]
+
+            # Project out suppressed direction
+            pos_sup = pos - np.outer(pos @ d_sup, d_sup)
+            neg_sup = neg - np.outer(neg @ d_sup, d_sup)
+
+            X = np.vstack([pos_sup, neg_sup])
+            y = np.array([1] * len(pos) + [0] * len(neg))
+
+            scaler = StandardScaler()
+            X_sc = scaler.fit_transform(X)
+            clf = LogisticRegression(C=1.0, max_iter=500, random_state=42)
+            clf.fit(X_sc, y)
+            acc = clf.score(X_sc, y)
+
+            if suppressed == target:
+                row += f"  [{acc:.2f}]"
+            elif acc < 0.95:
+                row += f"  {acc:.2f}*"
+            else:
+                row += f"  {acc:.2f} "
+
+        print(row)
+
+    print()
+
+
+# ---------------------------------------------------------------------------
+# PHASE 54: Ranking Method Comparison
+# ---------------------------------------------------------------------------
+
+def ranking_method_comparison(all_acts, concept_names, sparse_results):
+    """
+    Compare neuron importance rankings from L1, MI, and Cohen's d.
+    Report overlap in top-5 neurons for each concept.
+    """
+    print("=" * 70)
+    print("PHASE 54: Ranking Method Comparison — L1 vs MI vs Cohen's d")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        best_layer = sparse_results[concept_name]["best_layer"]
+        pos = all_acts[concept_name]["positive"][best_layer]
+        neg = all_acts[concept_name]["negative"][best_layer]
+        X = np.vstack([pos, neg])
+        y = np.array([1] * len(pos) + [0] * len(neg))
+
+        # L1 ranking
+        scaler = StandardScaler()
+        X_sc = scaler.fit_transform(X)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            clf = LogisticRegression(C=1.0, penalty="l1", solver="saga",
+                                     max_iter=2000, random_state=42)
+            clf.fit(X_sc, y)
+        l1_importance = np.abs(clf.coef_[0])
+        top5_l1 = set(np.argsort(l1_importance)[::-1][:5])
+
+        # MI ranking
+        mi = mutual_info_classif(X, y, random_state=42)
+        top5_mi = set(np.argsort(mi)[::-1][:5])
+
+        # Cohen's d ranking
+        mean_pos = np.mean(pos, axis=0)
+        mean_neg = np.mean(neg, axis=0)
+        pooled_std = np.sqrt((np.var(pos, axis=0) + np.var(neg, axis=0)) / 2.0) + 1e-12
+        cohens_d = np.abs(mean_pos - mean_neg) / pooled_std
+        top5_cd = set(np.argsort(cohens_d)[::-1][:5])
+
+        # Overlaps
+        l1_mi = len(top5_l1 & top5_mi)
+        l1_cd = len(top5_l1 & top5_cd)
+        mi_cd = len(top5_mi & top5_cd)
+        all3 = len(top5_l1 & top5_mi & top5_cd)
+
+        # Top-1 agreement
+        top1_l1 = np.argmax(l1_importance)
+        top1_mi = np.argmax(mi)
+        top1_cd = np.argmax(cohens_d)
+        agrees = "all agree" if top1_l1 == top1_mi == top1_cd else \
+                 f"L1=N{top1_l1} MI=N{top1_mi} d=N{top1_cd}"
+
+        print(f"  {concept_name:20s}: "
+              f"L1∩MI={l1_mi}/5 L1∩d={l1_cd}/5 MI∩d={mi_cd}/5 all3={all3}/5 | {agrees}")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Main Analysis Pipeline
 # ---------------------------------------------------------------------------
 
@@ -3619,6 +3743,12 @@ def run_analysis():
 
     # Phase 52: Concept difficulty ranking (informational)
     concept_difficulty_ranking(all_acts, concept_names, sparse_results)
+
+    # Phase 53: Concept suppression (informational)
+    concept_suppression_analysis(all_acts, concept_names, sparse_results)
+
+    # Phase 54: Ranking comparison (informational)
+    ranking_method_comparison(all_acts, concept_names, sparse_results)
 
     # ---- Composite Score ----
     interpretability_score = (
