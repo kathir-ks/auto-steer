@@ -6223,6 +6223,102 @@ def multi_concept_shared_decoding(all_acts, concept_names):
     print()
 
 
+def concept_adversarial_robustness(all_acts, concept_names, sparse_results):
+    """
+    How robust is concept decoding to adversarial perturbation?
+    Perturb samples along the worst-case direction (the concept boundary normal).
+    """
+    print("=" * 70)
+    print("PHASE 111: Concept Adversarial Robustness")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        sr = sparse_results[concept_name]
+        best_layer = sr["best_layer"]
+        pos = all_acts[concept_name]["positive"][best_layer]
+        neg = all_acts[concept_name]["negative"][best_layer]
+        X = np.vstack([pos, neg])
+        y = np.array([1]*len(pos) + [0]*len(neg))
+
+        # Train probe
+        clf = LogisticRegression(C=1.0, max_iter=200, random_state=42)
+        clf.fit(X, y)
+        clean_acc = clf.score(X, y)
+
+        # Adversarial direction: the decision boundary normal (probe weights)
+        w = clf.coef_[0]
+        w_norm = w / (np.linalg.norm(w) + 1e-12)
+
+        # Find minimum perturbation to flip each sample
+        margins = clf.decision_function(X)
+        min_margin = np.min(np.abs(margins))
+        mean_margin = np.mean(np.abs(margins))
+
+        # Perturb along decision boundary normal
+        epsilons = [0.1, 0.5, 1.0, 2.0]
+        adv_accs = []
+        for eps in epsilons:
+            # Perturb toward the wrong class
+            X_adv = X.copy()
+            for i in range(len(X)):
+                if y[i] == 1:
+                    X_adv[i] -= eps * w_norm
+                else:
+                    X_adv[i] += eps * w_norm
+            adv_accs.append(clf.score(X_adv, y))
+
+        acc_str = " ".join(f"{a:.2f}" for a in adv_accs)
+        print(f"  {concept_name:20s}: clean={clean_acc:.2f} min_margin={min_margin:.3f} "
+              f"ε=[{','.join(str(e) for e in epsilons)}] acc=[{acc_str}]")
+
+    print()
+
+
+def neuron_uniqueness_index(all_acts, concept_names, sparse_results, hidden_size):
+    """
+    How unique is each concept's top neuron compared to all others?
+    Measure max correlation with any other neuron at the same layer.
+    """
+    print("=" * 70)
+    print("PHASE 112: Neuron Uniqueness Index")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        sr = sparse_results[concept_name]
+        best_layer = sr["best_layer"]
+        top_neuron = sr["top_neurons"][0]
+
+        # Gather all activations at this layer
+        all_X = []
+        for cn in concept_names:
+            all_X.append(all_acts[cn]["positive"][best_layer])
+            all_X.append(all_acts[cn]["negative"][best_layer])
+        X = np.vstack(all_X)
+
+        # Correlation of top neuron with all others
+        target_vals = X[:, top_neuron]
+        max_corr = 0.0
+        max_corr_neuron = -1
+        # Sample 100 random neurons for speed
+        rng = np.random.RandomState(42)
+        sample_neurons = rng.choice(hidden_size, min(100, hidden_size), replace=False)
+
+        for n_idx in sample_neurons:
+            if n_idx == top_neuron:
+                continue
+            r = np.corrcoef(target_vals, X[:, n_idx])[0, 1]
+            if abs(r) > abs(max_corr):
+                max_corr = r
+                max_corr_neuron = n_idx
+
+        uniqueness = 1.0 - abs(max_corr)
+
+        print(f"  {concept_name:20s} N{top_neuron:3d}@L{best_layer}: "
+              f"uniqueness={uniqueness:.3f} max_corr={max_corr:+.3f} (with N{max_corr_neuron})")
+
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -6627,6 +6723,12 @@ def run_analysis():
 
     # Phase 110: Multi-concept shared decoding (informational)
     multi_concept_shared_decoding(all_acts, concept_names)
+
+    # Phase 111: Concept adversarial robustness (informational)
+    concept_adversarial_robustness(all_acts, concept_names, sparse_results)
+
+    # Phase 112: Neuron uniqueness index (informational)
+    neuron_uniqueness_index(all_acts, concept_names, sparse_results, hidden_size)
 
     # ---- Composite Score ----
     interpretability_score = (
