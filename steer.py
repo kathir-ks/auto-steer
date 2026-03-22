@@ -1790,6 +1790,113 @@ def neuron_coactivation_analysis(all_acts, concept_names, sparse_results):
 
 
 # ---------------------------------------------------------------------------
+# PHASE 25: Concept Emergence Detection — precise layer of first separability
+# ---------------------------------------------------------------------------
+
+def concept_emergence_analysis(concept_names, locality_results):
+    """
+    For each concept, find the exact layer where classification first becomes
+    above chance (>0.6), above useful (>0.8), and above threshold (>0.9).
+    Reuses layer accuracies computed in Phase 4 (locality).
+    """
+    print("=" * 70)
+    print("PHASE 25: Concept Emergence — Layer-by-Layer Classification")
+    print("=" * 70)
+
+    for concept_name in concept_names:
+        accs = np.array(locality_results[concept_name]["layer_accuracies"])
+        first_above_60 = next((i for i, a in enumerate(accs) if a > 0.6), -1)
+        first_above_80 = next((i for i, a in enumerate(accs) if a > 0.8), -1)
+        first_above_90 = next((i for i, a in enumerate(accs) if a > 0.9), -1)
+        peak_layer = int(np.argmax(accs))
+
+        # Compact ASCII sparkline
+        bars = ""
+        for a in accs:
+            if a >= 0.95:
+                bars += "█"
+            elif a >= 0.85:
+                bars += "▓"
+            elif a >= 0.75:
+                bars += "▒"
+            elif a >= 0.65:
+                bars += "░"
+            elif a >= 0.55:
+                bars += "·"
+            else:
+                bars += " "
+
+        print(f"  {concept_name:20s}: [{bars}] "
+              f"emerge@L{first_above_60}, useful@L{first_above_80}, "
+              f"strong@L{first_above_90}, peak@L{peak_layer}")
+
+    print(f"\n  Legend: █≥0.95 ▓≥0.85 ▒≥0.75 ░≥0.65 ·≥0.55")
+    print()
+
+
+# ---------------------------------------------------------------------------
+# PHASE 26: Neuron Specificity Spectrum — full selectivity distribution
+# ---------------------------------------------------------------------------
+
+def neuron_specificity_spectrum(all_acts, concept_names, num_layers):
+    """
+    For a sample layer (mid-network), compute every neuron's max selectivity
+    across all concepts. Produces a histogram of neuron specificity showing
+    what fraction of neurons are concept-selective vs non-selective.
+    """
+    print("=" * 70)
+    print("PHASE 26: Neuron Specificity Spectrum")
+    print("=" * 70)
+
+    target_layer = 12  # mid-network
+    pos_all = all_acts[concept_names[0]]["positive"][target_layer]
+    hidden_size = pos_all.shape[1]
+
+    # For each neuron, compute max Cohen's d across all concepts
+    max_d = np.zeros(hidden_size)
+    best_concept = [""] * hidden_size
+
+    for concept_name in concept_names:
+        pos = all_acts[concept_name]["positive"][target_layer]
+        neg = all_acts[concept_name]["negative"][target_layer]
+        for n in range(hidden_size):
+            pooled_std = np.sqrt((pos[:, n].var() + neg[:, n].var()) / 2) + 1e-8
+            d = abs(pos[:, n].mean() - neg[:, n].mean()) / pooled_std
+            if d > max_d[n]:
+                max_d[n] = d
+                best_concept[n] = concept_name
+
+    # Histogram of max selectivity
+    bins = [0, 0.2, 0.5, 1.0, 1.5, 2.0, 3.0, float('inf')]
+    labels = ["<0.2 (noise)", "0.2-0.5 (weak)", "0.5-1.0 (moderate)",
+              "1.0-1.5 (good)", "1.5-2.0 (strong)", "2.0-3.0 (very strong)",
+              "3.0+ (dedicated)"]
+
+    print(f"  Neuron selectivity distribution at L{target_layer} "
+          f"({hidden_size} neurons):\n")
+    for i in range(len(bins) - 1):
+        count = int(((max_d >= bins[i]) & (max_d < bins[i + 1])).sum())
+        pct = 100 * count / hidden_size
+        bar = "█" * int(pct / 2)
+        print(f"    {labels[i]:25s}: {count:3d} ({pct:4.1f}%) {bar}")
+
+    # Top-10 most selective neurons
+    top10 = np.argsort(max_d)[::-1][:10]
+    print(f"\n  Top-10 most selective neurons at L{target_layer}:")
+    for idx in top10:
+        print(f"    N{idx:3d}: d={max_d[idx]:.2f} → {best_concept[idx]}")
+
+    # Per-concept: how many neurons are "dedicated" (d > 1.5)?
+    print(f"\n  Dedicated neurons per concept (d > 1.5 at L{target_layer}):")
+    for concept_name in concept_names:
+        count = sum(1 for n in range(hidden_size)
+                    if best_concept[n] == concept_name and max_d[n] > 1.5)
+        print(f"    {concept_name:20s}: {count}")
+
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Main Analysis Pipeline
 # ---------------------------------------------------------------------------
 
@@ -1885,6 +1992,12 @@ def run_analysis():
 
     # Phase 24: Neuron co-activation (informational)
     neuron_coactivation_analysis(all_acts, concept_names, sparse_results)
+
+    # Phase 25: Concept emergence (informational, reuses Phase 4 data)
+    concept_emergence_analysis(concept_names, locality_results)
+
+    # Phase 26: Neuron specificity spectrum (informational)
+    neuron_specificity_spectrum(all_acts, concept_names, num_layers)
 
     # ---- Composite Score ----
     interpretability_score = (
