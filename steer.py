@@ -43606,6 +43606,192 @@ def concept_activation_phase_1720_status(all_acts, concept_names):
     print()
 
 
+def concept_activation_concept_direction_weighted_average_layer(all_acts, concept_names):
+    """Phase 1721: Compute weighted average layer for each concept (by signal strength)."""
+    print("=" * 70)
+    print("PHASE 1721: WEIGHTED AVERAGE CONCEPT LAYER")
+    print("=" * 70)
+    for cname in concept_names:
+        norms = []
+        for l in range(24):
+            d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+            norms.append(np.linalg.norm(d))
+        norms = np.array(norms)
+        weighted_layer = np.sum(np.arange(24) * norms) / (np.sum(norms) + 1e-10)
+        print(f"  {cname}: weighted avg layer={weighted_layer:.2f}, "
+              f"peak at L{np.argmax(norms)}")
+    print()
+
+
+def concept_activation_neuron_contribution_entropy(all_acts, concept_names):
+    """Phase 1722: Compute entropy of neuron contribution distribution per concept."""
+    print("=" * 70)
+    print("PHASE 1722: NEURON CONTRIBUTION ENTROPY")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        d = np.abs(np.mean(all_acts[cname]["positive"][layer], axis=0) -
+                   np.mean(all_acts[cname]["negative"][layer], axis=0))
+        d_norm = d / (d.sum() + 1e-10)
+        entropy = -np.sum(d_norm[d_norm > 0] * np.log(d_norm[d_norm > 0]))
+        max_entropy = np.log(len(d))
+        normalized_entropy = entropy / max_entropy
+        print(f"  {cname}: contribution entropy={entropy:.2f}/{max_entropy:.2f} "
+              f"(normalized={normalized_entropy:.4f})")
+    print()
+
+
+def concept_activation_concept_direction_pairwise_distance_matrix(all_acts, concept_names):
+    """Phase 1723: Build full pairwise L2 distance matrix between concept directions."""
+    print("=" * 70)
+    print("PHASE 1723: CONCEPT DIRECTION PAIRWISE L2 DISTANCE MATRIX")
+    print("=" * 70)
+    layer = 10
+    dirs = []
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        dirs.append(d / (np.linalg.norm(d) + 1e-10))
+    dirs = np.array(dirs)
+    for i in range(len(concept_names)):
+        dists = []
+        for j in range(len(concept_names)):
+            dists.append(np.linalg.norm(dirs[i] - dirs[j]))
+        nearest = concept_names[np.argsort([np.linalg.norm(dirs[i] - dirs[j]) for j in range(len(concept_names))])[1]]
+        print(f"  {concept_names[i]}: nearest={nearest} "
+              f"(d={min(d for k, d in enumerate(dists) if k != i):.4f})")
+    print()
+
+
+def concept_activation_concept_direction_projection_correlation_matrix(all_acts, concept_names):
+    """Phase 1724: Correlate concept direction projections across all data."""
+    print("=" * 70)
+    print("PHASE 1724: CONCEPT PROJECTION CORRELATION MATRIX")
+    print("=" * 70)
+    layer = 10
+    all_data = []
+    for cname in concept_names:
+        all_data.extend([all_acts[cname]["positive"][layer], all_acts[cname]["negative"][layer]])
+    X = np.vstack(all_data)
+    projections = []
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        d_norm = d / (np.linalg.norm(d) + 1e-10)
+        projections.append(X @ d_norm)
+    corr = np.corrcoef(projections)
+    off_diag = corr[np.triu_indices_from(corr, k=1)]
+    print(f"  Mean |off-diagonal correlation|: {np.mean(np.abs(off_diag)):.4f}")
+    print(f"  Max |correlation|: {np.max(np.abs(off_diag)):.4f}")
+    print()
+
+
+def concept_activation_concept_direction_local_curvature(all_acts, concept_names):
+    """Phase 1725: Estimate local curvature of concept direction trajectory."""
+    print("=" * 70)
+    print("PHASE 1725: CONCEPT DIRECTION LOCAL CURVATURE")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        dirs = []
+        for l in range(24):
+            d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+            dirs.append(d / (np.linalg.norm(d) + 1e-10))
+        curvatures = []
+        for l in range(1, 23):
+            # Curvature ~ angle between successive tangent vectors
+            t1 = dirs[l] - dirs[l-1]
+            t2 = dirs[l+1] - dirs[l]
+            cos = np.dot(t1, t2) / (np.linalg.norm(t1) * np.linalg.norm(t2) + 1e-10)
+            curvatures.append(1 - cos)
+        max_curv_l = int(np.argmax(curvatures)) + 1
+        print(f"  {cname}: max curvature at L{max_curv_l} ({curvatures[max_curv_l-1]:.4f}), "
+              f"mean={np.mean(curvatures):.4f}")
+    print()
+
+
+def concept_activation_concept_representation_between_within_ratio_per_layer(all_acts, concept_names):
+    """Phase 1726: Compute between/within class ratio per layer."""
+    print("=" * 70)
+    print("PHASE 1726: BETWEEN/WITHIN RATIO PER LAYER")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        ratios = []
+        for l in range(24):
+            pos = all_acts[cname]["positive"][l]
+            neg = all_acts[cname]["negative"][l]
+            between = np.linalg.norm(pos.mean(0) - neg.mean(0))**2
+            within = np.mean(np.var(pos, axis=0)) + np.mean(np.var(neg, axis=0))
+            ratios.append(between / (within + 1e-10))
+        peak_l = int(np.argmax(ratios))
+        print(f"  {cname}: peak at L{peak_l} ({ratios[peak_l]:.2f}), "
+              f"L0={ratios[0]:.2f}, L23={ratios[23]:.2f}")
+    print()
+
+
+def concept_activation_concept_direction_inner_product_spectrum(all_acts, concept_names):
+    """Phase 1727: Analyze spectrum of inner products between all concept direction pairs."""
+    print("=" * 70)
+    print("PHASE 1727: CONCEPT DIRECTION INNER PRODUCT SPECTRUM")
+    print("=" * 70)
+    layer = 10
+    dirs = []
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        dirs.append(d)  # unnormalized
+    G = np.array(dirs) @ np.array(dirs).T
+    eigenvalues = np.sort(np.linalg.eigvalsh(G))[::-1]
+    print(f"  Gram matrix eigenvalues: {eigenvalues.round(2).tolist()}")
+    print(f"  Condition number: {eigenvalues[0]/(eigenvalues[-1]+1e-10):.2f}")
+    print(f"  Effective rank: {np.sum(eigenvalues)**2/(np.sum(eigenvalues**2)+1e-10):.2f}")
+    print()
+
+
+def concept_activation_neuron_response_to_concept_strength(all_acts, concept_names):
+    """Phase 1728: Check if neuron response scales with concept direction projection."""
+    print("=" * 70)
+    print("PHASE 1728: NEURON RESPONSE VS CONCEPT STRENGTH")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = pos.mean(0) - neg.mean(0)
+        top_neuron = int(np.argmax(np.abs(d)))
+        acts = np.vstack([pos, neg])
+        d_norm = d / (np.linalg.norm(d) + 1e-10)
+        proj = acts @ d_norm
+        neuron_val = acts[:, top_neuron]
+        corr = np.corrcoef(proj, neuron_val)[0, 1]
+        print(f"  {cname}: neuron {top_neuron} response-concept corr={corr:.4f}")
+    print()
+
+
+def concept_activation_concept_direction_dimensionality_per_concept(all_acts, concept_names):
+    """Phase 1729: Estimate dimensionality of the concept-specific subspace."""
+    print("=" * 70)
+    print("PHASE 1729: CONCEPT-SPECIFIC SUBSPACE DIMENSIONALITY")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        diff_matrix = pos[:min(len(pos), len(neg))] - neg[:min(len(pos), len(neg))]
+        _, S, _ = np.linalg.svd(diff_matrix, full_matrices=False)
+        S2 = S**2
+        eff_dim = np.sum(S2)**2 / (np.sum(S2**2) + 1e-10)
+        print(f"  {cname}: concept subspace eff dim={eff_dim:.2f}")
+    print()
+
+
+def concept_activation_phase_1730_status(all_acts, concept_names):
+    """Phase 1730: Status checkpoint at 1730 phases."""
+    print("=" * 70)
+    print("PHASE 1730: STATUS CHECKPOINT — 1730 ANALYSIS PHASES")
+    print("=" * 70)
+    print("1730 analysis phases completed.")
+    print(f"Concepts analyzed: {len(concept_names)}")
+    print("All phases informational — scoring pipeline unchanged.")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -48840,6 +49026,36 @@ def run_analysis():
 
     # Phase 1720: Status checkpoint (informational)
     concept_activation_phase_1720_status(all_acts, concept_names)
+
+    # Phase 1721: Weighted average concept layer (informational)
+    concept_activation_concept_direction_weighted_average_layer(all_acts, concept_names)
+
+    # Phase 1722: Neuron contribution entropy (informational)
+    concept_activation_neuron_contribution_entropy(all_acts, concept_names)
+
+    # Phase 1723: Pairwise L2 distance matrix (informational)
+    concept_activation_concept_direction_pairwise_distance_matrix(all_acts, concept_names)
+
+    # Phase 1724: Concept projection correlation matrix (informational)
+    concept_activation_concept_direction_projection_correlation_matrix(all_acts, concept_names)
+
+    # Phase 1725: Direction local curvature (informational)
+    concept_activation_concept_direction_local_curvature(all_acts, concept_names)
+
+    # Phase 1726: Between/within ratio per layer (informational)
+    concept_activation_concept_representation_between_within_ratio_per_layer(all_acts, concept_names)
+
+    # Phase 1727: Inner product spectrum (informational)
+    concept_activation_concept_direction_inner_product_spectrum(all_acts, concept_names)
+
+    # Phase 1728: Neuron response vs concept strength (informational)
+    concept_activation_neuron_response_to_concept_strength(all_acts, concept_names)
+
+    # Phase 1729: Concept subspace dimensionality (informational)
+    concept_activation_concept_direction_dimensionality_per_concept(all_acts, concept_names)
+
+    # Phase 1730: Status checkpoint (informational)
+    concept_activation_phase_1730_status(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
