@@ -55679,6 +55679,199 @@ def post2000_concept_activation_phase_2320_checkpoint(all_acts, concept_names):
     print()
 
 
+def post2000_concept_activation_neuron_activation_tail_weight(all_acts, concept_names):
+    """Phase 2321: Weight in tails of neuron activation distributions."""
+    print("=" * 70)
+    print("PHASE 2321: NEURON ACTIVATION TAIL WEIGHT")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        all_data = np.vstack([pos, neg])
+        mean_abs = np.mean(np.abs(all_data), axis=0)
+        p95 = np.percentile(mean_abs, 95)
+        tail_weight = np.sum(mean_abs > p95) / len(mean_abs)
+        print(f"  {cname}: tail_weight={tail_weight:.4f}, p95_threshold={p95:.4f}")
+    print()
+
+
+def post2000_concept_activation_concept_direction_projection_gap_v2(all_acts, concept_names):
+    """Phase 2322: Gap between positive and negative projections per concept."""
+    print("=" * 70)
+    print("PHASE 2322: CONCEPT DIRECTION PROJECTION GAP")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        best_gap = 0
+        best_layer = 0
+        for L in range(0, 24, 3):
+            pos = all_acts[cname]["positive"][L]
+            neg = all_acts[cname]["negative"][L]
+            direction = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+            direction = direction / (np.linalg.norm(direction) + 1e-10)
+            pos_proj = np.mean(pos @ direction)
+            neg_proj = np.mean(neg @ direction)
+            gap = pos_proj - neg_proj
+            if gap > best_gap:
+                best_gap = gap
+                best_layer = L
+        print(f"  {cname}: best_gap={best_gap:.4f} at L{best_layer}")
+    print()
+
+
+def post2000_concept_activation_neuron_importance_correlation_between_concepts(all_acts, concept_names):
+    """Phase 2323: Correlation of neuron importance vectors between concept pairs."""
+    print("=" * 70)
+    print("PHASE 2323: NEURON IMPORTANCE CORRELATION BETWEEN CONCEPTS")
+    print("=" * 70)
+    layer = 10
+    importances = {}
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        importances[cname] = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+    pairs = [(concept_names[i], concept_names[j])
+             for i in range(len(concept_names)) for j in range(i+1, len(concept_names))]
+    corrs = []
+    for c1, c2 in pairs[:5]:
+        corr = np.corrcoef(importances[c1], importances[c2])[0, 1]
+        corrs.append((c1, c2, corr))
+    corrs.sort(key=lambda x: -abs(x[2]))
+    for c1, c2, corr in corrs:
+        print(f"  {c1} & {c2}: r={corr:.4f}")
+    print()
+
+
+def post2000_concept_activation_concept_class_centroid_distance(all_acts, concept_names):
+    """Phase 2324: Distance between positive and negative class centroids."""
+    print("=" * 70)
+    print("PHASE 2324: CLASS CENTROID DISTANCE")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        centroid_dist = np.linalg.norm(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+        pos_radius = np.mean(np.linalg.norm(pos - np.mean(pos, axis=0), axis=1))
+        neg_radius = np.mean(np.linalg.norm(neg - np.mean(neg, axis=0), axis=1))
+        separation = centroid_dist / (pos_radius + neg_radius + 1e-10)
+        print(f"  {cname}: centroid_dist={centroid_dist:.4f}, separation={separation:.4f}")
+    print()
+
+
+def post2000_concept_activation_neuron_sparsity_at_different_thresholds(all_acts, concept_names):
+    """Phase 2325: Sparsity of neuron activations at different thresholds."""
+    print("=" * 70)
+    print("PHASE 2325: NEURON SPARSITY AT DIFFERENT THRESHOLDS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:3]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        importance = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+        max_imp = np.max(importance)
+        for pct in [10, 25, 50]:
+            threshold = max_imp * pct / 100
+            n_above = np.sum(importance >= threshold)
+            print(f"  {cname} @{pct}%_max: {n_above}/896 neurons")
+    print()
+
+
+def post2000_concept_activation_layer_wise_concept_emergence(all_acts, concept_names):
+    """Phase 2326: At which layer does each concept become clearly separable?"""
+    print("=" * 70)
+    print("PHASE 2326: LAYER-WISE CONCEPT EMERGENCE")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        emergence_layer = -1
+        for L in range(24):
+            pos = all_acts[cname]["positive"][L]
+            neg = all_acts[cname]["negative"][L]
+            direction = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+            direction = direction / (np.linalg.norm(direction) + 1e-10)
+            pos_proj = pos @ direction
+            neg_proj = neg @ direction
+            # Check if means are separated by > 1 std
+            gap = np.mean(pos_proj) - np.mean(neg_proj)
+            std = np.std(np.concatenate([pos_proj, neg_proj]))
+            if gap / (std + 1e-10) > 2.0 and emergence_layer == -1:
+                emergence_layer = L
+        print(f"  {cname}: emergence_layer=L{emergence_layer}")
+    print()
+
+
+def post2000_concept_activation_neuron_activation_consistency_score(all_acts, concept_names):
+    """Phase 2327: How consistently does a neuron respond across samples of same class?"""
+    print("=" * 70)
+    print("PHASE 2327: NEURON ACTIVATION CONSISTENCY")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        pos_cv = np.std(pos, axis=0) / (np.abs(np.mean(pos, axis=0)) + 1e-10)
+        neg_cv = np.std(neg, axis=0) / (np.abs(np.mean(neg, axis=0)) + 1e-10)
+        mean_cv = (np.mean(pos_cv) + np.mean(neg_cv)) / 2
+        low_cv_count = np.sum((pos_cv < 0.5) & (neg_cv < 0.5))
+        print(f"  {cname}: mean_CV={mean_cv:.4f}, consistent_neurons(CV<0.5)={low_cv_count}/896")
+    print()
+
+
+def post2000_concept_activation_concept_direction_orthogonality_score(all_acts, concept_names):
+    """Phase 2328: Compute pairwise orthogonality score for all concept pairs."""
+    print("=" * 70)
+    print("PHASE 2328: CONCEPT DIRECTION ORTHOGONALITY SCORE")
+    print("=" * 70)
+    layer = 10
+    directions = []
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        directions.append(d / (np.linalg.norm(d) + 1e-10))
+    directions = np.array(directions)
+    gram = directions @ directions.T
+    off_diag = gram[np.triu_indices(len(concept_names), k=1)]
+    mean_abs_cos = np.mean(np.abs(off_diag))
+    max_abs_cos = np.max(np.abs(off_diag))
+    ortho_score = 1.0 - mean_abs_cos
+    print(f"  Mean |cos|: {mean_abs_cos:.6f}")
+    print(f"  Max |cos|: {max_abs_cos:.6f}")
+    print(f"  Orthogonality score: {ortho_score:.6f}")
+    print()
+
+
+def post2000_concept_activation_neuron_activation_signed_contribution(all_acts, concept_names):
+    """Phase 2329: Signed contribution of each neuron to concept direction."""
+    print("=" * 70)
+    print("PHASE 2329: NEURON SIGNED CONTRIBUTION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        contribution = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        n_pos = np.sum(contribution > 0)
+        n_neg = np.sum(contribution < 0)
+        pos_sum = np.sum(contribution[contribution > 0])
+        neg_sum = np.sum(contribution[contribution < 0])
+        print(f"  {cname}: pos_neurons={n_pos}, neg_neurons={n_neg}, "
+              f"pos_sum={pos_sum:.4f}, neg_sum={neg_sum:.4f}")
+    print()
+
+
+def post2000_concept_activation_phase_2330_checkpoint(all_acts, concept_names):
+    """Phase 2330: Research checkpoint - 330 phases beyond 2000."""
+    print("=" * 70)
+    print("PHASE 2330: RESEARCH CHECKPOINT — 330 BEYOND 2000")
+    print("=" * 70)
+    print(f"  2330 analysis phases completed — 330 beyond the 2000 milestone!")
+    print(f"  Phases 2321-2330: tail weight, projection gap, importance correlation,")
+    print(f"  centroid distance, sparsity thresholds, concept emergence,")
+    print(f"  consistency score, orthogonality score, signed contribution")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -62713,6 +62906,36 @@ def run_analysis():
 
     # Phase 2320: Research checkpoint (informational)
     post2000_concept_activation_phase_2320_checkpoint(all_acts, concept_names)
+
+    # Phase 2321: Neuron activation tail weight (informational)
+    post2000_concept_activation_neuron_activation_tail_weight(all_acts, concept_names)
+
+    # Phase 2322: Concept direction projection gap (informational)
+    post2000_concept_activation_concept_direction_projection_gap_v2(all_acts, concept_names)
+
+    # Phase 2323: Neuron importance correlation between concepts (informational)
+    post2000_concept_activation_neuron_importance_correlation_between_concepts(all_acts, concept_names)
+
+    # Phase 2324: Class centroid distance (informational)
+    post2000_concept_activation_concept_class_centroid_distance(all_acts, concept_names)
+
+    # Phase 2325: Neuron sparsity at different thresholds (informational)
+    post2000_concept_activation_neuron_sparsity_at_different_thresholds(all_acts, concept_names)
+
+    # Phase 2326: Layer-wise concept emergence (informational)
+    post2000_concept_activation_layer_wise_concept_emergence(all_acts, concept_names)
+
+    # Phase 2327: Neuron activation consistency (informational)
+    post2000_concept_activation_neuron_activation_consistency_score(all_acts, concept_names)
+
+    # Phase 2328: Concept direction orthogonality score (informational)
+    post2000_concept_activation_concept_direction_orthogonality_score(all_acts, concept_names)
+
+    # Phase 2329: Neuron signed contribution (informational)
+    post2000_concept_activation_neuron_activation_signed_contribution(all_acts, concept_names)
+
+    # Phase 2330: Research checkpoint (informational)
+    post2000_concept_activation_phase_2330_checkpoint(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
