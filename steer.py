@@ -43209,6 +43209,214 @@ def concept_activation_phase_1700_milestone(all_acts, concept_names):
     print()
 
 
+def concept_activation_concept_direction_energy_distribution(all_acts, concept_names):
+    """Phase 1701: Analyze energy distribution of concept directions across dimensions."""
+    print("=" * 70)
+    print("PHASE 1701: CONCEPT DIRECTION ENERGY DISTRIBUTION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        d_squared = d**2
+        total_energy = np.sum(d_squared)
+        sorted_energy = np.sort(d_squared)[::-1]
+        cum_energy = np.cumsum(sorted_energy) / (total_energy + 1e-10)
+        dims_50 = int(np.searchsorted(cum_energy, 0.5)) + 1
+        dims_90 = int(np.searchsorted(cum_energy, 0.9)) + 1
+        print(f"  {cname}: 50% energy in {dims_50} dims, 90% in {dims_90} dims, "
+              f"top dim = {sorted_energy[0]/total_energy*100:.1f}%")
+    print()
+
+
+def concept_activation_layer_activation_mean_shift(all_acts, concept_names):
+    """Phase 1702: Measure mean activation shift between adjacent layers."""
+    print("=" * 70)
+    print("PHASE 1702: MEAN ACTIVATION SHIFT BETWEEN LAYERS")
+    print("=" * 70)
+    cname = concept_names[0]
+    for l in range(0, 23, 4):
+        acts1 = np.vstack([all_acts[cname]["positive"][l], all_acts[cname]["negative"][l]])
+        acts2 = np.vstack([all_acts[cname]["positive"][l+1], all_acts[cname]["negative"][l+1]])
+        mean_shift = np.linalg.norm(acts2.mean(0) - acts1.mean(0))
+        mean_norm = np.mean([np.linalg.norm(acts1.mean(0)), np.linalg.norm(acts2.mean(0))])
+        print(f"  L{l}→L{l+1}: mean shift={mean_shift:.3f}, "
+              f"relative={mean_shift/(mean_norm+1e-10):.4f}")
+    print()
+
+
+def concept_activation_concept_direction_cosine_histogram(all_acts, concept_names):
+    """Phase 1703: Build histogram of all pairwise concept direction cosines."""
+    print("=" * 70)
+    print("PHASE 1703: PAIRWISE CONCEPT DIRECTION COSINE HISTOGRAM")
+    print("=" * 70)
+    layer = 10
+    dirs = []
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        dirs.append(d / (np.linalg.norm(d) + 1e-10))
+    cosines = []
+    for i in range(len(dirs)):
+        for j in range(i+1, len(dirs)):
+            cosines.append(np.dot(dirs[i], dirs[j]))
+    cosines = np.array(cosines)
+    print(f"  N pairs: {len(cosines)}")
+    print(f"  Cosine stats: mean={np.mean(cosines):.4f}, std={np.std(cosines):.4f}")
+    print(f"  Range: [{np.min(cosines):.4f}, {np.max(cosines):.4f}]")
+    bins = np.linspace(-0.5, 0.5, 6)
+    hist, _ = np.histogram(cosines, bins=bins)
+    for i in range(len(hist)):
+        print(f"    [{bins[i]:.1f}, {bins[i+1]:.1f}): {hist[i]}")
+    print()
+
+
+def concept_activation_neuron_concept_conditional_entropy(all_acts, concept_names):
+    """Phase 1704: Compute conditional entropy H(concept|neuron) for top neurons."""
+    print("=" * 70)
+    print("PHASE 1704: CONDITIONAL ENTROPY H(CONCEPT|NEURON)")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.abs(pos.mean(0) - neg.mean(0))
+        top_neuron = int(np.argmax(d))
+        vals = np.concatenate([pos[:, top_neuron], neg[:, top_neuron]])
+        labels = np.array([1]*len(pos) + [0]*len(neg))
+        median = np.median(vals)
+        # 2x2 table
+        tp = np.sum((vals >= median) & (labels == 1))
+        fp = np.sum((vals >= median) & (labels == 0))
+        fn = np.sum((vals < median) & (labels == 1))
+        tn = np.sum((vals < median) & (labels == 0))
+        n = len(vals)
+        h_given_high = 0
+        if tp + fp > 0:
+            p1 = tp / (tp + fp)
+            if 0 < p1 < 1:
+                h_given_high = -p1 * np.log2(p1) - (1-p1) * np.log2(1-p1)
+        h_given_low = 0
+        if fn + tn > 0:
+            p0 = fn / (fn + tn)
+            if 0 < p0 < 1:
+                h_given_low = -p0 * np.log2(p0) - (1-p0) * np.log2(1-p0)
+        cond_entropy = ((tp + fp) * h_given_high + (fn + tn) * h_given_low) / n
+        print(f"  {cname}: neuron {top_neuron}, H(concept|neuron)={cond_entropy:.4f} bits")
+    print()
+
+
+def concept_activation_concept_direction_projection_rank_order(all_acts, concept_names):
+    """Phase 1705: Check if projection rank order is consistent between train/test splits."""
+    print("=" * 70)
+    print("PHASE 1705: PROJECTION RANK ORDER CONSISTENCY")
+    print("=" * 70)
+    from scipy.stats import kendalltau
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        n = min(len(pos), len(neg))
+        half = n // 2
+        d1 = pos[:half].mean(0) - neg[:half].mean(0)
+        d2 = pos[half:].mean(0) - neg[half:].mean(0)
+        d1 = d1 / (np.linalg.norm(d1) + 1e-10)
+        d2 = d2 / (np.linalg.norm(d2) + 1e-10)
+        all_data = np.vstack([pos, neg])
+        proj1 = all_data @ d1
+        proj2 = all_data @ d2
+        tau, p = kendalltau(proj1, proj2)
+        print(f"  {cname}: rank order Kendall tau={tau:.4f} (p={p:.4e})")
+    print()
+
+
+def concept_activation_concept_direction_norm_vs_accuracy(all_acts, concept_names):
+    """Phase 1706: Check correlation between concept direction norm and classification accuracy."""
+    print("=" * 70)
+    print("PHASE 1706: DIRECTION NORM VS CLASSIFICATION ACCURACY")
+    print("=" * 70)
+    layer = 10
+    norms = []
+    accs = []
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        norm = np.linalg.norm(d)
+        d_n = d / (norm + 1e-10)
+        pp = all_acts[cname]["positive"][layer] @ d_n
+        np_ = all_acts[cname]["negative"][layer] @ d_n
+        t = (np.mean(pp) + np.mean(np_)) / 2
+        acc = (np.sum(pp > t) + np.sum(np_ <= t)) / (len(pp) + len(np_))
+        norms.append(norm)
+        accs.append(acc)
+    corr = np.corrcoef(norms, accs)[0, 1]
+    print(f"  Correlation(norm, accuracy): {corr:.4f}")
+    for ci, cname in enumerate(concept_names):
+        print(f"    {cname}: norm={norms[ci]:.3f}, acc={accs[ci]:.4f}")
+    print()
+
+
+def concept_activation_concept_activation_profile_similarity(all_acts, concept_names):
+    """Phase 1707: Compare activation profiles across concepts at each layer."""
+    print("=" * 70)
+    print("PHASE 1707: CONCEPT ACTIVATION PROFILE SIMILARITY")
+    print("=" * 70)
+    layer = 10
+    profiles = []
+    for cname in concept_names:
+        acts = np.vstack([all_acts[cname]["positive"][layer], all_acts[cname]["negative"][layer]])
+        profiles.append(acts.mean(0))
+    profiles = np.array(profiles)
+    # Pairwise cosine
+    norms = np.linalg.norm(profiles, axis=1, keepdims=True)
+    normed = profiles / (norms + 1e-10)
+    sim = normed @ normed.T
+    off_diag = sim[np.triu_indices_from(sim, k=1)]
+    print(f"  Mean profile similarity: {np.mean(off_diag):.4f}")
+    print(f"  Min: {np.min(off_diag):.4f}, Max: {np.max(off_diag):.4f}")
+    print()
+
+
+def concept_activation_neuron_activation_consistency_metric(all_acts, concept_names):
+    """Phase 1708: Measure consistency of neuron activations within concept groups."""
+    print("=" * 70)
+    print("PHASE 1708: NEURON ACTIVATION CONSISTENCY WITHIN CONCEPT GROUPS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        pos_icc = np.mean(np.var(pos.mean(0)[np.newaxis, :].repeat(len(pos), axis=0), axis=0)) / \
+                  (np.mean(np.var(pos, axis=0)) + 1e-10)
+        neg_icc = np.mean(np.var(neg.mean(0)[np.newaxis, :].repeat(len(neg), axis=0), axis=0)) / \
+                  (np.mean(np.var(neg, axis=0)) + 1e-10)
+        print(f"  {cname}: pos consistency proxy={1-pos_icc:.4f}, neg={1-neg_icc:.4f}")
+    print()
+
+
+def concept_activation_concept_direction_subspace_angle_evolution(all_acts, concept_names):
+    """Phase 1709: Track how concept subspace angles evolve across layers."""
+    print("=" * 70)
+    print("PHASE 1709: CONCEPT SUBSPACE ANGLE EVOLUTION")
+    print("=" * 70)
+    c1, c2 = concept_names[0], concept_names[-1]
+    for l in range(0, 24, 4):
+        d1 = np.mean(all_acts[c1]["positive"][l], axis=0) - np.mean(all_acts[c1]["negative"][l], axis=0)
+        d2 = np.mean(all_acts[c2]["positive"][l], axis=0) - np.mean(all_acts[c2]["negative"][l], axis=0)
+        cos = np.dot(d1, d2) / (np.linalg.norm(d1) * np.linalg.norm(d2) + 1e-10)
+        angle = np.degrees(np.arccos(np.clip(abs(cos), 0, 1)))
+        print(f"  L{l}: {c1} vs {c2} angle={angle:.1f}°")
+    print()
+
+
+def concept_activation_phase_1710_status(all_acts, concept_names):
+    """Phase 1710: Status checkpoint at 1710 phases."""
+    print("=" * 70)
+    print("PHASE 1710: STATUS CHECKPOINT — 1710 ANALYSIS PHASES")
+    print("=" * 70)
+    print("1710 analysis phases completed.")
+    print(f"Concepts analyzed: {len(concept_names)}")
+    print("All phases informational — scoring pipeline unchanged.")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -48383,6 +48591,36 @@ def run_analysis():
 
     # Phase 1700: Milestone at 1700 phases (informational)
     concept_activation_phase_1700_milestone(all_acts, concept_names)
+
+    # Phase 1701: Direction energy distribution (informational)
+    concept_activation_concept_direction_energy_distribution(all_acts, concept_names)
+
+    # Phase 1702: Mean activation shift between layers (informational)
+    concept_activation_layer_activation_mean_shift(all_acts, concept_names)
+
+    # Phase 1703: Pairwise cosine histogram (informational)
+    concept_activation_concept_direction_cosine_histogram(all_acts, concept_names)
+
+    # Phase 1704: Conditional entropy H(concept|neuron) (informational)
+    concept_activation_neuron_concept_conditional_entropy(all_acts, concept_names)
+
+    # Phase 1705: Projection rank order consistency (informational)
+    concept_activation_concept_direction_projection_rank_order(all_acts, concept_names)
+
+    # Phase 1706: Direction norm vs accuracy (informational)
+    concept_activation_concept_direction_norm_vs_accuracy(all_acts, concept_names)
+
+    # Phase 1707: Concept activation profile similarity (informational)
+    concept_activation_concept_activation_profile_similarity(all_acts, concept_names)
+
+    # Phase 1708: Neuron activation consistency (informational)
+    concept_activation_neuron_activation_consistency_metric(all_acts, concept_names)
+
+    # Phase 1709: Concept subspace angle evolution (informational)
+    concept_activation_concept_direction_subspace_angle_evolution(all_acts, concept_names)
+
+    # Phase 1710: Status checkpoint (informational)
+    concept_activation_phase_1710_status(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
