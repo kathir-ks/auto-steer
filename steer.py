@@ -46381,6 +46381,192 @@ def concept_activation_phase_1860_checkpoint(all_acts, concept_names):
     print()
 
 
+def concept_activation_neuron_activation_dynamic_range(all_acts, concept_names):
+    """Phase 1861: Dynamic range of neuron activations across concepts."""
+    print("=" * 70)
+    print("PHASE 1861: NEURON ACTIVATION DYNAMIC RANGE")
+    print("=" * 70)
+    layer = 10
+    all_data = []
+    for cname in concept_names:
+        all_data.append(all_acts[cname]["positive"][layer])
+        all_data.append(all_acts[cname]["negative"][layer])
+    all_data = np.vstack(all_data)
+    dynamic_range = np.max(all_data, axis=0) - np.min(all_data, axis=0)
+    print(f"  Mean dynamic range: {np.mean(dynamic_range):.4f}")
+    print(f"  Max dynamic range: {np.max(dynamic_range):.4f}")
+    print(f"  Neurons with high range (>2x mean): {np.sum(dynamic_range > 2*np.mean(dynamic_range))}")
+    print(f"  Neurons with low range (<0.5x mean): {np.sum(dynamic_range < 0.5*np.mean(dynamic_range))}")
+    print()
+
+
+def concept_activation_concept_direction_projection_separability(all_acts, concept_names):
+    """Phase 1862: Separability of concept projections using Fisher criterion."""
+    print("=" * 70)
+    print("PHASE 1862: CONCEPT PROJECTION SEPARABILITY (FISHER CRITERION)")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        pos_proj = pos @ d
+        neg_proj = neg @ d
+        fisher = (np.mean(pos_proj) - np.mean(neg_proj))**2 / (np.var(pos_proj) + np.var(neg_proj) + 1e-10)
+        print(f"  {cname}: fisher_ratio={fisher:.4f}")
+    print()
+
+
+def concept_activation_neuron_response_consistency(all_acts, concept_names):
+    """Phase 1863: Consistency of neuron responses within concept class."""
+    print("=" * 70)
+    print("PHASE 1863: NEURON RESPONSE CONSISTENCY WITHIN CONCEPT CLASS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        pos_cv = np.std(pos, axis=0) / (np.abs(np.mean(pos, axis=0)) + 1e-10)
+        neg_cv = np.std(neg, axis=0) / (np.abs(np.mean(neg, axis=0)) + 1e-10)
+        print(f"  {cname}: mean_pos_CV={np.mean(pos_cv):.4f}, mean_neg_CV={np.mean(neg_cv):.4f}, low_CV_neurons(pos)={np.sum(pos_cv < 0.5)}")
+    print()
+
+
+def concept_activation_concept_subspace_dimension_analysis(all_acts, concept_names):
+    """Phase 1864: Analyze dimensionality of concept-specific subspaces."""
+    print("=" * 70)
+    print("PHASE 1864: CONCEPT SUBSPACE DIMENSION ANALYSIS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        diff_matrix = pos - np.mean(neg, axis=0)
+        svs = np.linalg.svd(diff_matrix, compute_uv=False)
+        svs_norm = svs / (svs[0] + 1e-10)
+        # Count significant dimensions (>5% of max)
+        sig_dims = np.sum(svs_norm > 0.05)
+        # 90% energy
+        energy = np.cumsum(svs**2) / (np.sum(svs**2) + 1e-10)
+        dims_90 = np.searchsorted(energy, 0.9) + 1
+        print(f"  {cname}: significant_dims={sig_dims}, dims_for_90pct_energy={dims_90}")
+    print()
+
+
+def concept_activation_concept_direction_mean_field_approximation(all_acts, concept_names):
+    """Phase 1865: Mean-field approximation of concept representations."""
+    print("=" * 70)
+    print("PHASE 1865: MEAN-FIELD APPROXIMATION OF CONCEPT REPRESENTATIONS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        pos_mean = np.mean(pos, axis=0)
+        neg_mean = np.mean(neg, axis=0)
+        # How well does mean represent individual samples?
+        pos_cos_to_mean = [np.dot(p, pos_mean)/(np.linalg.norm(p)*np.linalg.norm(pos_mean)+1e-10) for p in pos]
+        neg_cos_to_mean = [np.dot(n, neg_mean)/(np.linalg.norm(n)*np.linalg.norm(neg_mean)+1e-10) for n in neg]
+        print(f"  {cname}: pos_mean_cos={np.mean(pos_cos_to_mean):.4f}±{np.std(pos_cos_to_mean):.4f}, neg_mean_cos={np.mean(neg_cos_to_mean):.4f}±{np.std(neg_cos_to_mean):.4f}")
+    print()
+
+
+def concept_activation_neuron_layer_specialization_score(all_acts, concept_names):
+    """Phase 1866: Specialization of neuron roles across layers."""
+    print("=" * 70)
+    print("PHASE 1866: NEURON LAYER SPECIALIZATION")
+    print("=" * 70)
+    cname = concept_names[0]
+    n_neurons = all_acts[cname]["positive"][0].shape[1]
+    layer_importance = np.zeros((24, n_neurons))
+    for l in range(24):
+        pos = all_acts[cname]["positive"][l]
+        neg = all_acts[cname]["negative"][l]
+        layer_importance[l] = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+    # For each neuron, how concentrated is its importance across layers?
+    specialization = []
+    for n in range(min(100, n_neurons)):
+        imp = layer_importance[:, n]
+        if np.sum(imp) < 1e-10:
+            continue
+        imp_norm = imp / (np.sum(imp) + 1e-10)
+        entropy = -np.sum(imp_norm * np.log2(imp_norm + 1e-10))
+        specialization.append(entropy)
+    print(f"  {cname}: mean_layer_entropy={np.mean(specialization):.4f}, max_entropy={np.log2(24):.4f}")
+    print(f"  Highly layer-specialized (entropy<2): {np.sum(np.array(specialization)<2)}")
+    print()
+
+
+def concept_activation_concept_representation_compressibility(all_acts, concept_names):
+    """Phase 1867: Compressibility of concept representations via PCA."""
+    print("=" * 70)
+    print("PHASE 1867: CONCEPT REPRESENTATION COMPRESSIBILITY")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        all_data = np.vstack([pos, neg])
+        all_data = all_data - np.mean(all_data, axis=0)
+        svs = np.linalg.svd(all_data, compute_uv=False)
+        energy = np.cumsum(svs**2) / (np.sum(svs**2) + 1e-10)
+        dims_50 = np.searchsorted(energy, 0.5) + 1
+        dims_90 = np.searchsorted(energy, 0.9) + 1
+        dims_99 = np.searchsorted(energy, 0.99) + 1
+        print(f"  {cname}: dims_50pct={dims_50}, dims_90pct={dims_90}, dims_99pct={dims_99}, total={len(svs)}")
+    print()
+
+
+def concept_activation_concept_direction_norm_growth_rate(all_acts, concept_names):
+    """Phase 1868: Growth rate of concept direction norms across layers."""
+    print("=" * 70)
+    print("PHASE 1868: CONCEPT DIRECTION NORM GROWTH RATE")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        norms = []
+        for l in range(24):
+            d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+            norms.append(np.linalg.norm(d))
+        growth_rates = [norms[l+1]/(norms[l]+1e-10) for l in range(23)]
+        max_growth_layer = np.argmax(growth_rates)
+        print(f"  {cname}: max_growth_rate={growth_rates[max_growth_layer]:.4f} at L{max_growth_layer}, mean_rate={np.mean(growth_rates):.4f}")
+    print()
+
+
+def concept_activation_neuron_concept_encoding_capacity(all_acts, concept_names):
+    """Phase 1869: Estimate encoding capacity of neuron population for concepts."""
+    print("=" * 70)
+    print("PHASE 1869: NEURON CONCEPT ENCODING CAPACITY")
+    print("=" * 70)
+    layer = 10
+    n_neurons = all_acts[concept_names[0]]["positive"][layer].shape[1]
+    # How many concepts can the neuron population encode?
+    directions = []
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        directions.append(d)
+    D = np.array(directions)
+    svs = np.linalg.svd(D, compute_uv=False)
+    effective_capacity = np.sum(svs > 0.1 * svs[0])
+    print(f"  Neuron population: {n_neurons}")
+    print(f"  Concepts encoded: {len(concept_names)}")
+    print(f"  Effective direction capacity: {effective_capacity}")
+    print(f"  Utilization: {len(concept_names)/n_neurons:.6f}")
+    print()
+
+
+def concept_activation_phase_1870_checkpoint(all_acts, concept_names):
+    """Phase 1870: Status checkpoint."""
+    print("=" * 70)
+    print("PHASE 1870: STATUS CHECKPOINT")
+    print("=" * 70)
+    print(f"  1870 analysis phases completed")
+    print(f"  Research continues...")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -52035,6 +52221,36 @@ def run_analysis():
 
     # Phase 1860: Status checkpoint (informational)
     concept_activation_phase_1860_checkpoint(all_acts, concept_names)
+
+    # Phase 1861: Neuron activation dynamic range (informational)
+    concept_activation_neuron_activation_dynamic_range(all_acts, concept_names)
+
+    # Phase 1862: Concept projection separability (informational)
+    concept_activation_concept_direction_projection_separability(all_acts, concept_names)
+
+    # Phase 1863: Neuron response consistency (informational)
+    concept_activation_neuron_response_consistency(all_acts, concept_names)
+
+    # Phase 1864: Concept subspace dimension (informational)
+    concept_activation_concept_subspace_dimension_analysis(all_acts, concept_names)
+
+    # Phase 1865: Mean-field approximation (informational)
+    concept_activation_concept_direction_mean_field_approximation(all_acts, concept_names)
+
+    # Phase 1866: Neuron layer specialization (informational)
+    concept_activation_neuron_layer_specialization_score(all_acts, concept_names)
+
+    # Phase 1867: Representation compressibility (informational)
+    concept_activation_concept_representation_compressibility(all_acts, concept_names)
+
+    # Phase 1868: Direction norm growth rate (informational)
+    concept_activation_concept_direction_norm_growth_rate(all_acts, concept_names)
+
+    # Phase 1869: Neuron encoding capacity (informational)
+    concept_activation_neuron_concept_encoding_capacity(all_acts, concept_names)
+
+    # Phase 1870: Status checkpoint (informational)
+    concept_activation_phase_1870_checkpoint(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
