@@ -44346,6 +44346,198 @@ def concept_activation_phase_1760_status(all_acts, concept_names):
     print()
 
 
+def concept_activation_concept_direction_cumulative_explained_variance(all_acts, concept_names):
+    """Phase 1761: Compute cumulative explained variance by concept directions."""
+    print("=" * 70)
+    print("PHASE 1761: CUMULATIVE EXPLAINED VARIANCE BY CONCEPT DIRECTIONS")
+    print("=" * 70)
+    layer = 10
+    all_data = []
+    for cname in concept_names:
+        all_data.extend([all_acts[cname]["positive"][layer], all_acts[cname]["negative"][layer]])
+    X = np.vstack(all_data)
+    total_var = np.sum(np.var(X, axis=0))
+    dirs = []
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        dirs.append(d / (np.linalg.norm(d) + 1e-10))
+    cumulative = 0
+    for i, d in enumerate(dirs):
+        proj_var = np.var(X @ d)
+        cumulative += proj_var
+    ratio = cumulative / (total_var + 1e-10)
+    print(f"  All {len(concept_names)} concept directions explain {ratio*100:.2f}% of total variance")
+    print(f"  Per-direction average: {ratio/len(concept_names)*100:.2f}%")
+    print()
+
+
+def concept_activation_neuron_activation_dynamic_range_per_layer(all_acts, concept_names):
+    """Phase 1762: Compute dynamic range of activations at each layer."""
+    print("=" * 70)
+    print("PHASE 1762: ACTIVATION DYNAMIC RANGE PER LAYER")
+    print("=" * 70)
+    cname = concept_names[0]
+    for l in [0, 6, 12, 18, 23]:
+        acts = np.vstack([all_acts[cname]["positive"][l], all_acts[cname]["negative"][l]])
+        global_range = np.ptp(acts)
+        mean_neuron_range = np.mean(np.ptp(acts, axis=0))
+        print(f"  L{l}: global range={global_range:.3f}, mean neuron range={mean_neuron_range:.3f}")
+    print()
+
+
+def concept_activation_concept_direction_layerwise_cosine_matrix(all_acts, concept_names):
+    """Phase 1763: Build cosine matrix of concept directions across layers."""
+    print("=" * 70)
+    print("PHASE 1763: CONCEPT DIRECTION LAYERWISE COSINE MATRIX")
+    print("=" * 70)
+    cname = concept_names[0]
+    dirs = []
+    for l in range(24):
+        d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+        dirs.append(d / (np.linalg.norm(d) + 1e-10))
+    # Show correlation between L0 and all others
+    cosines = [np.dot(dirs[0], dirs[l]) for l in range(24)]
+    print(f"  {cname} L0 vs: " + ", ".join(f"L{l}={cosines[l]:.3f}" for l in [0, 6, 12, 18, 23]))
+    cosines_10 = [np.dot(dirs[10], dirs[l]) for l in range(24)]
+    print(f"  {cname} L10 vs: " + ", ".join(f"L{l}={cosines_10[l]:.3f}" for l in [0, 6, 12, 18, 23]))
+    print()
+
+
+def concept_activation_concept_direction_projection_effect_on_classification(all_acts, concept_names):
+    """Phase 1764: Measure how removing concept direction affects classification of other concepts."""
+    print("=" * 70)
+    print("PHASE 1764: EFFECT OF DIRECTION REMOVAL ON OTHER CONCEPTS")
+    print("=" * 70)
+    layer = 10
+    for ci in range(min(3, len(concept_names))):
+        removed_cname = concept_names[ci]
+        d_remove = np.mean(all_acts[removed_cname]["positive"][layer], axis=0) - np.mean(all_acts[removed_cname]["negative"][layer], axis=0)
+        d_remove = d_remove / (np.linalg.norm(d_remove) + 1e-10)
+        for cj in range(len(concept_names)):
+            if cj == ci:
+                continue
+            target_cname = concept_names[cj]
+            pos = all_acts[target_cname]["positive"][layer]
+            neg = all_acts[target_cname]["negative"][layer]
+            # Remove direction
+            pos_clean = pos - np.outer(pos @ d_remove, d_remove)
+            neg_clean = neg - np.outer(neg @ d_remove, d_remove)
+            d = pos_clean.mean(0) - neg_clean.mean(0)
+            d_n = d / (np.linalg.norm(d) + 1e-10)
+            pp = pos_clean @ d_n
+            np_ = neg_clean @ d_n
+            t = (np.mean(pp) + np.mean(np_)) / 2
+            acc = (np.sum(pp > t) + np.sum(np_ <= t)) / (len(pp) + len(np_))
+            if acc < 0.95:
+                print(f"  Remove {removed_cname} → {target_cname} acc={acc:.4f}")
+    print("  (only showing pairs with acc < 0.95)")
+    print()
+
+
+def concept_activation_concept_direction_normalized_distance(all_acts, concept_names):
+    """Phase 1765: Compute normalized distance between concept pos/neg centroids."""
+    print("=" * 70)
+    print("PHASE 1765: NORMALIZED CENTROID DISTANCE")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        dist = np.linalg.norm(pos.mean(0) - neg.mean(0))
+        avg_spread = (np.mean(np.linalg.norm(pos - pos.mean(0), axis=1)) +
+                     np.mean(np.linalg.norm(neg - neg.mean(0), axis=1))) / 2
+        normalized = dist / (avg_spread + 1e-10)
+        print(f"  {cname}: normalized distance={normalized:.4f}")
+    print()
+
+
+def concept_activation_concept_direction_gram_eigenvalue_spectrum(all_acts, concept_names):
+    """Phase 1766: Analyze eigenvalue spectrum of concept direction Gram matrix."""
+    print("=" * 70)
+    print("PHASE 1766: CONCEPT DIRECTION GRAM EIGENVALUE SPECTRUM")
+    print("=" * 70)
+    layer = 10
+    dirs = []
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        dirs.append(d / (np.linalg.norm(d) + 1e-10))
+    G = np.array(dirs) @ np.array(dirs).T
+    eigvals = np.sort(np.linalg.eigvalsh(G))[::-1]
+    print(f"  Eigenvalues: {eigvals.round(4).tolist()}")
+    cum_ratio = np.cumsum(eigvals) / np.sum(eigvals)
+    for k in range(len(eigvals)):
+        if cum_ratio[k] > 0.95:
+            print(f"  {k+1} components for 95% of Gram matrix variance")
+            break
+    print()
+
+
+def concept_activation_concept_direction_projection_class_separability(all_acts, concept_names):
+    """Phase 1767: Compute class separability metrics for concept projections."""
+    print("=" * 70)
+    print("PHASE 1767: PROJECTION CLASS SEPARABILITY METRICS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        d_norm = d / (np.linalg.norm(d) + 1e-10)
+        pos_proj = all_acts[cname]["positive"][layer] @ d_norm
+        neg_proj = all_acts[cname]["negative"][layer] @ d_norm
+        # Bhattacharyya distance
+        mu1, mu2 = np.mean(pos_proj), np.mean(neg_proj)
+        s1, s2 = np.var(pos_proj), np.var(neg_proj)
+        bhatt = 0.25 * np.log(0.25 * (s1/s2 + s2/s1 + 2)) + \
+                0.25 * (mu1 - mu2)**2 / (s1 + s2 + 1e-10)
+        print(f"  {cname}: Bhattacharyya distance={bhatt:.4f}")
+    print()
+
+
+def concept_activation_neuron_concept_selectivity_per_layer(all_acts, concept_names):
+    """Phase 1768: Track neuron selectivity evolution across layers."""
+    print("=" * 70)
+    print("PHASE 1768: NEURON SELECTIVITY EVOLUTION ACROSS LAYERS")
+    print("=" * 70)
+    for l in [0, 6, 12, 18, 23]:
+        n_neurons = all_acts[concept_names[0]]["positive"][l].shape[1]
+        max_disc = np.zeros(n_neurons)
+        for cname in concept_names:
+            d = np.abs(np.mean(all_acts[cname]["positive"][l], axis=0) -
+                      np.mean(all_acts[cname]["negative"][l], axis=0))
+            max_disc = np.maximum(max_disc, d)
+        selective = np.sum(max_disc > np.median(max_disc) * 2)
+        print(f"  L{l}: highly selective neurons={selective}/896")
+    print()
+
+
+def concept_activation_concept_direction_projection_separation_index(all_acts, concept_names):
+    """Phase 1769: Compute separation index for concept projections."""
+    print("=" * 70)
+    print("PHASE 1769: PROJECTION SEPARATION INDEX")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        d_norm = d / (np.linalg.norm(d) + 1e-10)
+        pos_proj = all_acts[cname]["positive"][layer] @ d_norm
+        neg_proj = all_acts[cname]["negative"][layer] @ d_norm
+        # Separation index: (mu_pos - mu_neg) / sqrt(var_pos + var_neg)
+        sep_idx = (np.mean(pos_proj) - np.mean(neg_proj)) / \
+                  np.sqrt(np.var(pos_proj) + np.var(neg_proj) + 1e-10)
+        print(f"  {cname}: separation index={sep_idx:.4f}")
+    print()
+
+
+def concept_activation_phase_1770_status(all_acts, concept_names):
+    """Phase 1770: Status checkpoint at 1770 phases."""
+    print("=" * 70)
+    print("PHASE 1770: STATUS CHECKPOINT — 1770 ANALYSIS PHASES")
+    print("=" * 70)
+    print("1770 analysis phases completed.")
+    print(f"Concepts analyzed: {len(concept_names)}")
+    print("All phases informational — scoring pipeline unchanged.")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -49700,6 +49892,36 @@ def run_analysis():
 
     # Phase 1760: Status checkpoint (informational)
     concept_activation_phase_1760_status(all_acts, concept_names)
+
+    # Phase 1761: Cumulative explained variance (informational)
+    concept_activation_concept_direction_cumulative_explained_variance(all_acts, concept_names)
+
+    # Phase 1762: Activation dynamic range per layer (informational)
+    concept_activation_neuron_activation_dynamic_range_per_layer(all_acts, concept_names)
+
+    # Phase 1763: Layerwise cosine matrix (informational)
+    concept_activation_concept_direction_layerwise_cosine_matrix(all_acts, concept_names)
+
+    # Phase 1764: Effect of direction removal on other concepts (informational)
+    concept_activation_concept_direction_projection_effect_on_classification(all_acts, concept_names)
+
+    # Phase 1765: Normalized centroid distance (informational)
+    concept_activation_concept_direction_normalized_distance(all_acts, concept_names)
+
+    # Phase 1766: Gram eigenvalue spectrum (informational)
+    concept_activation_concept_direction_gram_eigenvalue_spectrum(all_acts, concept_names)
+
+    # Phase 1767: Bhattacharyya distance separability (informational)
+    concept_activation_concept_direction_projection_class_separability(all_acts, concept_names)
+
+    # Phase 1768: Neuron selectivity evolution across layers (informational)
+    concept_activation_neuron_concept_selectivity_per_layer(all_acts, concept_names)
+
+    # Phase 1769: Projection separation index (informational)
+    concept_activation_concept_direction_projection_separation_index(all_acts, concept_names)
+
+    # Phase 1770: Status checkpoint (informational)
+    concept_activation_phase_1770_status(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
