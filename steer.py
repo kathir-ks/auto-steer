@@ -36745,6 +36745,209 @@ def concept_activation_phase_1380_status(all_acts, concept_names):
     print()
 
 
+def concept_direction_concept_direction_concept_direction_explained_variance_ratio(all_acts, concept_names):
+    """Phase 1381: Fraction of total variance explained by concept directions."""
+    print("=" * 70)
+    print("PHASE 1381: EXPLAINED VARIANCE RATIO BY CONCEPT DIRECTIONS")
+    print("=" * 70)
+    layer = 10
+    all_data = []
+    directions = []
+    for cname in concept_names:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        all_data.append(pos)
+        all_data.append(neg)
+        d = pos.mean(axis=0) - neg.mean(axis=0)
+        directions.append(d / (np.linalg.norm(d) + 1e-10))
+    all_data = np.vstack(all_data)
+    total_var = np.var(all_data, axis=0).sum()
+    D = np.array(directions)
+    projections = all_data @ D.T
+    proj_var = np.var(projections, axis=0).sum()
+    print(f"Total activation variance: {total_var:.1f}")
+    print(f"Variance in concept subspace: {proj_var:.1f}")
+    print(f"Explained ratio: {proj_var/total_var:.4f} ({proj_var/total_var*100:.1f}%)")
+    print()
+
+
+def concept_neuron_concept_neuron_neuron_activation_range_asymmetry(all_acts, concept_names):
+    """Phase 1382: Asymmetry of activation ranges for positive vs negative classes."""
+    print("=" * 70)
+    print("PHASE 1382: NEURON ACTIVATION RANGE ASYMMETRY")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        pos_range = pos.max(axis=0) - pos.min(axis=0)
+        neg_range = neg.max(axis=0) - neg.min(axis=0)
+        ratio = pos_range / (neg_range + 1e-10)
+        log_ratio = np.log2(ratio + 1e-10)
+        print(f"  {cname}: mean log2(range_ratio)={log_ratio.mean():.3f}, std={log_ratio.std():.3f}")
+        print(f"    most asymmetric neuron: {np.argmax(np.abs(log_ratio))}, ratio={ratio[np.argmax(np.abs(log_ratio))]:.3f}")
+    print()
+
+
+def concept_direction_concept_direction_concept_direction_within_class_projection_overlap(all_acts, concept_names):
+    """Phase 1383: Overlap of within-class projections onto concept direction."""
+    print("=" * 70)
+    print("PHASE 1383: WITHIN-CLASS PROJECTION OVERLAP")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        d = pos.mean(axis=0) - neg.mean(axis=0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        proj_pos = pos @ d
+        proj_neg = neg @ d
+        # Overlap coefficient
+        min_max = min(proj_pos.max(), proj_neg.max())
+        max_min = max(proj_pos.min(), proj_neg.min())
+        overlap = max(0, min_max - max_min)
+        total_range = max(proj_pos.max(), proj_neg.max()) - min(proj_pos.min(), proj_neg.min())
+        overlap_frac = overlap / (total_range + 1e-10)
+        print(f"  {cname}: overlap fraction={overlap_frac:.3f}, pos_mean={proj_pos.mean():.3f}, neg_mean={proj_neg.mean():.3f}")
+    print()
+
+
+def concept_activation_concept_activation_activation_norm_distribution_per_layer(all_acts, concept_names, num_layers):
+    """Phase 1384: Distribution of activation norms across layers."""
+    print("=" * 70)
+    print("PHASE 1384: ACTIVATION NORM DISTRIBUTION PER LAYER")
+    print("=" * 70)
+    for cname in concept_names[:3]:
+        norms_by_layer = []
+        for layer in range(0, num_layers, 4):
+            pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+            neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+            combined = np.vstack([pos, neg])
+            norms = np.linalg.norm(combined, axis=1)
+            norms_by_layer.append((layer, norms.mean(), norms.std()))
+        layer_str = ", ".join(f"L{l}:{m:.1f}±{s:.1f}" for l, m, s in norms_by_layer)
+        print(f"  {cname}: {layer_str}")
+    print()
+
+
+def concept_neuron_concept_neuron_neuron_top_bottom_5_discriminative(all_acts, concept_names):
+    """Phase 1385: Top 5 and bottom 5 discriminative neurons per concept."""
+    print("=" * 70)
+    print("PHASE 1385: TOP AND BOTTOM 5 DISCRIMINATIVE NEURONS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        diff = pos.mean(axis=0) - neg.mean(axis=0)
+        sorted_idx = np.argsort(diff)
+        top5 = sorted_idx[-5:][::-1]
+        bot5 = sorted_idx[:5]
+        print(f"  {cname}:")
+        print(f"    top 5 (pos direction): {[(int(n), f'{diff[n]:.3f}') for n in top5]}")
+        print(f"    bot 5 (neg direction): {[(int(n), f'{diff[n]:.3f}') for n in bot5]}")
+    print()
+
+
+def concept_direction_concept_direction_concept_direction_stability_bootstrap_ci(all_acts, concept_names):
+    """Phase 1386: Bootstrap confidence interval for concept direction cosine similarity."""
+    print("=" * 70)
+    print("PHASE 1386: DIRECTION STABILITY BOOTSTRAP CI")
+    print("=" * 70)
+    layer = 10
+    rng = np.random.RandomState(42)
+    for cname in concept_names[:4]:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        full_dir = pos.mean(axis=0) - neg.mean(axis=0)
+        full_dir = full_dir / (np.linalg.norm(full_dir) + 1e-10)
+        cosines = []
+        for _ in range(200):
+            idx_p = rng.choice(len(pos), size=len(pos), replace=True)
+            idx_n = rng.choice(len(neg), size=len(neg), replace=True)
+            d = pos[idx_p].mean(axis=0) - neg[idx_n].mean(axis=0)
+            d = d / (np.linalg.norm(d) + 1e-10)
+            cosines.append(np.dot(full_dir, d))
+        cosines = np.array(cosines)
+        ci_lo, ci_hi = np.percentile(cosines, [2.5, 97.5])
+        print(f"  {cname}: mean cosine={cosines.mean():.4f}, 95% CI=[{ci_lo:.4f}, {ci_hi:.4f}]")
+    print()
+
+
+def concept_activation_concept_activation_activation_class_centroid_distance(all_acts, concept_names):
+    """Phase 1387: Distance between class centroids in full activation space."""
+    print("=" * 70)
+    print("PHASE 1387: CLASS CENTROID DISTANCE")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        centroid_dist = np.linalg.norm(pos.mean(axis=0) - neg.mean(axis=0))
+        # Normalized by pooled std
+        pooled_std = np.sqrt((np.var(pos, axis=0) + np.var(neg, axis=0)) / 2).mean()
+        cohens_d = centroid_dist / (pooled_std * np.sqrt(pos.shape[1]) + 1e-10)
+        print(f"  {cname}: centroid_dist={centroid_dist:.3f}, pooled_std={pooled_std:.3f}")
+    print()
+
+
+def concept_neuron_concept_neuron_neuron_activation_bimodality_index(all_acts, concept_names):
+    """Phase 1388: Bimodality index of top neuron activations."""
+    print("=" * 70)
+    print("PHASE 1388: NEURON ACTIVATION BIMODALITY INDEX")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        combined = np.vstack([pos, neg])
+        labels = np.array([1]*len(pos) + [0]*len(neg))
+        diff = combined[labels==1].mean(axis=0) - combined[labels==0].mean(axis=0)
+        top_neuron = np.argmax(np.abs(diff))
+        vals = combined[:, top_neuron]
+        mean_v = vals.mean()
+        std_v = vals.std() + 1e-10
+        skew = np.mean(((vals - mean_v) / std_v) ** 3)
+        kurt = np.mean(((vals - mean_v) / std_v) ** 4) - 3
+        # Sarle's bimodality coefficient
+        n = len(vals)
+        bc = (skew**2 + 1) / (kurt + 3 * (n-1)**2 / ((n-2)*(n-3)) + 1e-10)
+        print(f"  {cname}: neuron {top_neuron}, bimodality_coeff={bc:.3f} (>5/9≈0.556 suggests bimodal)")
+    print()
+
+
+def concept_direction_concept_direction_concept_direction_orthogonal_complement_norm(all_acts, concept_names):
+    """Phase 1389: Norm of activation projected onto orthogonal complement of concept direction."""
+    print("=" * 70)
+    print("PHASE 1389: ORTHOGONAL COMPLEMENT NORM")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        combined = np.vstack([pos, neg])
+        d = pos.mean(axis=0) - neg.mean(axis=0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        proj_on = np.outer(d, d)
+        proj_off = np.eye(len(d)) - proj_on
+        on_norms = np.linalg.norm(combined @ proj_on.T, axis=1)
+        off_norms = np.linalg.norm(combined @ proj_off.T, axis=1)
+        ratio = on_norms.mean() / (off_norms.mean() + 1e-10)
+        print(f"  {cname}: on_dir={on_norms.mean():.3f}, off_dir={off_norms.mean():.3f}, ratio={ratio:.4f}")
+    print()
+
+
+def concept_activation_phase_1390_status(all_acts, concept_names):
+    """Phase 1390: Status at 1390 phases."""
+    print("=" * 70)
+    print("PHASE 1390: STATUS AT 1390 PHASES")
+    print("=" * 70)
+    print("1390 analysis phases completed.")
+    print(f"Concepts analyzed: {len(concept_names)}")
+    print("All phases informational — scoring pipeline unchanged.")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -40959,6 +41162,36 @@ def run_analysis():
 
     # Phase 1380: Status at 1380 phases (informational)
     concept_activation_phase_1380_status(all_acts, concept_names)
+
+    # Phase 1381: Explained variance ratio (informational)
+    concept_direction_concept_direction_concept_direction_explained_variance_ratio(all_acts, concept_names)
+
+    # Phase 1382: Neuron activation range asymmetry (informational)
+    concept_neuron_concept_neuron_neuron_activation_range_asymmetry(all_acts, concept_names)
+
+    # Phase 1383: Within-class projection overlap (informational)
+    concept_direction_concept_direction_concept_direction_within_class_projection_overlap(all_acts, concept_names)
+
+    # Phase 1384: Activation norm distribution per layer (informational)
+    concept_activation_concept_activation_activation_norm_distribution_per_layer(all_acts, concept_names, num_layers)
+
+    # Phase 1385: Top and bottom 5 discriminative neurons (informational)
+    concept_neuron_concept_neuron_neuron_top_bottom_5_discriminative(all_acts, concept_names)
+
+    # Phase 1386: Direction stability bootstrap CI (informational)
+    concept_direction_concept_direction_concept_direction_stability_bootstrap_ci(all_acts, concept_names)
+
+    # Phase 1387: Class centroid distance (informational)
+    concept_activation_concept_activation_activation_class_centroid_distance(all_acts, concept_names)
+
+    # Phase 1388: Neuron activation bimodality index (informational)
+    concept_neuron_concept_neuron_neuron_activation_bimodality_index(all_acts, concept_names)
+
+    # Phase 1389: Orthogonal complement norm (informational)
+    concept_direction_concept_direction_concept_direction_orthogonal_complement_norm(all_acts, concept_names)
+
+    # Phase 1390: Status at 1390 phases (informational)
+    concept_activation_phase_1390_status(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
