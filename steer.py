@@ -57290,6 +57290,195 @@ def post2000_concept_activation_phase_2400_milestone(all_acts, concept_names):
     print()
 
 
+def post2000_concept_activation_neuron_activation_global_importance_rank(all_acts, concept_names):
+    """Phase 2401: Global neuron importance ranking across all concepts."""
+    print("=" * 70)
+    print("PHASE 2401: GLOBAL NEURON IMPORTANCE RANKING")
+    print("=" * 70)
+    layer = 10
+    global_imp = np.zeros(896)
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        global_imp += np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+    top5 = np.argsort(global_imp)[-5:][::-1]
+    for idx in top5:
+        print(f"  Neuron {idx}: global_importance={global_imp[idx]:.4f}")
+    print()
+
+
+def post2000_concept_activation_concept_direction_null_space_dim(all_acts, concept_names):
+    """Phase 2402: Dimensionality of null space orthogonal to all concept directions."""
+    print("=" * 70)
+    print("PHASE 2402: CONCEPT DIRECTION NULL SPACE DIMENSIONALITY")
+    print("=" * 70)
+    layer = 10
+    directions = []
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        directions.append(d / (np.linalg.norm(d) + 1e-10))
+    D = np.array(directions)
+    svd_vals = np.linalg.svd(D, compute_uv=False)
+    rank = np.sum(svd_vals > 1e-6)
+    null_dim = 896 - rank
+    print(f"  Concept subspace rank: {rank}")
+    print(f"  Null space dimensionality: {null_dim}")
+    print()
+
+
+def post2000_concept_activation_neuron_activation_layer_specific_top_neurons(all_acts, concept_names):
+    """Phase 2403: Top neurons that are specific to certain layers."""
+    print("=" * 70)
+    print("PHASE 2403: LAYER-SPECIFIC TOP NEURONS")
+    print("=" * 70)
+    cname = concept_names[0]
+    for L in [0, 10, 23]:
+        pos = all_acts[cname]["positive"][L]
+        neg = all_acts[cname]["negative"][L]
+        importance = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+        top3 = np.argsort(importance)[-3:][::-1]
+        top3_vals = importance[top3]
+        print(f"  {cname} L{L}: top3=[{', '.join(f'{i}({v:.4f})' for i, v in zip(top3, top3_vals))}]")
+    print()
+
+
+def post2000_concept_activation_concept_direction_condition_number_per_layer(all_acts, concept_names):
+    """Phase 2404: Condition number of concept direction matrix at each layer."""
+    print("=" * 70)
+    print("PHASE 2404: CONCEPT DIRECTION CONDITION NUMBER PER LAYER")
+    print("=" * 70)
+    for L in [0, 6, 12, 18, 23]:
+        directions = []
+        for cname in concept_names:
+            pos = all_acts[cname]["positive"][L]
+            neg = all_acts[cname]["negative"][L]
+            d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+            directions.append(d / (np.linalg.norm(d) + 1e-10))
+        D = np.array(directions)
+        svd_vals = np.linalg.svd(D, compute_uv=False)
+        cond = svd_vals[0] / (svd_vals[-1] + 1e-10)
+        print(f"  L{L}: condition_number={cond:.4f}")
+    print()
+
+
+def post2000_concept_activation_neuron_activation_signed_importance_balance(all_acts, concept_names):
+    """Phase 2405: Balance between positive and negative neuron contributions."""
+    print("=" * 70)
+    print("PHASE 2405: SIGNED IMPORTANCE BALANCE")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        contribution = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        pos_contrib = np.sum(contribution[contribution > 0])
+        neg_contrib = np.sum(np.abs(contribution[contribution < 0]))
+        balance = min(pos_contrib, neg_contrib) / (max(pos_contrib, neg_contrib) + 1e-10)
+        print(f"  {cname}: balance={balance:.4f} (pos_sum={pos_contrib:.4f}, neg_sum={neg_contrib:.4f})")
+    print()
+
+
+def post2000_concept_activation_concept_direction_alignment_with_random(all_acts, concept_names):
+    """Phase 2406: Compare concept direction angles to random direction angles."""
+    print("=" * 70)
+    print("PHASE 2406: CONCEPT DIRECTIONS vs RANDOM DIRECTIONS")
+    print("=" * 70)
+    layer = 10
+    np.random.seed(42)
+    # Concept direction angles
+    directions = []
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        directions.append(d / (np.linalg.norm(d) + 1e-10))
+    concept_cosines = []
+    for i in range(len(directions)):
+        for j in range(i+1, len(directions)):
+            concept_cosines.append(abs(np.dot(directions[i], directions[j])))
+    # Random direction angles in 896-d
+    random_cosines = []
+    for _ in range(28):
+        r1 = np.random.randn(896)
+        r2 = np.random.randn(896)
+        r1 = r1 / np.linalg.norm(r1)
+        r2 = r2 / np.linalg.norm(r2)
+        random_cosines.append(abs(np.dot(r1, r2)))
+    print(f"  Concept mean |cos|: {np.mean(concept_cosines):.6f}")
+    print(f"  Random mean |cos|: {np.mean(random_cosines):.6f}")
+    print(f"  Ratio: {np.mean(concept_cosines)/(np.mean(random_cosines)+1e-10):.2f}x")
+    print()
+
+
+def post2000_concept_activation_neuron_activation_variance_ratio_pos_neg(all_acts, concept_names):
+    """Phase 2407: Ratio of positive to negative class variance."""
+    print("=" * 70)
+    print("PHASE 2407: POSITIVE/NEGATIVE VARIANCE RATIO")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        pos_var = np.mean(np.var(pos, axis=0))
+        neg_var = np.mean(np.var(neg, axis=0))
+        ratio = pos_var / (neg_var + 1e-10)
+        print(f"  {cname}: pos_var/neg_var={ratio:.4f}")
+    print()
+
+
+def post2000_concept_activation_concept_direction_reconstruction_error(all_acts, concept_names):
+    """Phase 2408: Reconstruction error when approximating data from concept directions."""
+    print("=" * 70)
+    print("PHASE 2408: CONCEPT DIRECTION RECONSTRUCTION ERROR")
+    print("=" * 70)
+    layer = 10
+    directions = []
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        directions.append(d / (np.linalg.norm(d) + 1e-10))
+    D = np.array(directions)
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        mean_pos = np.mean(pos, axis=0)
+        # Reconstruct using concept directions
+        coeffs = mean_pos @ D.T
+        reconstructed = coeffs @ D
+        error = np.linalg.norm(mean_pos - reconstructed) / (np.linalg.norm(mean_pos) + 1e-10)
+        print(f"  {cname}: relative_recon_error={error:.4f}")
+    print()
+
+
+def post2000_concept_activation_neuron_activation_layer_similarity_chain(all_acts, concept_names):
+    """Phase 2409: Similarity chain: how similar is L_i to L_{i+1}?"""
+    print("=" * 70)
+    print("PHASE 2409: LAYER SIMILARITY CHAIN")
+    print("=" * 70)
+    cname = concept_names[0]
+    for L in range(0, 23, 3):
+        pos_L = np.mean(all_acts[cname]["positive"][L], axis=0)
+        pos_L1 = np.mean(all_acts[cname]["positive"][L+1], axis=0)
+        cos = np.dot(pos_L, pos_L1) / (np.linalg.norm(pos_L) * np.linalg.norm(pos_L1) + 1e-10)
+        print(f"  L{L}->L{L+1}: cos={cos:.6f}")
+    print()
+
+
+def post2000_concept_activation_phase_2410_checkpoint(all_acts, concept_names):
+    """Phase 2410: Research checkpoint - 410 phases beyond 2000."""
+    print("=" * 70)
+    print("PHASE 2410: RESEARCH CHECKPOINT — 410 BEYOND 2000")
+    print("=" * 70)
+    print(f"  2410 analysis phases completed — 410 beyond the 2000 milestone!")
+    print(f"  Phases 2401-2410: global importance rank, null space dim,")
+    print(f"  layer-specific neurons, condition number per layer, signed balance,")
+    print(f"  random direction comparison, variance ratio, reconstruction error,")
+    print(f"  layer similarity chain")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -64564,6 +64753,36 @@ def run_analysis():
 
     # Phase 2400: Milestone checkpoint (informational)
     post2000_concept_activation_phase_2400_milestone(all_acts, concept_names)
+
+    # Phase 2401: Global neuron importance ranking (informational)
+    post2000_concept_activation_neuron_activation_global_importance_rank(all_acts, concept_names)
+
+    # Phase 2402: Concept direction null space dimensionality (informational)
+    post2000_concept_activation_concept_direction_null_space_dim(all_acts, concept_names)
+
+    # Phase 2403: Layer-specific top neurons (informational)
+    post2000_concept_activation_neuron_activation_layer_specific_top_neurons(all_acts, concept_names)
+
+    # Phase 2404: Concept direction condition number per layer (informational)
+    post2000_concept_activation_concept_direction_condition_number_per_layer(all_acts, concept_names)
+
+    # Phase 2405: Signed importance balance (informational)
+    post2000_concept_activation_neuron_activation_signed_importance_balance(all_acts, concept_names)
+
+    # Phase 2406: Concept directions vs random directions (informational)
+    post2000_concept_activation_concept_direction_alignment_with_random(all_acts, concept_names)
+
+    # Phase 2407: Positive/negative variance ratio (informational)
+    post2000_concept_activation_neuron_activation_variance_ratio_pos_neg(all_acts, concept_names)
+
+    # Phase 2408: Concept direction reconstruction error (informational)
+    post2000_concept_activation_concept_direction_reconstruction_error(all_acts, concept_names)
+
+    # Phase 2409: Layer similarity chain (informational)
+    post2000_concept_activation_neuron_activation_layer_similarity_chain(all_acts, concept_names)
+
+    # Phase 2410: Research checkpoint (informational)
+    post2000_concept_activation_phase_2410_checkpoint(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
