@@ -42083,6 +42083,205 @@ def concept_activation_phase_1640_status(all_acts, concept_names):
     print()
 
 
+def concept_activation_concept_direction_principal_angle_to_data(all_acts, concept_names):
+    """Phase 1641: Measure principal angle between concept direction and data subspace."""
+    print("=" * 70)
+    print("PHASE 1641: CONCEPT DIRECTION ANGLE TO DATA SUBSPACE")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        acts = np.vstack([all_acts[cname]["positive"][layer], all_acts[cname]["negative"][layer]])
+        centered = acts - acts.mean(0)
+        _, _, Vt = np.linalg.svd(centered, full_matrices=False)
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        d_norm = d / (np.linalg.norm(d) + 1e-10)
+        # Cosine with top PCs
+        cos_with_pcs = [abs(np.dot(d_norm, Vt[k])) for k in range(min(10, len(Vt)))]
+        total_captured = sum(c**2 for c in cos_with_pcs)
+        print(f"  {cname}: direction captured by top-10 PCs={total_captured:.4f}, "
+              f"max cos with single PC={max(cos_with_pcs):.4f}")
+    print()
+
+
+def concept_activation_neuron_activation_sparsity_per_layer(all_acts, concept_names):
+    """Phase 1642: Compute activation sparsity (fraction near zero) per layer."""
+    print("=" * 70)
+    print("PHASE 1642: NEURON ACTIVATION SPARSITY PER LAYER")
+    print("=" * 70)
+    cname = concept_names[0]
+    for l in [0, 4, 8, 12, 16, 20, 23]:
+        acts = np.vstack([all_acts[cname]["positive"][l], all_acts[cname]["negative"][l]])
+        threshold = 0.01 * np.std(acts)
+        sparsity = np.mean(np.abs(acts) < threshold)
+        print(f"  L{l}: sparsity={sparsity:.4f} (fraction <0.01σ)")
+    print()
+
+
+def concept_activation_concept_direction_stability_window(all_acts, concept_names):
+    """Phase 1643: Find the window of layers where concept direction is most stable."""
+    print("=" * 70)
+    print("PHASE 1643: CONCEPT DIRECTION STABILITY WINDOW")
+    print("=" * 70)
+    for cname in concept_names:
+        directions = []
+        for l in range(24):
+            d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+            directions.append(d / (np.linalg.norm(d) + 1e-10))
+        # Find best 5-layer window with highest mean pairwise cosine
+        best_start = 0
+        best_cos = -1
+        for start in range(20):
+            cosines = []
+            for i in range(start, start+5):
+                for j in range(i+1, start+5):
+                    cosines.append(np.dot(directions[i], directions[j]))
+            mc = np.mean(cosines)
+            if mc > best_cos:
+                best_cos = mc
+                best_start = start
+        print(f"  {cname}: most stable window L{best_start}-L{best_start+4} "
+              f"(mean pairwise cos={best_cos:.4f})")
+    print()
+
+
+def concept_activation_concept_signal_decay_rate(all_acts, concept_names):
+    """Phase 1644: Measure rate of signal decay from peak layer."""
+    print("=" * 70)
+    print("PHASE 1644: CONCEPT SIGNAL DECAY RATE FROM PEAK")
+    print("=" * 70)
+    for cname in concept_names:
+        norms = []
+        for l in range(24):
+            d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+            norms.append(np.linalg.norm(d))
+        peak = int(np.argmax(norms))
+        if peak < 23:
+            decay_layers = norms[peak:]
+            if len(decay_layers) > 1:
+                decay_rate = (decay_layers[0] - decay_layers[-1]) / (len(decay_layers) * decay_layers[0] + 1e-10)
+            else:
+                decay_rate = 0
+        else:
+            decay_rate = 0
+        print(f"  {cname}: peak at L{peak}, decay rate={decay_rate:.4f}")
+    print()
+
+
+def concept_activation_concept_direction_alignment_with_weight_norms(all_acts, concept_names):
+    """Phase 1645: Check if concept directions correlate with activation norm patterns."""
+    print("=" * 70)
+    print("PHASE 1645: CONCEPT DIRECTION ALIGNMENT WITH NORM PATTERNS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        acts = np.vstack([all_acts[cname]["positive"][layer], all_acts[cname]["negative"][layer]])
+        norms = np.linalg.norm(acts, axis=1)
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        d_norm = d / (np.linalg.norm(d) + 1e-10)
+        proj = acts @ d_norm
+        corr = np.corrcoef(norms, proj)[0, 1]
+        print(f"  {cname}: norm-projection correlation={corr:.4f}")
+    print()
+
+
+def concept_activation_neuron_concept_conditional_activation(all_acts, concept_names):
+    """Phase 1646: Analyze conditional activation patterns (neuron|concept)."""
+    print("=" * 70)
+    print("PHASE 1646: CONDITIONAL NEURON ACTIVATION PATTERNS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.abs(pos.mean(0) - neg.mean(0))
+        top5 = np.argsort(d)[-5:][::-1]
+        print(f"  {cname}:")
+        for n in top5[:3]:
+            pos_mean = np.mean(pos[:, n])
+            neg_mean = np.mean(neg[:, n])
+            print(f"    neuron {n}: pos={pos_mean:.4f}, neg={neg_mean:.4f}, "
+                  f"diff={pos_mean-neg_mean:.4f}")
+    print()
+
+
+def concept_activation_concept_embedding_isotropy(all_acts, concept_names):
+    """Phase 1647: Measure isotropy of concept representations."""
+    print("=" * 70)
+    print("PHASE 1647: CONCEPT EMBEDDING ISOTROPY")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        acts = np.vstack([all_acts[cname]["positive"][layer], all_acts[cname]["negative"][layer]])
+        centered = acts - acts.mean(0)
+        _, S, _ = np.linalg.svd(centered, full_matrices=False)
+        S2 = S**2
+        # Isotropy: ratio of min to max eigenvalue
+        isotropy = S2[-1] / (S2[0] + 1e-10)
+        # Participation ratio
+        pr = np.sum(S2)**2 / (np.sum(S2**2) + 1e-10)
+        print(f"  {cname}: isotropy={isotropy:.6f}, participation_ratio={pr:.1f}")
+    print()
+
+
+def concept_activation_layer_concept_cosine_trajectory(all_acts, concept_names):
+    """Phase 1648: Track cosine between concept direction at each layer vs L10 reference."""
+    print("=" * 70)
+    print("PHASE 1648: CONCEPT DIRECTION COSINE TRAJECTORY (VS L10)")
+    print("=" * 70)
+    ref_layer = 10
+    for cname in concept_names[:4]:
+        ref_dir = np.mean(all_acts[cname]["positive"][ref_layer], axis=0) - \
+                  np.mean(all_acts[cname]["negative"][ref_layer], axis=0)
+        ref_dir = ref_dir / (np.linalg.norm(ref_dir) + 1e-10)
+        cosines = []
+        for l in range(24):
+            d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+            d = d / (np.linalg.norm(d) + 1e-10)
+            cosines.append(np.dot(d, ref_dir))
+        print(f"  {cname}: L0={cosines[0]:.4f}, L5={cosines[5]:.4f}, "
+              f"L15={cosines[15]:.4f}, L23={cosines[23]:.4f}")
+    print()
+
+
+def concept_activation_concept_direction_orthogonal_complement_info(all_acts, concept_names):
+    """Phase 1649: Measure concept info in orthogonal complement of other concepts."""
+    print("=" * 70)
+    print("PHASE 1649: CONCEPT INFO IN ORTHOGONAL COMPLEMENT")
+    print("=" * 70)
+    layer = 10
+    all_dirs = []
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        all_dirs.append(d / (np.linalg.norm(d) + 1e-10))
+    for ci, cname in enumerate(concept_names[:4]):
+        # Project out all other concept directions
+        other_dirs = np.array([all_dirs[j] for j in range(len(concept_names)) if j != ci])
+        proj_matrix = other_dirs.T @ np.linalg.pinv(other_dirs.T)
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        pos_orth = pos - pos @ proj_matrix
+        neg_orth = neg - neg @ proj_matrix
+        d_orth = pos_orth.mean(0) - neg_orth.mean(0)
+        d_orth_norm = d_orth / (np.linalg.norm(d_orth) + 1e-10)
+        pp = pos_orth @ d_orth_norm
+        np_ = neg_orth @ d_orth_norm
+        t = (np.mean(pp) + np.mean(np_)) / 2
+        acc = (np.sum(pp > t) + np.sum(np_ <= t)) / (len(pp) + len(np_))
+        print(f"  {cname}: acc in orthogonal complement={acc:.4f}")
+    print()
+
+
+def concept_activation_phase_1650_milestone(all_acts, concept_names):
+    """Phase 1650: Milestone at 1650 phases."""
+    print("=" * 70)
+    print("PHASE 1650: MILESTONE — 1650 ANALYSIS PHASES")
+    print("=" * 70)
+    print("1650 analysis phases completed!")
+    print(f"Concepts analyzed: {len(concept_names)}")
+    print("All phases informational — scoring pipeline unchanged.")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -47077,6 +47276,36 @@ def run_analysis():
 
     # Phase 1640: Status checkpoint (informational)
     concept_activation_phase_1640_status(all_acts, concept_names)
+
+    # Phase 1641: Direction angle to data subspace (informational)
+    concept_activation_concept_direction_principal_angle_to_data(all_acts, concept_names)
+
+    # Phase 1642: Activation sparsity per layer (informational)
+    concept_activation_neuron_activation_sparsity_per_layer(all_acts, concept_names)
+
+    # Phase 1643: Direction stability window (informational)
+    concept_activation_concept_direction_stability_window(all_acts, concept_names)
+
+    # Phase 1644: Signal decay rate from peak (informational)
+    concept_activation_concept_signal_decay_rate(all_acts, concept_names)
+
+    # Phase 1645: Direction alignment with norm patterns (informational)
+    concept_activation_concept_direction_alignment_with_weight_norms(all_acts, concept_names)
+
+    # Phase 1646: Conditional neuron activation patterns (informational)
+    concept_activation_neuron_concept_conditional_activation(all_acts, concept_names)
+
+    # Phase 1647: Concept embedding isotropy (informational)
+    concept_activation_concept_embedding_isotropy(all_acts, concept_names)
+
+    # Phase 1648: Direction cosine trajectory vs L10 (informational)
+    concept_activation_layer_concept_cosine_trajectory(all_acts, concept_names)
+
+    # Phase 1649: Info in orthogonal complement (informational)
+    concept_activation_concept_direction_orthogonal_complement_info(all_acts, concept_names)
+
+    # Phase 1650: Milestone at 1650 phases (informational)
+    concept_activation_phase_1650_milestone(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
