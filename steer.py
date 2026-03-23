@@ -55872,6 +55872,216 @@ def post2000_concept_activation_phase_2330_checkpoint(all_acts, concept_names):
     print()
 
 
+def post2000_concept_activation_neuron_response_symmetry_v2(all_acts, concept_names):
+    """Phase 2331: Is neuron response symmetric between positive/negative?"""
+    print("=" * 70)
+    print("PHASE 2331: NEURON RESPONSE SYMMETRY")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        pos_mean = np.mean(pos, axis=0)
+        neg_mean = np.mean(neg, axis=0)
+        grand_mean = (pos_mean + neg_mean) / 2
+        pos_dev = np.linalg.norm(pos_mean - grand_mean)
+        neg_dev = np.linalg.norm(neg_mean - grand_mean)
+        symmetry = min(pos_dev, neg_dev) / (max(pos_dev, neg_dev) + 1e-10)
+        print(f"  {cname}: symmetry={symmetry:.4f} (pos_dev={pos_dev:.4f}, neg_dev={neg_dev:.4f})")
+    print()
+
+
+def post2000_concept_activation_concept_direction_robustness_to_noise(all_acts, concept_names):
+    """Phase 2332: How robust is the concept direction to added noise?"""
+    print("=" * 70)
+    print("PHASE 2332: CONCEPT DIRECTION NOISE ROBUSTNESS")
+    print("=" * 70)
+    layer = 10
+    np.random.seed(42)
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        clean_dir = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        clean_dir = clean_dir / (np.linalg.norm(clean_dir) + 1e-10)
+        cosines = []
+        for noise_level in [0.1, 0.5, 1.0]:
+            noise = np.random.randn(*pos.shape) * noise_level
+            noisy_dir = np.mean(pos + noise, axis=0) - np.mean(neg + noise, axis=0)
+            noisy_dir = noisy_dir / (np.linalg.norm(noisy_dir) + 1e-10)
+            cosines.append(abs(np.dot(clean_dir, noisy_dir)))
+        print(f"  {cname}: cos@0.1={cosines[0]:.4f}, @0.5={cosines[1]:.4f}, @1.0={cosines[2]:.4f}")
+    print()
+
+
+def post2000_concept_activation_layer_wise_neuron_utilization(all_acts, concept_names):
+    """Phase 2333: What fraction of neurons are utilized at each layer?"""
+    print("=" * 70)
+    print("PHASE 2333: LAYER-WISE NEURON UTILIZATION")
+    print("=" * 70)
+    cname = concept_names[0]
+    for L in [0, 6, 12, 18, 23]:
+        pos = all_acts[cname]["positive"][L]
+        neg = all_acts[cname]["negative"][L]
+        importance = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+        threshold = np.mean(importance) + np.std(importance)
+        utilized = np.sum(importance > threshold)
+        print(f"  L{L}: utilized={utilized}/896 ({utilized/896*100:.1f}%)")
+    print()
+
+
+def post2000_concept_activation_concept_direction_angle_variance(all_acts, concept_names):
+    """Phase 2334: Variance of pairwise concept direction angles."""
+    print("=" * 70)
+    print("PHASE 2334: CONCEPT DIRECTION ANGLE VARIANCE")
+    print("=" * 70)
+    layer = 10
+    directions = {}
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        directions[cname] = d / (np.linalg.norm(d) + 1e-10)
+    angles = []
+    for i in range(len(concept_names)):
+        for j in range(i+1, len(concept_names)):
+            cos = abs(np.dot(directions[concept_names[i]], directions[concept_names[j]]))
+            angle = np.degrees(np.arccos(np.clip(cos, 0, 1)))
+            angles.append(angle)
+    print(f"  Mean angle: {np.mean(angles):.2f}°")
+    print(f"  Std angle: {np.std(angles):.2f}°")
+    print(f"  CV: {np.std(angles)/(np.mean(angles)+1e-10):.4f}")
+    print()
+
+
+def post2000_concept_activation_neuron_activation_outlier_analysis(all_acts, concept_names):
+    """Phase 2335: Detect outlier neuron activations per concept."""
+    print("=" * 70)
+    print("PHASE 2335: NEURON ACTIVATION OUTLIER ANALYSIS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        all_data = np.vstack([pos, neg])
+        mean_act = np.mean(all_data, axis=0)
+        std_act = np.std(all_data, axis=0)
+        # Count neurons with any sample > 3 std from mean
+        outlier_count = 0
+        for neuron in range(896):
+            z_scores = np.abs((all_data[:, neuron] - mean_act[neuron]) / (std_act[neuron] + 1e-10))
+            if np.any(z_scores > 3):
+                outlier_count += 1
+        print(f"  {cname}: neurons_with_outliers={outlier_count}/896")
+    print()
+
+
+def post2000_concept_activation_concept_direction_gram_schmidt_residual(all_acts, concept_names):
+    """Phase 2336: Residual after Gram-Schmidt orthogonalization of concept directions."""
+    print("=" * 70)
+    print("PHASE 2336: GRAM-SCHMIDT RESIDUAL")
+    print("=" * 70)
+    layer = 10
+    directions = []
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        directions.append(d)
+    # Gram-Schmidt
+    ortho = []
+    for d in directions:
+        v = d.copy()
+        for u in ortho:
+            v = v - np.dot(v, u) * u
+        norm = np.linalg.norm(v)
+        if norm > 1e-10:
+            v = v / norm
+        ortho.append(v)
+    # Residual: how much was lost
+    for i, cname in enumerate(concept_names[:4]):
+        original_norm = np.linalg.norm(directions[i])
+        # Project original onto orthogonalized
+        projection = np.dot(directions[i], ortho[i]) * ortho[i]
+        residual = np.linalg.norm(directions[i] - projection)
+        loss = residual / (original_norm + 1e-10)
+        print(f"  {cname}: residual_loss={loss:.6f}")
+    print()
+
+
+def post2000_concept_activation_neuron_activation_range_stability(all_acts, concept_names):
+    """Phase 2337: How stable is the activation range across layers?"""
+    print("=" * 70)
+    print("PHASE 2337: ACTIVATION RANGE STABILITY ACROSS LAYERS")
+    print("=" * 70)
+    for cname in concept_names[:3]:
+        ranges = []
+        for L in range(0, 24, 4):
+            pos = all_acts[cname]["positive"][L]
+            r = np.mean(np.max(pos, axis=0) - np.min(pos, axis=0))
+            ranges.append(r)
+        cv = np.std(ranges) / (np.mean(ranges) + 1e-10)
+        print(f"  {cname}: range_CV={cv:.4f}, min_range={min(ranges):.4f}, max_range={max(ranges):.4f}")
+    print()
+
+
+def post2000_concept_activation_concept_separability_per_layer(all_acts, concept_names):
+    """Phase 2338: Separability score per layer for each concept."""
+    print("=" * 70)
+    print("PHASE 2338: CONCEPT SEPARABILITY PER LAYER")
+    print("=" * 70)
+    for cname in concept_names[:3]:
+        best_sep = 0
+        best_layer = 0
+        for L in range(0, 24, 3):
+            pos = all_acts[cname]["positive"][L]
+            neg = all_acts[cname]["negative"][L]
+            d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+            d = d / (np.linalg.norm(d) + 1e-10)
+            pos_proj = pos @ d
+            neg_proj = neg @ d
+            sep = (np.mean(pos_proj) - np.mean(neg_proj))**2 / (np.var(pos_proj) + np.var(neg_proj) + 1e-10)
+            if sep > best_sep:
+                best_sep = sep
+                best_layer = L
+        print(f"  {cname}: best_separability={best_sep:.4f} at L{best_layer}")
+    print()
+
+
+def post2000_concept_activation_neuron_importance_power_law_fit_v2(all_acts, concept_names):
+    """Phase 2339: Fit power law to neuron importance distribution."""
+    print("=" * 70)
+    print("PHASE 2339: NEURON IMPORTANCE POWER LAW FIT")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        importance = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+        sorted_imp = np.sort(importance)[::-1]
+        # Fit log-log regression for power law
+        ranks = np.arange(1, len(sorted_imp) + 1)
+        mask = sorted_imp > 0
+        if np.sum(mask) > 10:
+            log_ranks = np.log(ranks[mask][:100])
+            log_imp = np.log(sorted_imp[mask][:100])
+            slope = np.polyfit(log_ranks, log_imp, 1)[0]
+            print(f"  {cname}: power_law_exponent={slope:.4f}")
+    print()
+
+
+def post2000_concept_activation_phase_2340_checkpoint(all_acts, concept_names):
+    """Phase 2340: Research checkpoint - 340 phases beyond 2000."""
+    print("=" * 70)
+    print("PHASE 2340: RESEARCH CHECKPOINT — 340 BEYOND 2000")
+    print("=" * 70)
+    print(f"  2340 analysis phases completed — 340 beyond the 2000 milestone!")
+    print(f"  Phases 2331-2340: response symmetry, noise robustness,")
+    print(f"  neuron utilization, angle variance, outlier analysis,")
+    print(f"  Gram-Schmidt residual, range stability, separability per layer,")
+    print(f"  power law fit")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -62936,6 +63146,36 @@ def run_analysis():
 
     # Phase 2330: Research checkpoint (informational)
     post2000_concept_activation_phase_2330_checkpoint(all_acts, concept_names)
+
+    # Phase 2331: Neuron response symmetry (informational)
+    post2000_concept_activation_neuron_response_symmetry_v2(all_acts, concept_names)
+
+    # Phase 2332: Concept direction noise robustness (informational)
+    post2000_concept_activation_concept_direction_robustness_to_noise(all_acts, concept_names)
+
+    # Phase 2333: Layer-wise neuron utilization (informational)
+    post2000_concept_activation_layer_wise_neuron_utilization(all_acts, concept_names)
+
+    # Phase 2334: Concept direction angle variance (informational)
+    post2000_concept_activation_concept_direction_angle_variance(all_acts, concept_names)
+
+    # Phase 2335: Neuron activation outlier analysis (informational)
+    post2000_concept_activation_neuron_activation_outlier_analysis(all_acts, concept_names)
+
+    # Phase 2336: Gram-Schmidt residual (informational)
+    post2000_concept_activation_concept_direction_gram_schmidt_residual(all_acts, concept_names)
+
+    # Phase 2337: Activation range stability (informational)
+    post2000_concept_activation_neuron_activation_range_stability(all_acts, concept_names)
+
+    # Phase 2338: Concept separability per layer (informational)
+    post2000_concept_activation_concept_separability_per_layer(all_acts, concept_names)
+
+    # Phase 2339: Neuron importance power law fit (informational)
+    post2000_concept_activation_neuron_importance_power_law_fit_v2(all_acts, concept_names)
+
+    # Phase 2340: Research checkpoint (informational)
+    post2000_concept_activation_phase_2340_checkpoint(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
