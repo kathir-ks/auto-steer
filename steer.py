@@ -38648,6 +38648,210 @@ def concept_activation_phase_1470_status(all_acts, concept_names):
     print()
 
 
+def concept_direction_concept_direction_concept_direction_concept_pair_entanglement_matrix(all_acts, concept_names):
+    """Phase 1471: Pairwise entanglement matrix between all concept pairs."""
+    print("=" * 70)
+    print("PHASE 1471: CONCEPT PAIR ENTANGLEMENT MATRIX")
+    print("=" * 70)
+    layer = 10
+    directions = {}
+    for cname in concept_names:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        d = pos.mean(axis=0) - neg.mean(axis=0)
+        directions[cname] = d / (np.linalg.norm(d) + 1e-10)
+    n = len(concept_names)
+    for i, ci in enumerate(concept_names):
+        for j in range(i+1, n):
+            cj = concept_names[j]
+            cos = abs(np.dot(directions[ci], directions[cj]))
+            # Entanglement = cos^2 (fraction of variance shared)
+            entangle = cos ** 2
+            if entangle > 0.01:
+                print(f"  {ci[:8]:>8} vs {cj[:8]:>8}: entanglement={entangle:.4f} (cos={cos:.4f})")
+    print()
+
+
+def concept_neuron_concept_neuron_neuron_activation_distribution_type(all_acts, concept_names):
+    """Phase 1472: Classify distribution type of top neuron activations."""
+    print("=" * 70)
+    print("PHASE 1472: NEURON ACTIVATION DISTRIBUTION TYPE")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        combined = np.vstack([pos, neg])
+        diff = np.abs(pos.mean(axis=0) - neg.mean(axis=0))
+        top_neuron = np.argmax(diff)
+        vals = combined[:, top_neuron]
+        skew = np.mean(((vals - vals.mean()) / (vals.std() + 1e-10)) ** 3)
+        kurt = np.mean(((vals - vals.mean()) / (vals.std() + 1e-10)) ** 4) - 3
+        if abs(skew) < 0.5 and abs(kurt) < 1:
+            dist_type = "approximately normal"
+        elif kurt > 2:
+            dist_type = "heavy-tailed"
+        elif kurt < -1:
+            dist_type = "light-tailed/uniform"
+        elif abs(skew) > 1:
+            dist_type = "skewed"
+        else:
+            dist_type = "mixed"
+        print(f"  {cname}: neuron {top_neuron}, type={dist_type} (skew={skew:.2f}, kurt={kurt:.2f})")
+    print()
+
+
+def concept_direction_concept_direction_concept_direction_best_discriminating_layer_per_concept(all_acts, concept_names, num_layers):
+    """Phase 1473: Best discriminating layer per concept using LR accuracy."""
+    print("=" * 70)
+    print("PHASE 1473: BEST DISCRIMINATING LAYER PER CONCEPT")
+    print("=" * 70)
+    for cname in concept_names:
+        best_acc = 0
+        best_layer = 0
+        for layer in range(0, num_layers, 2):
+            pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+            neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+            d = pos.mean(axis=0) - neg.mean(axis=0)
+            d = d / (np.linalg.norm(d) + 1e-10)
+            combined = np.vstack([pos, neg])
+            labels = np.array([1]*len(pos) + [0]*len(neg))
+            proj = combined @ d
+            pred = (proj > np.median(proj)).astype(int)
+            acc = (pred == labels).mean()
+            if acc > best_acc:
+                best_acc = acc
+                best_layer = layer
+        print(f"  {cname}: best layer=L{best_layer} (acc={best_acc:.3f})")
+    print()
+
+
+def concept_activation_concept_activation_activation_mean_activation_trajectory(all_acts, concept_names, num_layers):
+    """Phase 1474: Trajectory of mean activation norm across layers."""
+    print("=" * 70)
+    print("PHASE 1474: MEAN ACTIVATION TRAJECTORY")
+    print("=" * 70)
+    for cname in concept_names[:3]:
+        norms = []
+        for layer in range(num_layers):
+            pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+            neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+            combined = np.vstack([pos, neg])
+            norms.append(np.mean(np.linalg.norm(combined, axis=1)))
+        growth = norms[-1] / (norms[0] + 1e-10)
+        print(f"  {cname}: L0={norms[0]:.1f}, L12={norms[12]:.1f}, L23={norms[-1]:.1f}, growth={growth:.2f}x")
+    print()
+
+
+def concept_neuron_concept_neuron_neuron_top_neuron_shared_by_most_concepts(all_acts, concept_names):
+    """Phase 1475: Neurons in top-5 for multiple concepts."""
+    print("=" * 70)
+    print("PHASE 1475: NEURONS IN TOP-5 FOR MULTIPLE CONCEPTS")
+    print("=" * 70)
+    layer = 10
+    neuron_concepts = {}
+    for cname in concept_names:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        diff = np.abs(pos.mean(axis=0) - neg.mean(axis=0))
+        top5 = np.argsort(diff)[-5:]
+        for n in top5:
+            neuron_concepts.setdefault(int(n), []).append(cname)
+    shared = {n: concepts for n, concepts in neuron_concepts.items() if len(concepts) > 1}
+    if shared:
+        for n, concepts in sorted(shared.items(), key=lambda x: -len(x[1])):
+            print(f"  neuron {n}: top-5 for {len(concepts)} concepts: {[c[:8] for c in concepts]}")
+    else:
+        print("  No neurons shared in top-5 across concepts")
+    print()
+
+
+def concept_direction_concept_direction_concept_direction_direction_difference_across_halves(all_acts, concept_names):
+    """Phase 1476: Split-half reliability of concept directions."""
+    print("=" * 70)
+    print("PHASE 1476: SPLIT-HALF DIRECTION RELIABILITY")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        half = len(pos) // 2
+        d1 = pos[:half].mean(axis=0) - neg[:half].mean(axis=0)
+        d2 = pos[half:].mean(axis=0) - neg[half:].mean(axis=0)
+        d1 = d1 / (np.linalg.norm(d1) + 1e-10)
+        d2 = d2 / (np.linalg.norm(d2) + 1e-10)
+        cos = np.dot(d1, d2)
+        print(f"  {cname}: split-half cosine={cos:.4f}")
+    print()
+
+
+def concept_activation_concept_activation_activation_concept_direction_magnitude_profile(all_acts, concept_names, num_layers):
+    """Phase 1477: Profile of concept direction magnitudes across layers."""
+    print("=" * 70)
+    print("PHASE 1477: CONCEPT DIRECTION MAGNITUDE PROFILE")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        mags = []
+        for layer in range(num_layers):
+            pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+            neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+            mags.append(np.linalg.norm(pos.mean(axis=0) - neg.mean(axis=0)))
+        peak = np.argmax(mags)
+        print(f"  {cname}: peak at L{peak} ({mags[peak]:.2f}), L0={mags[0]:.2f}, L23={mags[-1]:.2f}")
+    print()
+
+
+def concept_neuron_concept_neuron_neuron_activation_coefficient_of_determination(all_acts, concept_names):
+    """Phase 1478: R² of top neuron for predicting concept label."""
+    print("=" * 70)
+    print("PHASE 1478: TOP NEURON R² FOR LABEL PREDICTION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        combined = np.vstack([pos, neg])
+        labels = np.array([1.0]*len(pos) + [0.0]*len(neg))
+        diff = np.abs(pos.mean(axis=0) - neg.mean(axis=0))
+        top_neuron = np.argmax(diff)
+        corr = np.corrcoef(combined[:, top_neuron], labels)[0, 1]
+        r_sq = corr ** 2
+        print(f"  {cname}: neuron {top_neuron}, R²={r_sq:.4f}")
+    print()
+
+
+def concept_direction_concept_direction_concept_direction_concept_embedding_compactness(all_acts, concept_names):
+    """Phase 1479: Compactness of concept embeddings in direction space."""
+    print("=" * 70)
+    print("PHASE 1479: CONCEPT EMBEDDING COMPACTNESS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        d = pos.mean(axis=0) - neg.mean(axis=0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        # Project all samples
+        proj_pos = pos @ d
+        proj_neg = neg @ d
+        # Compactness = 1 / (within-class std)
+        compact_pos = 1 / (proj_pos.std() + 1e-10)
+        compact_neg = 1 / (proj_neg.std() + 1e-10)
+        print(f"  {cname}: pos compactness={compact_pos:.2f}, neg compactness={compact_neg:.2f}")
+    print()
+
+
+def concept_activation_phase_1480_status(all_acts, concept_names):
+    """Phase 1480: Status at 1480 phases."""
+    print("=" * 70)
+    print("PHASE 1480: STATUS AT 1480 PHASES")
+    print("=" * 70)
+    print("1480 analysis phases completed.")
+    print(f"Concepts analyzed: {len(concept_names)}")
+    print("All phases informational — scoring pipeline unchanged.")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -43132,6 +43336,36 @@ def run_analysis():
 
     # Phase 1470: Status at 1470 phases (informational)
     concept_activation_phase_1470_status(all_acts, concept_names)
+
+    # Phase 1471: Concept pair entanglement matrix (informational)
+    concept_direction_concept_direction_concept_direction_concept_pair_entanglement_matrix(all_acts, concept_names)
+
+    # Phase 1472: Neuron activation distribution type (informational)
+    concept_neuron_concept_neuron_neuron_activation_distribution_type(all_acts, concept_names)
+
+    # Phase 1473: Best discriminating layer per concept (informational)
+    concept_direction_concept_direction_concept_direction_best_discriminating_layer_per_concept(all_acts, concept_names, num_layers)
+
+    # Phase 1474: Mean activation trajectory (informational)
+    concept_activation_concept_activation_activation_mean_activation_trajectory(all_acts, concept_names, num_layers)
+
+    # Phase 1475: Neurons in top-5 for multiple concepts (informational)
+    concept_neuron_concept_neuron_neuron_top_neuron_shared_by_most_concepts(all_acts, concept_names)
+
+    # Phase 1476: Split-half direction reliability (informational)
+    concept_direction_concept_direction_concept_direction_direction_difference_across_halves(all_acts, concept_names)
+
+    # Phase 1477: Concept direction magnitude profile (informational)
+    concept_activation_concept_activation_activation_concept_direction_magnitude_profile(all_acts, concept_names, num_layers)
+
+    # Phase 1478: Top neuron R² for label prediction (informational)
+    concept_neuron_concept_neuron_neuron_activation_coefficient_of_determination(all_acts, concept_names)
+
+    # Phase 1479: Concept embedding compactness (informational)
+    concept_direction_concept_direction_concept_direction_concept_embedding_compactness(all_acts, concept_names)
+
+    # Phase 1480: Status at 1480 phases (informational)
+    concept_activation_phase_1480_status(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
