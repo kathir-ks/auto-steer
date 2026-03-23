@@ -54871,6 +54871,200 @@ def post2000_concept_activation_phase_2280_checkpoint(all_acts, concept_names):
     print()
 
 
+def post2000_concept_activation_layer_specificity_score(all_acts, concept_names):
+    """Phase 2281: How specific is each concept to particular layers?"""
+    print("=" * 70)
+    print("PHASE 2281: LAYER SPECIFICITY SCORE")
+    print("=" * 70)
+    num_layers = 24
+    for cname in concept_names[:4]:
+        signals = []
+        for L in range(num_layers):
+            pos = all_acts[cname]["positive"][L]
+            neg = all_acts[cname]["negative"][L]
+            signals.append(np.linalg.norm(np.mean(pos, axis=0) - np.mean(neg, axis=0)))
+        signals = np.array(signals)
+        total = np.sum(signals) + 1e-10
+        probs = signals / total
+        entropy = -np.sum(probs * np.log(probs + 1e-10))
+        max_entropy = np.log(num_layers)
+        specificity = 1.0 - entropy / max_entropy
+        print(f"  {cname}: specificity={specificity:.4f}, peak_layer=L{np.argmax(signals)}")
+    print()
+
+
+def post2000_concept_activation_concept_interference_score(all_acts, concept_names):
+    """Phase 2282: Measure how much one concept interferes with classifying another."""
+    print("=" * 70)
+    print("PHASE 2282: CONCEPT INTERFERENCE SCORE")
+    print("=" * 70)
+    layer = 10
+    directions = {}
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        directions[cname] = d / (np.linalg.norm(d) + 1e-10)
+    for ci in range(min(4, len(concept_names))):
+        c1 = concept_names[ci]
+        interferences = []
+        for cj in range(len(concept_names)):
+            if ci == cj:
+                continue
+            c2 = concept_names[cj]
+            interference = abs(np.dot(directions[c1], directions[c2]))
+            interferences.append((c2, interference))
+        interferences.sort(key=lambda x: -x[1])
+        top = interferences[0]
+        print(f"  {c1}: worst_interference={top[0]} ({top[1]:.4f})")
+    print()
+
+
+def post2000_concept_activation_neuron_activation_range_per_concept(all_acts, concept_names):
+    """Phase 2283: Dynamic range of neuron activations per concept."""
+    print("=" * 70)
+    print("PHASE 2283: NEURON ACTIVATION RANGE")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        all_data = np.vstack([pos, neg])
+        ranges = np.max(all_data, axis=0) - np.min(all_data, axis=0)
+        print(f"  {cname}: mean_range={np.mean(ranges):.4f}, max_range={np.max(ranges):.4f}, "
+              f"min_range={np.min(ranges):.4f}")
+    print()
+
+
+def post2000_concept_activation_concept_subspace_overlap(all_acts, concept_names):
+    """Phase 2284: Overlap between concept subspaces using principal angles."""
+    print("=" * 70)
+    print("PHASE 2284: CONCEPT SUBSPACE OVERLAP")
+    print("=" * 70)
+    layer = 10
+    subspaces = {}
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        diff = pos - neg
+        U, S, Vt = np.linalg.svd(diff, full_matrices=False)
+        subspaces[cname] = Vt[:3]  # top 3 components
+    pairs = [(concept_names[i], concept_names[j])
+             for i in range(len(concept_names)) for j in range(i+1, len(concept_names))]
+    for c1, c2 in pairs[:5]:
+        # Principal angle between subspaces
+        M = subspaces[c1] @ subspaces[c2].T
+        svd_vals = np.linalg.svd(M, compute_uv=False)
+        max_cos = np.min([svd_vals[0], 1.0])
+        angle = np.degrees(np.arccos(max_cos))
+        print(f"  {c1} & {c2}: principal_angle={angle:.2f}°, cos={max_cos:.4f}")
+    print()
+
+
+def post2000_concept_activation_per_sample_projection_variance(all_acts, concept_names):
+    """Phase 2285: Variance of per-sample projections onto concept direction."""
+    print("=" * 70)
+    print("PHASE 2285: PER-SAMPLE PROJECTION VARIANCE")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        direction = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        direction = direction / (np.linalg.norm(direction) + 1e-10)
+        pos_proj = pos @ direction
+        neg_proj = neg @ direction
+        gap = np.mean(pos_proj) - np.mean(neg_proj)
+        overlap = np.std(pos_proj) + np.std(neg_proj)
+        print(f"  {cname}: gap={gap:.4f}, pos_std={np.std(pos_proj):.4f}, "
+              f"neg_std={np.std(neg_proj):.4f}, gap/overlap={gap/(overlap+1e-10):.4f}")
+    print()
+
+
+def post2000_concept_activation_neuron_contribution_skewness(all_acts, concept_names):
+    """Phase 2286: Skewness of neuron contributions to concept direction."""
+    print("=" * 70)
+    print("PHASE 2286: NEURON CONTRIBUTION SKEWNESS")
+    print("=" * 70)
+    from scipy.stats import skew
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        contributions = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        s = skew(contributions)
+        print(f"  {cname}: skewness={s:.4f}, positive_neurons={np.sum(contributions>0)}/896")
+    print()
+
+
+def post2000_concept_activation_multi_layer_direction_coherence(all_acts, concept_names):
+    """Phase 2287: Coherence of concept direction across multiple layers."""
+    print("=" * 70)
+    print("PHASE 2287: MULTI-LAYER DIRECTION COHERENCE")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        directions = []
+        for L in range(0, 24, 4):
+            pos = all_acts[cname]["positive"][L]
+            neg = all_acts[cname]["negative"][L]
+            d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+            d = d / (np.linalg.norm(d) + 1e-10)
+            directions.append(d)
+        # Mean pairwise cosine
+        cosines = []
+        for i in range(len(directions)):
+            for j in range(i+1, len(directions)):
+                cosines.append(abs(np.dot(directions[i], directions[j])))
+        print(f"  {cname}: mean_cos={np.mean(cosines):.4f}, min_cos={np.min(cosines):.4f}")
+    print()
+
+
+def post2000_concept_activation_activation_magnitude_layer_profile(all_acts, concept_names):
+    """Phase 2288: Profile of activation magnitudes across layers."""
+    print("=" * 70)
+    print("PHASE 2288: ACTIVATION MAGNITUDE LAYER PROFILE")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        mags = []
+        for L in [0, 6, 12, 18, 23]:
+            pos = all_acts[cname]["positive"][L]
+            mag = np.mean(np.linalg.norm(pos, axis=1))
+            mags.append((L, mag))
+        print(f"  {cname}: {[f'L{l}:{m:.1f}' for l, m in mags]}")
+    print()
+
+
+def post2000_concept_activation_concept_direction_norm_profile(all_acts, concept_names):
+    """Phase 2289: Profile of concept direction norms across layers."""
+    print("=" * 70)
+    print("PHASE 2289: CONCEPT DIRECTION NORM PROFILE")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        norms = []
+        for L in range(0, 24, 4):
+            pos = all_acts[cname]["positive"][L]
+            neg = all_acts[cname]["negative"][L]
+            d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+            norms.append((L, np.linalg.norm(d)))
+        peak = max(norms, key=lambda x: x[1])
+        print(f"  {cname}: peak_norm=L{peak[0]} ({peak[1]:.4f}), "
+              f"profile={[f'L{l}:{n:.2f}' for l, n in norms]}")
+    print()
+
+
+def post2000_concept_activation_phase_2290_checkpoint(all_acts, concept_names):
+    """Phase 2290: Research checkpoint - 290 phases beyond 2000."""
+    print("=" * 70)
+    print("PHASE 2290: RESEARCH CHECKPOINT — 290 BEYOND 2000")
+    print("=" * 70)
+    print(f"  2290 analysis phases completed — 290 beyond the 2000 milestone!")
+    print(f"  Phases 2281-2290: layer specificity, concept interference,")
+    print(f"  activation range, subspace overlap, projection variance,")
+    print(f"  contribution skewness, multi-layer coherence, magnitude profile,")
+    print(f"  direction norm profile")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -61785,6 +61979,36 @@ def run_analysis():
 
     # Phase 2280: Research checkpoint (informational)
     post2000_concept_activation_phase_2280_checkpoint(all_acts, concept_names)
+
+    # Phase 2281: Layer specificity score (informational)
+    post2000_concept_activation_layer_specificity_score(all_acts, concept_names)
+
+    # Phase 2282: Concept interference score (informational)
+    post2000_concept_activation_concept_interference_score(all_acts, concept_names)
+
+    # Phase 2283: Neuron activation range (informational)
+    post2000_concept_activation_neuron_activation_range_per_concept(all_acts, concept_names)
+
+    # Phase 2284: Concept subspace overlap (informational)
+    post2000_concept_activation_concept_subspace_overlap(all_acts, concept_names)
+
+    # Phase 2285: Per-sample projection variance (informational)
+    post2000_concept_activation_per_sample_projection_variance(all_acts, concept_names)
+
+    # Phase 2286: Neuron contribution skewness (informational)
+    post2000_concept_activation_neuron_contribution_skewness(all_acts, concept_names)
+
+    # Phase 2287: Multi-layer direction coherence (informational)
+    post2000_concept_activation_multi_layer_direction_coherence(all_acts, concept_names)
+
+    # Phase 2288: Activation magnitude layer profile (informational)
+    post2000_concept_activation_activation_magnitude_layer_profile(all_acts, concept_names)
+
+    # Phase 2289: Concept direction norm profile (informational)
+    post2000_concept_activation_concept_direction_norm_profile(all_acts, concept_names)
+
+    # Phase 2290: Research checkpoint (informational)
+    post2000_concept_activation_phase_2290_checkpoint(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
