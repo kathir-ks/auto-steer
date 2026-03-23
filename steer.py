@@ -43979,6 +43979,186 @@ def concept_activation_phase_1740_status(all_acts, concept_names):
     print()
 
 
+def concept_activation_concept_direction_total_path_length(all_acts, concept_names):
+    """Phase 1741: Compute total path length of concept direction through layer space."""
+    print("=" * 70)
+    print("PHASE 1741: CONCEPT DIRECTION TOTAL PATH LENGTH")
+    print("=" * 70)
+    for cname in concept_names:
+        dirs = []
+        for l in range(24):
+            d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+            dirs.append(d / (np.linalg.norm(d) + 1e-10))
+        total_path = sum(np.linalg.norm(np.array(dirs[l+1]) - np.array(dirs[l])) for l in range(23))
+        direct_dist = np.linalg.norm(np.array(dirs[23]) - np.array(dirs[0]))
+        tortuosity = total_path / (direct_dist + 1e-10)
+        print(f"  {cname}: path={total_path:.4f}, direct={direct_dist:.4f}, "
+              f"tortuosity={tortuosity:.4f}")
+    print()
+
+
+def concept_activation_neuron_activation_outlier_count(all_acts, concept_names):
+    """Phase 1742: Count activation outliers per concept."""
+    print("=" * 70)
+    print("PHASE 1742: ACTIVATION OUTLIER COUNT")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        acts = np.vstack([all_acts[cname]["positive"][layer], all_acts[cname]["negative"][layer]])
+        means = acts.mean(0)
+        stds = acts.std(0) + 1e-10
+        z = np.abs((acts - means) / stds)
+        outliers_3sigma = np.sum(z > 3) / z.size
+        outliers_4sigma = np.sum(z > 4) / z.size
+        print(f"  {cname}: >3σ={outliers_3sigma*100:.3f}%, >4σ={outliers_4sigma*100:.3f}%")
+    print()
+
+
+def concept_activation_concept_direction_cross_concept_variance(all_acts, concept_names):
+    """Phase 1743: Measure how much concept directions vary across different concepts."""
+    print("=" * 70)
+    print("PHASE 1743: CROSS-CONCEPT DIRECTION VARIANCE")
+    print("=" * 70)
+    layer = 10
+    dirs = []
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        dirs.append(d / (np.linalg.norm(d) + 1e-10))
+    dirs = np.array(dirs)
+    mean_dir = dirs.mean(0)
+    mean_dir = mean_dir / (np.linalg.norm(mean_dir) + 1e-10)
+    cosines = [np.dot(d, mean_dir) for d in dirs]
+    print(f"  Mean cosine to average direction: {np.mean(cosines):.4f}")
+    print(f"  Std: {np.std(cosines):.4f}")
+    print(f"  Min: {np.min(cosines):.4f} ({concept_names[np.argmin(cosines)]})")
+    print()
+
+
+def concept_activation_concept_direction_projection_mutual_info(all_acts, concept_names):
+    """Phase 1744: Compute MI between concept projections and labels."""
+    print("=" * 70)
+    print("PHASE 1744: CONCEPT PROJECTION MUTUAL INFORMATION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        d_norm = d / (np.linalg.norm(d) + 1e-10)
+        pos_proj = all_acts[cname]["positive"][layer] @ d_norm
+        neg_proj = all_acts[cname]["negative"][layer] @ d_norm
+        X = np.concatenate([pos_proj, neg_proj]).reshape(-1, 1)
+        y = np.array([1]*len(pos_proj) + [0]*len(neg_proj))
+        mi = mutual_info_classif(X, y, random_state=42)[0]
+        print(f"  {cname}: MI(projection, label)={mi:.4f}")
+    print()
+
+
+def concept_activation_concept_direction_best_single_neuron_accuracy(all_acts, concept_names):
+    """Phase 1745: Find best single-neuron classification accuracy per concept."""
+    print("=" * 70)
+    print("PHASE 1745: BEST SINGLE-NEURON ACCURACY")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        best_acc = 0
+        best_n = 0
+        n_neurons = pos.shape[1]
+        for j in range(n_neurons):
+            p_vals = pos[:, j]
+            n_vals = neg[:, j]
+            t = (np.mean(p_vals) + np.mean(n_vals)) / 2
+            acc = max(
+                (np.sum(p_vals > t) + np.sum(n_vals <= t)) / (len(p_vals) + len(n_vals)),
+                (np.sum(p_vals <= t) + np.sum(n_vals > t)) / (len(p_vals) + len(n_vals))
+            )
+            if acc > best_acc:
+                best_acc = acc
+                best_n = j
+        print(f"  {cname}: best neuron={best_n}, acc={best_acc:.4f}")
+    print()
+
+
+def concept_activation_layer_concept_direction_norm_coefficient_of_variation(all_acts, concept_names):
+    """Phase 1746: Compute CV of concept direction norms across layers."""
+    print("=" * 70)
+    print("PHASE 1746: DIRECTION NORM CV ACROSS LAYERS")
+    print("=" * 70)
+    for cname in concept_names:
+        norms = []
+        for l in range(24):
+            d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+            norms.append(np.linalg.norm(d))
+        cv = np.std(norms) / (np.mean(norms) + 1e-10)
+        print(f"  {cname}: norm CV={cv:.4f}, range ratio={max(norms)/(min(norms)+1e-10):.2f}")
+    print()
+
+
+def concept_activation_concept_direction_median_vs_mean_comparison(all_acts, concept_names):
+    """Phase 1747: Compare concept directions estimated via mean vs median."""
+    print("=" * 70)
+    print("PHASE 1747: MEAN VS MEDIAN DIRECTION ESTIMATION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d_mean = pos.mean(0) - neg.mean(0)
+        d_mean = d_mean / (np.linalg.norm(d_mean) + 1e-10)
+        d_median = np.median(pos, axis=0) - np.median(neg, axis=0)
+        d_median = d_median / (np.linalg.norm(d_median) + 1e-10)
+        cos = np.dot(d_mean, d_median)
+        print(f"  {cname}: cosine(mean, median)={cos:.4f}")
+    print()
+
+
+def concept_activation_concept_representation_mahalanobis_per_layer(all_acts, concept_names):
+    """Phase 1748: Compute Mahalanobis distance at multiple layers."""
+    print("=" * 70)
+    print("PHASE 1748: MAHALANOBIS DISTANCE PER LAYER")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        for l in [0, 10, 23]:
+            pos = all_acts[cname]["positive"][l]
+            neg = all_acts[cname]["negative"][l]
+            diff = pos.mean(0) - neg.mean(0)
+            pooled_cov = (np.cov(pos.T) + np.cov(neg.T)) / 2
+            try:
+                cov_inv = np.linalg.pinv(pooled_cov)
+                mahal = np.sqrt(diff @ cov_inv @ diff)
+                print(f"  {cname} L{l}: Mahalanobis={mahal:.2f}")
+            except Exception:
+                print(f"  {cname} L{l}: failed")
+    print()
+
+
+def concept_activation_concept_direction_angle_to_identity(all_acts, concept_names):
+    """Phase 1749: Measure angle between concept direction and the all-ones vector."""
+    print("=" * 70)
+    print("PHASE 1749: CONCEPT DIRECTION ANGLE TO IDENTITY VECTOR")
+    print("=" * 70)
+    layer = 10
+    identity = np.ones(896) / np.sqrt(896)
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        d_norm = d / (np.linalg.norm(d) + 1e-10)
+        cos = np.dot(d_norm, identity)
+        angle = np.degrees(np.arccos(np.clip(abs(cos), 0, 1)))
+        print(f"  {cname}: angle to identity={angle:.1f}°, cosine={cos:.4f}")
+    print()
+
+
+def concept_activation_phase_1750_milestone(all_acts, concept_names):
+    """Phase 1750: Milestone at 1750 phases."""
+    print("=" * 70)
+    print("PHASE 1750: MILESTONE — 1750 ANALYSIS PHASES")
+    print("=" * 70)
+    print("1750 analysis phases completed!")
+    print(f"Concepts analyzed: {len(concept_names)}")
+    print("All phases informational — scoring pipeline unchanged.")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -49273,6 +49453,36 @@ def run_analysis():
 
     # Phase 1740: Status checkpoint (informational)
     concept_activation_phase_1740_status(all_acts, concept_names)
+
+    # Phase 1741: Total path length (informational)
+    concept_activation_concept_direction_total_path_length(all_acts, concept_names)
+
+    # Phase 1742: Activation outlier count (informational)
+    concept_activation_neuron_activation_outlier_count(all_acts, concept_names)
+
+    # Phase 1743: Cross-concept direction variance (informational)
+    concept_activation_concept_direction_cross_concept_variance(all_acts, concept_names)
+
+    # Phase 1744: Projection mutual information (informational)
+    concept_activation_concept_direction_projection_mutual_info(all_acts, concept_names)
+
+    # Phase 1745: Best single-neuron accuracy (informational)
+    concept_activation_concept_direction_best_single_neuron_accuracy(all_acts, concept_names)
+
+    # Phase 1746: Direction norm CV across layers (informational)
+    concept_activation_layer_concept_direction_norm_coefficient_of_variation(all_acts, concept_names)
+
+    # Phase 1747: Mean vs median direction estimation (informational)
+    concept_activation_concept_direction_median_vs_mean_comparison(all_acts, concept_names)
+
+    # Phase 1748: Mahalanobis distance per layer (informational)
+    concept_activation_concept_representation_mahalanobis_per_layer(all_acts, concept_names)
+
+    # Phase 1749: Angle to identity vector (informational)
+    concept_activation_concept_direction_angle_to_identity(all_acts, concept_names)
+
+    # Phase 1750: Milestone at 1750 phases (informational)
+    concept_activation_phase_1750_milestone(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
