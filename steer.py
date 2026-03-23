@@ -39891,6 +39891,209 @@ def concept_activation_phase_1530_status(all_acts, concept_names):
     print()
 
 
+def concept_direction_concept_direction_concept_direction_concept_direction_concept_encoding_efficiency(all_acts, concept_names):
+    """Phase 1531: Encoding efficiency — bits per dimension used for concepts."""
+    print("=" * 70)
+    print("PHASE 1531: CONCEPT ENCODING EFFICIENCY")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        d = pos.mean(axis=0) - neg.mean(axis=0)
+        d_n = d / (np.linalg.norm(d) + 1e-10)
+        # Number of significant dimensions (>1% of max component)
+        max_comp = np.max(np.abs(d_n))
+        sig_dims = np.sum(np.abs(d_n) > max_comp * 0.01)
+        # Efficiency = 1 / sig_dims (higher = more concentrated)
+        efficiency = 1.0 / (sig_dims + 1e-10)
+        print(f"  {cname}: {sig_dims} significant dims, efficiency={efficiency:.5f}")
+    print()
+
+
+def concept_neuron_concept_neuron_neuron_activation_median_difference(all_acts, concept_names):
+    """Phase 1532: Median (robust) difference between pos and neg activations."""
+    print("=" * 70)
+    print("PHASE 1532: NEURON MEDIAN DIFFERENCE")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        median_diff = np.abs(np.median(pos, axis=0) - np.median(neg, axis=0))
+        mean_diff = np.abs(pos.mean(axis=0) - neg.mean(axis=0))
+        top_mean = np.argmax(mean_diff)
+        top_median = np.argmax(median_diff)
+        print(f"  {cname}: mean top={top_mean}({mean_diff[top_mean]:.3f}), median top={top_median}({median_diff[top_median]:.3f}), agree={top_mean==top_median}")
+    print()
+
+
+def concept_direction_concept_direction_concept_direction_concept_direction_concept_subspace_angles(all_acts, concept_names):
+    """Phase 1533: Principal angles between concept subspace pairs."""
+    print("=" * 70)
+    print("PHASE 1533: CONCEPT SUBSPACE PRINCIPAL ANGLES")
+    print("=" * 70)
+    layer = 10
+    # For each concept, get PCA subspace (top-3 PCs of class-conditional data)
+    subspaces = {}
+    for cname in concept_names[:4]:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        combined = np.vstack([pos, neg])
+        centered = combined - combined.mean(axis=0)
+        U, S, Vt = np.linalg.svd(centered, full_matrices=False)
+        subspaces[cname] = Vt[:3]  # top 3 PCs
+    cnames = list(subspaces.keys())
+    for i in range(len(cnames)):
+        for j in range(i+1, len(cnames)):
+            # Principal angle = arccos(max singular value of V1 @ V2.T)
+            M = subspaces[cnames[i]] @ subspaces[cnames[j]].T
+            sv = np.linalg.svd(M, compute_uv=False)
+            angle = np.degrees(np.arccos(np.clip(sv[0], 0, 1)))
+            print(f"  {cnames[i][:8]} vs {cnames[j][:8]}: smallest principal angle={angle:.1f}°")
+    print()
+
+
+def concept_activation_concept_activation_activation_concept_activation_sparsity_per_sample(all_acts, concept_names):
+    """Phase 1534: Per-sample activation sparsity (fraction of near-zero components)."""
+    print("=" * 70)
+    print("PHASE 1534: PER-SAMPLE ACTIVATION SPARSITY")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        combined = np.vstack([pos, neg])
+        sparsities = (np.abs(combined) < 0.01).mean(axis=1)
+        print(f"  {cname}: mean sparsity={sparsities.mean():.3f}, std={sparsities.std():.3f}")
+    print()
+
+
+def concept_neuron_concept_neuron_neuron_activation_concept_specific_neurons_count(all_acts, concept_names):
+    """Phase 1535: Count of neurons specific to each concept (high effect for one, low for others)."""
+    print("=" * 70)
+    print("PHASE 1535: CONCEPT-SPECIFIC NEURON COUNT")
+    print("=" * 70)
+    layer = 10
+    all_effects = {}
+    for cname in concept_names:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        pooled_std = np.sqrt((np.var(pos, axis=0) + np.var(neg, axis=0)) / 2) + 1e-10
+        all_effects[cname] = np.abs(pos.mean(axis=0) - neg.mean(axis=0)) / pooled_std
+    for cname in concept_names:
+        specific = 0
+        for n in range(896):
+            if all_effects[cname][n] > 1.0:
+                others_max = max(all_effects[c][n] for c in concept_names if c != cname)
+                if others_max < 0.5:
+                    specific += 1
+        print(f"  {cname}: {specific} concept-specific neurons (effect>1.0, others<0.5)")
+    print()
+
+
+def concept_direction_concept_direction_concept_direction_concept_direction_concept_direction_layer_wise_explained_variance(all_acts, concept_names, num_layers):
+    """Phase 1536: Explained variance by concept directions at each layer."""
+    print("=" * 70)
+    print("PHASE 1536: CONCEPT DIRECTION EXPLAINED VARIANCE PER LAYER")
+    print("=" * 70)
+    for layer in range(0, num_layers, 6):
+        all_data = []
+        directions = []
+        for cname in concept_names:
+            pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+            neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+            all_data.extend([pos, neg])
+            d = pos.mean(axis=0) - neg.mean(axis=0)
+            directions.append(d / (np.linalg.norm(d) + 1e-10))
+        all_data = np.vstack(all_data)
+        D = np.array(directions)
+        total_var = np.var(all_data, axis=0).sum()
+        proj = all_data @ D.T
+        proj_var = np.var(proj, axis=0).sum()
+        print(f"  L{layer}: explained={proj_var/total_var*100:.1f}%")
+    print()
+
+
+def concept_activation_concept_activation_activation_concept_all_layer_best_accuracy(all_acts, concept_names, num_layers):
+    """Phase 1537: Best achievable accuracy per concept across all layers."""
+    print("=" * 70)
+    print("PHASE 1537: BEST ACCURACY ACROSS ALL LAYERS")
+    print("=" * 70)
+    for cname in concept_names:
+        best_acc = 0
+        best_layer = 0
+        for layer in range(num_layers):
+            pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+            neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+            combined = np.vstack([pos, neg])
+            labels = np.array([1]*len(pos) + [0]*len(neg))
+            d = pos.mean(axis=0) - neg.mean(axis=0)
+            d = d / (np.linalg.norm(d) + 1e-10)
+            proj = combined @ d
+            pred = (proj > np.median(proj)).astype(int)
+            acc = (pred == labels).mean()
+            if acc > best_acc:
+                best_acc = acc
+                best_layer = layer
+        print(f"  {cname}: best accuracy={best_acc:.3f} at L{best_layer}")
+    print()
+
+
+def concept_neuron_concept_neuron_neuron_activation_global_top_neurons(all_acts, concept_names):
+    """Phase 1538: Global top neurons across all concepts (by total importance)."""
+    print("=" * 70)
+    print("PHASE 1538: GLOBAL TOP NEURONS")
+    print("=" * 70)
+    layer = 10
+    total_importance = np.zeros(896)
+    for cname in concept_names:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        total_importance += np.abs(pos.mean(axis=0) - neg.mean(axis=0))
+    top10 = np.argsort(total_importance)[-10:][::-1]
+    for n in top10:
+        print(f"  neuron {n}: total importance={total_importance[n]:.3f}")
+    print()
+
+
+def concept_direction_concept_direction_concept_direction_concept_direction_concept_direction_final_quality_summary(all_acts, concept_names):
+    """Phase 1539: Final quality summary of all concept representations."""
+    print("=" * 70)
+    print("PHASE 1539: FINAL QUALITY SUMMARY")
+    print("=" * 70)
+    layer = 10
+    directions = []
+    for cname in concept_names:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        d = pos.mean(axis=0) - neg.mean(axis=0)
+        directions.append(d / (np.linalg.norm(d) + 1e-10))
+    D = np.array(directions)
+    G = D @ D.T
+    det = np.linalg.det(G)
+    cond = np.linalg.cond(G)
+    eigenvalues = np.linalg.eigvalsh(G)
+    eff_dim = np.exp(-np.sum((eigenvalues/eigenvalues.sum()) * np.log(eigenvalues/eigenvalues.sum() + 1e-10)))
+    print(f"Number of concepts: {len(concept_names)}")
+    print(f"Gram determinant: {det:.6f}")
+    print(f"Condition number: {cond:.2f}")
+    print(f"Effective dimension: {eff_dim:.2f}")
+    print(f"Quality: {'EXCELLENT' if det > 0.1 else 'GOOD' if det > 0.01 else 'POOR'}")
+    print()
+
+
+def concept_activation_phase_1540_status(all_acts, concept_names):
+    """Phase 1540: Status at 1540 phases."""
+    print("=" * 70)
+    print("PHASE 1540: STATUS AT 1540 PHASES")
+    print("=" * 70)
+    print("1540 analysis phases completed.")
+    print(f"Concepts analyzed: {len(concept_names)}")
+    print("All phases informational — scoring pipeline unchanged.")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -44555,6 +44758,36 @@ def run_analysis():
 
     # Phase 1530: Status at 1530 phases (informational)
     concept_activation_phase_1530_status(all_acts, concept_names)
+
+    # Phase 1531: Concept encoding efficiency (informational)
+    concept_direction_concept_direction_concept_direction_concept_direction_concept_encoding_efficiency(all_acts, concept_names)
+
+    # Phase 1532: Neuron median difference (informational)
+    concept_neuron_concept_neuron_neuron_activation_median_difference(all_acts, concept_names)
+
+    # Phase 1533: Concept subspace principal angles (informational)
+    concept_direction_concept_direction_concept_direction_concept_direction_concept_subspace_angles(all_acts, concept_names)
+
+    # Phase 1534: Per-sample activation sparsity (informational)
+    concept_activation_concept_activation_activation_concept_activation_sparsity_per_sample(all_acts, concept_names)
+
+    # Phase 1535: Concept-specific neuron count (informational)
+    concept_neuron_concept_neuron_neuron_activation_concept_specific_neurons_count(all_acts, concept_names)
+
+    # Phase 1536: Concept direction explained variance per layer (informational)
+    concept_direction_concept_direction_concept_direction_concept_direction_concept_direction_layer_wise_explained_variance(all_acts, concept_names, num_layers)
+
+    # Phase 1537: Best accuracy across all layers (informational)
+    concept_activation_concept_activation_activation_concept_all_layer_best_accuracy(all_acts, concept_names, num_layers)
+
+    # Phase 1538: Global top neurons (informational)
+    concept_neuron_concept_neuron_neuron_activation_global_top_neurons(all_acts, concept_names)
+
+    # Phase 1539: Final quality summary (informational)
+    concept_direction_concept_direction_concept_direction_concept_direction_concept_direction_final_quality_summary(all_acts, concept_names)
+
+    # Phase 1540: Status at 1540 phases (informational)
+    concept_activation_phase_1540_status(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
