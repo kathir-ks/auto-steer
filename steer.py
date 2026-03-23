@@ -33495,6 +33495,234 @@ def concept_direction_orthogonality_quality_index(all_acts, concept_names):
     print()
 
 
+def concept_direction_random_projection_sep_preservation(all_acts, concept_names):
+    """Phase 1221: Test if random projections preserve concept separability."""
+    print("=" * 70)
+    print("PHASE 1221: RANDOM PROJECTION SEPARABILITY PRESERVATION")
+    print("=" * 70)
+    layer = 10
+    rng = np.random.default_rng(42)
+    d = all_acts[concept_names[0]]["positive"][layer].shape[1]
+    for proj_dim in [50, 100, 200]:
+        R = rng.standard_normal((d, proj_dim)) / np.sqrt(proj_dim)
+        preserved = []
+        for cname in concept_names[:4]:
+            pos = all_acts[cname]["positive"][layer] @ R
+            neg = all_acts[cname]["negative"][layer] @ R
+            orig_sep = np.linalg.norm(all_acts[cname]["positive"][layer].mean(0) - all_acts[cname]["negative"][layer].mean(0))
+            proj_sep = np.linalg.norm(pos.mean(0) - neg.mean(0))
+            preserved.append(proj_sep / (orig_sep + 1e-10))
+        print(f"  dim={proj_dim:3d} | mean sep preservation: {np.mean(preserved):.4f} | min: {np.min(preserved):.4f}")
+    print()
+
+
+def concept_neuron_activation_mode_count_histogram(all_acts, concept_names):
+    """Phase 1222: Estimate number of modes in neuron activation distributions."""
+    print("=" * 70)
+    print("PHASE 1222: NEURON ACTIVATION MODE COUNT HISTOGRAM")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:3]:
+        combined = np.vstack([all_acts[cname]["positive"][layer], all_acts[cname]["negative"][layer]])
+        multimodal_count = 0
+        for j in range(0, combined.shape[1], 10):  # sample every 10th neuron
+            vals = combined[:, j]
+            hist, edges = np.histogram(vals, bins=20)
+            peaks = 0
+            for k in range(1, len(hist)-1):
+                if hist[k] > hist[k-1] and hist[k] > hist[k+1]:
+                    peaks += 1
+            if peaks >= 2:
+                multimodal_count += 1
+        total_checked = combined.shape[1] // 10
+        print(f"  {cname:20s} | multimodal neurons: {multimodal_count}/{total_checked} ({100*multimodal_count/(total_checked+1):.1f}%)")
+    print()
+
+
+def concept_direction_gram_schmidt_orthogonalization_effect(all_acts, concept_names):
+    """Phase 1223: Measure incremental orthogonalization effect."""
+    print("=" * 70)
+    print("PHASE 1223: GRAM-SCHMIDT ORTHOGONALIZATION EFFECT")
+    print("=" * 70)
+    layer = 10
+    dirs = []
+    for cname in concept_names:
+        d = all_acts[cname]["positive"][layer].mean(0) - all_acts[cname]["negative"][layer].mean(0)
+        dirs.append(d / (np.linalg.norm(d) + 1e-10))
+    # Before orthogonalization
+    cos_before = []
+    for i in range(len(dirs)):
+        for j in range(i+1, len(dirs)):
+            cos_before.append(abs(float(dirs[i] @ dirs[j])))
+    # After Gram-Schmidt
+    ortho = []
+    for d in dirs:
+        v = d.copy()
+        for u in ortho:
+            v = v - (v @ u) * u
+        n = np.linalg.norm(v)
+        if n > 1e-10:
+            ortho.append(v / n)
+    cos_after = []
+    for i in range(len(ortho)):
+        for j in range(i+1, len(ortho)):
+            cos_after.append(abs(float(ortho[i] @ ortho[j])))
+    print(f"  Before GS: mean |cos|={np.mean(cos_before):.6f} max={np.max(cos_before):.6f}")
+    print(f"  After GS:  mean |cos|={np.mean(cos_after):.6f} max={np.max(cos_after):.6f}")
+    print()
+
+
+def concept_activation_layer_transition_curvature(all_acts, concept_names):
+    """Phase 1224: Smoothness of activation transitions between layers."""
+    print("=" * 70)
+    print("PHASE 1224: LAYER TRANSITION CURVATURE")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        smoothness = []
+        for l in range(22):
+            m1 = np.vstack([all_acts[cname]["positive"][l], all_acts[cname]["negative"][l]]).mean(0)
+            m2 = np.vstack([all_acts[cname]["positive"][l+1], all_acts[cname]["negative"][l+1]]).mean(0)
+            m3 = np.vstack([all_acts[cname]["positive"][l+2], all_acts[cname]["negative"][l+2]]).mean(0)
+            # Second difference (curvature)
+            curvature = np.linalg.norm(m3 - 2*m2 + m1)
+            smoothness.append(curvature)
+        roughest = int(np.argmax(smoothness))
+        print(f"  {cname:20s} | roughest: L{roughest}-L{roughest+2} ({smoothness[roughest]:.3f}) | mean curvature: {np.mean(smoothness):.3f}")
+    print()
+
+
+def concept_neuron_concept_neuron_max_discriminative_layer(all_acts, concept_names):
+    """Phase 1225: Find the most discriminative layer for each top neuron."""
+    print("=" * 70)
+    print("PHASE 1225: MAX DISCRIMINATIVE LAYER PER TOP NEURON")
+    print("=" * 70)
+    for cname in concept_names[:3]:
+        # Find top 3 neurons at the best layer first
+        best_layer = 10
+        diff = all_acts[cname]["positive"][best_layer].mean(0) - all_acts[cname]["negative"][best_layer].mean(0)
+        top3 = np.argsort(np.abs(diff))[-3:][::-1]
+        for n in top3:
+            best_l = 0
+            best_d = 0
+            for l in range(24):
+                d = abs(all_acts[cname]["positive"][l][:, n].mean() - all_acts[cname]["negative"][l][:, n].mean())
+                if d > best_d:
+                    best_d = d
+                    best_l = l
+            print(f"  {cname:20s} | neuron {n:4d} | best layer: L{best_l} (disc={best_d:.4f})")
+    print()
+
+
+def concept_direction_concept_direction_mean_field_analysis(all_acts, concept_names):
+    """Phase 1226: Mean-field approximation of concept interactions."""
+    print("=" * 70)
+    print("PHASE 1226: MEAN-FIELD CONCEPT INTERACTION ANALYSIS")
+    print("=" * 70)
+    layer = 10
+    dirs = {}
+    for cname in concept_names:
+        d = all_acts[cname]["positive"][layer].mean(0) - all_acts[cname]["negative"][layer].mean(0)
+        dirs[cname] = d / (np.linalg.norm(d) + 1e-10)
+    # Mean field: for each concept, compute mean interaction with all others
+    for cname in concept_names:
+        interactions = [abs(float(dirs[cname] @ dirs[c2])) for c2 in concept_names if c2 != cname]
+        mean_int = np.mean(interactions)
+        max_int = np.max(interactions)
+        max_partner = [c2 for c2 in concept_names if c2 != cname][int(np.argmax(interactions))]
+        print(f"  {cname:20s} | mean interaction: {mean_int:.4f} | max: {max_int:.4f} ({max_partner})")
+    print()
+
+
+def concept_activation_principal_angle_between_subspaces(all_acts, concept_names):
+    """Phase 1227: Principal angles between positive and negative subspaces."""
+    print("=" * 70)
+    print("PHASE 1227: PRINCIPAL ANGLES POS vs NEG SUBSPACES")
+    print("=" * 70)
+    layer = 10
+    k = 3  # subspace dim
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        # PCA on each
+        pos_c = pos - pos.mean(0)
+        neg_c = neg - neg.mean(0)
+        _, _, Vp = np.linalg.svd(pos_c, full_matrices=False)
+        _, _, Vn = np.linalg.svd(neg_c, full_matrices=False)
+        M = Vp[:k] @ Vn[:k].T
+        cos_angles = np.linalg.svd(M, compute_uv=False)
+        angles = np.degrees(np.arccos(np.clip(cos_angles, 0, 1)))
+        print(f"  {cname:20s} | principal angles: {', '.join(f'{a:.1f}°' for a in angles)}")
+    print()
+
+
+def concept_neuron_concept_neuron_activation_quantile_difference(all_acts, concept_names):
+    """Phase 1228: Quantile differences between pos/neg activations."""
+    print("=" * 70)
+    print("PHASE 1228: ACTIVATION QUANTILE DIFFERENCES")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        direction = pos.mean(0) - neg.mean(0)
+        direction = direction / (np.linalg.norm(direction) + 1e-10)
+        pos_proj = pos @ direction
+        neg_proj = neg @ direction
+        for q in [10, 25, 50, 75, 90]:
+            pq = np.percentile(pos_proj, q)
+            nq = np.percentile(neg_proj, q)
+            if cname == concept_names[0]:
+                print(f"  {cname:20s} | Q{q:2d}: pos={pq:.3f} neg={nq:.3f} gap={pq-nq:.3f}")
+        if cname != concept_names[0]:
+            print(f"  {cname:20s} | Q50 gap={np.median(pos_proj)-np.median(neg_proj):.3f} | Q10 gap={np.percentile(pos_proj,10)-np.percentile(neg_proj,10):.3f}")
+    print()
+
+
+def concept_direction_concept_direction_concept_pair_entanglement_score(all_acts, concept_names):
+    """Phase 1229: Entanglement score between concept pairs."""
+    print("=" * 70)
+    print("PHASE 1229: CONCEPT PAIR ENTANGLEMENT SCORE")
+    print("=" * 70)
+    layer = 10
+    pairs = [(concept_names[i], concept_names[j]) for i in range(len(concept_names)) for j in range(i+1, len(concept_names))]
+    entanglements = []
+    for c1, c2 in pairs:
+        d1 = all_acts[c1]["positive"][layer].mean(0) - all_acts[c1]["negative"][layer].mean(0)
+        d2 = all_acts[c2]["positive"][layer].mean(0) - all_acts[c2]["negative"][layer].mean(0)
+        d1 = d1 / (np.linalg.norm(d1) + 1e-10)
+        d2 = d2 / (np.linalg.norm(d2) + 1e-10)
+        cos = abs(float(d1 @ d2))
+        # Also check if c1's direction predicts c2
+        pos2 = all_acts[c2]["positive"][layer]
+        neg2 = all_acts[c2]["negative"][layer]
+        proj = np.concatenate([pos2 @ d1, neg2 @ d1])
+        labels = np.array([1]*len(pos2) + [0]*len(neg2))
+        acc = max(np.corrcoef(proj, labels)[0, 1], 0)
+        entanglement = (cos + acc) / 2
+        entanglements.append((c1, c2, entanglement))
+    entanglements.sort(key=lambda x: -x[2])
+    print("  Top 5 most entangled:")
+    for c1, c2, e in entanglements[:5]:
+        print(f"    {c1:12s} - {c2:12s}: {e:.4f}")
+    print()
+
+
+def concept_activation_final_layer_summary_1230(all_acts, concept_names):
+    """Phase 1230: Summary of activation properties at the final layer."""
+    print("=" * 70)
+    print("PHASE 1230: FINAL LAYER (L23) ACTIVATION SUMMARY")
+    print("=" * 70)
+    layer = 23
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        sep = np.linalg.norm(pos.mean(0) - neg.mean(0))
+        pos_norm = np.mean(np.linalg.norm(pos, axis=1))
+        neg_norm = np.mean(np.linalg.norm(neg, axis=1))
+        print(f"  {cname:20s} | sep: {sep:.3f} | pos_norm: {pos_norm:.1f} | neg_norm: {neg_norm:.1f}")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -37229,6 +37457,36 @@ def run_analysis():
 
     # Phase 1220: Orthogonality quality index (informational)
     concept_direction_orthogonality_quality_index(all_acts, concept_names)
+
+    # Phase 1221: Random projection preservation (informational)
+    concept_direction_random_projection_sep_preservation(all_acts, concept_names)
+
+    # Phase 1222: Neuron activation mode count histogram (informational)
+    concept_neuron_activation_mode_count_histogram(all_acts, concept_names)
+
+    # Phase 1223: Gram-Schmidt orthogonalization effect (informational)
+    concept_direction_gram_schmidt_orthogonalization_effect(all_acts, concept_names)
+
+    # Phase 1224: Layer transition curvature (informational)
+    concept_activation_layer_transition_curvature(all_acts, concept_names)
+
+    # Phase 1225: Max discriminative layer per top neuron (informational)
+    concept_neuron_concept_neuron_max_discriminative_layer(all_acts, concept_names)
+
+    # Phase 1226: Mean-field concept interaction (informational)
+    concept_direction_concept_direction_mean_field_analysis(all_acts, concept_names)
+
+    # Phase 1227: Principal angles pos vs neg subspaces (informational)
+    concept_activation_principal_angle_between_subspaces(all_acts, concept_names)
+
+    # Phase 1228: Activation quantile differences (informational)
+    concept_neuron_concept_neuron_activation_quantile_difference(all_acts, concept_names)
+
+    # Phase 1229: Concept pair entanglement score (informational)
+    concept_direction_concept_direction_concept_pair_entanglement_score(all_acts, concept_names)
+
+    # Phase 1230: Final layer activation summary (informational)
+    concept_activation_final_layer_summary_1230(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
