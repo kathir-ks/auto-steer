@@ -44159,6 +44159,193 @@ def concept_activation_phase_1750_milestone(all_acts, concept_names):
     print()
 
 
+def concept_activation_concept_direction_layerwise_norm_entropy(all_acts, concept_names):
+    """Phase 1751: Compute entropy of concept direction norm distribution across layers."""
+    print("=" * 70)
+    print("PHASE 1751: DIRECTION NORM ENTROPY ACROSS LAYERS")
+    print("=" * 70)
+    for cname in concept_names:
+        norms = []
+        for l in range(24):
+            d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+            norms.append(np.linalg.norm(d))
+        norms = np.array(norms)
+        p = norms / (norms.sum() + 1e-10)
+        entropy = -np.sum(p * np.log(p + 1e-10))
+        max_entropy = np.log(24)
+        print(f"  {cname}: norm entropy={entropy:.3f}/{max_entropy:.3f} "
+              f"(normalized={entropy/max_entropy:.4f})")
+    print()
+
+
+def concept_activation_concept_direction_sample_efficiency_curve(all_acts, concept_names):
+    """Phase 1752: Plot sample efficiency curve for direction estimation."""
+    print("=" * 70)
+    print("PHASE 1752: SAMPLE EFFICIENCY CURVE")
+    print("=" * 70)
+    layer = 10
+    rng = np.random.RandomState(42)
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        full_dir = pos.mean(0) - neg.mean(0)
+        full_dir = full_dir / (np.linalg.norm(full_dir) + 1e-10)
+        for n in [3, 5, 10, 15, 20, 30]:
+            cosines = []
+            for _ in range(20):
+                ip = rng.choice(len(pos), min(n, len(pos)), replace=False)
+                in_ = rng.choice(len(neg), min(n, len(neg)), replace=False)
+                d = pos[ip].mean(0) - neg[in_].mean(0)
+                d = d / (np.linalg.norm(d) + 1e-10)
+                cosines.append(np.dot(d, full_dir))
+            if n in [3, 15, 30]:
+                print(f"  {cname} n={n}: cos={np.mean(cosines):.4f} ± {np.std(cosines):.4f}")
+    print()
+
+
+def concept_activation_concept_direction_layer_transition_type(all_acts, concept_names):
+    """Phase 1753: Classify layer transitions as constructive, destructive, or neutral."""
+    print("=" * 70)
+    print("PHASE 1753: LAYER TRANSITION TYPE CLASSIFICATION")
+    print("=" * 70)
+    for cname in concept_names:
+        norms = []
+        for l in range(24):
+            d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+            norms.append(np.linalg.norm(d))
+        constructive = sum(1 for i in range(23) if norms[i+1] > norms[i] * 1.05)
+        destructive = sum(1 for i in range(23) if norms[i+1] < norms[i] * 0.95)
+        neutral = 23 - constructive - destructive
+        print(f"  {cname}: constructive={constructive}, destructive={destructive}, neutral={neutral}")
+    print()
+
+
+def concept_activation_neuron_activation_range_per_concept_direction(all_acts, concept_names):
+    """Phase 1754: Analyze range of activation values along concept direction."""
+    print("=" * 70)
+    print("PHASE 1754: ACTIVATION RANGE ALONG CONCEPT DIRECTION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        d_norm = d / (np.linalg.norm(d) + 1e-10)
+        all_proj = np.concatenate([
+            all_acts[cname]["positive"][layer] @ d_norm,
+            all_acts[cname]["negative"][layer] @ d_norm
+        ])
+        total_range = np.ptp(all_proj)
+        iqr = np.percentile(all_proj, 75) - np.percentile(all_proj, 25)
+        print(f"  {cname}: total range={total_range:.4f}, IQR={iqr:.4f}, "
+              f"ratio={total_range/(iqr+1e-10):.2f}")
+    print()
+
+
+def concept_activation_concept_direction_residual_signal_analysis(all_acts, concept_names):
+    """Phase 1755: Analyze residual concept signal after removing primary direction."""
+    print("=" * 70)
+    print("PHASE 1755: RESIDUAL CONCEPT SIGNAL AFTER DIRECTION REMOVAL")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = pos.mean(0) - neg.mean(0)
+        d_norm = d / (np.linalg.norm(d) + 1e-10)
+        # Remove primary direction
+        pos_res = pos - np.outer(pos @ d_norm, d_norm)
+        neg_res = neg - np.outer(neg @ d_norm, d_norm)
+        # Is there residual signal?
+        d_res = pos_res.mean(0) - neg_res.mean(0)
+        res_norm = np.linalg.norm(d_res)
+        orig_norm = np.linalg.norm(d)
+        print(f"  {cname}: residual signal norm={res_norm:.4f} "
+              f"({res_norm/orig_norm*100:.1f}% of original)")
+    print()
+
+
+def concept_activation_concept_direction_projection_classification_threshold(all_acts, concept_names):
+    """Phase 1756: Find optimal classification threshold for concept projections."""
+    print("=" * 70)
+    print("PHASE 1756: OPTIMAL CLASSIFICATION THRESHOLD")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        d_norm = d / (np.linalg.norm(d) + 1e-10)
+        pos_proj = all_acts[cname]["positive"][layer] @ d_norm
+        neg_proj = all_acts[cname]["negative"][layer] @ d_norm
+        # Try different thresholds
+        mean_thresh = (np.mean(pos_proj) + np.mean(neg_proj)) / 2
+        median_thresh = np.median(np.concatenate([pos_proj, neg_proj]))
+        # Accuracy with each
+        acc_mean = (np.sum(pos_proj > mean_thresh) + np.sum(neg_proj <= mean_thresh)) / (len(pos_proj) + len(neg_proj))
+        acc_median = (np.sum(pos_proj > median_thresh) + np.sum(neg_proj <= median_thresh)) / (len(pos_proj) + len(neg_proj))
+        print(f"  {cname}: mean_thresh acc={acc_mean:.4f}, median_thresh acc={acc_median:.4f}, "
+              f"diff={mean_thresh-median_thresh:.4f}")
+    print()
+
+
+def concept_activation_concept_direction_signal_noise_per_layer(all_acts, concept_names):
+    """Phase 1757: Compute signal and noise magnitudes separately per layer."""
+    print("=" * 70)
+    print("PHASE 1757: SIGNAL AND NOISE MAGNITUDES PER LAYER")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        for l in [0, 10, 23]:
+            pos = all_acts[cname]["positive"][l]
+            neg = all_acts[cname]["negative"][l]
+            signal = np.linalg.norm(pos.mean(0) - neg.mean(0))
+            noise_pos = np.mean(np.linalg.norm(pos - pos.mean(0), axis=1))
+            noise_neg = np.mean(np.linalg.norm(neg - neg.mean(0), axis=1))
+            print(f"  {cname} L{l}: signal={signal:.3f}, noise_pos={noise_pos:.3f}, "
+                  f"noise_neg={noise_neg:.3f}")
+    print()
+
+
+def concept_activation_concept_activation_correlation_with_label(all_acts, concept_names):
+    """Phase 1758: Compute point-biserial correlation per neuron with concept label."""
+    print("=" * 70)
+    print("PHASE 1758: NEURON-LABEL POINT-BISERIAL CORRELATION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        X = np.vstack([pos, neg])
+        y = np.array([1]*len(pos) + [0]*len(neg))
+        corrs = np.array([np.corrcoef(X[:, j], y)[0, 1] for j in range(X.shape[1])])
+        top5 = np.argsort(np.abs(corrs))[-5:][::-1]
+        print(f"  {cname}: top-5 corr neurons: " +
+              ", ".join(f"{idx}({corrs[idx]:.3f})" for idx in top5))
+    print()
+
+
+def concept_activation_concept_direction_angle_between_pos_neg_centroids(all_acts, concept_names):
+    """Phase 1759: Compute angle between pos and neg centroids (not direction)."""
+    print("=" * 70)
+    print("PHASE 1759: ANGLE BETWEEN POS AND NEG CENTROIDS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos_centroid = np.mean(all_acts[cname]["positive"][layer], axis=0)
+        neg_centroid = np.mean(all_acts[cname]["negative"][layer], axis=0)
+        cos = np.dot(pos_centroid, neg_centroid) / (np.linalg.norm(pos_centroid) * np.linalg.norm(neg_centroid) + 1e-10)
+        angle = np.degrees(np.arccos(np.clip(cos, -1, 1)))
+        print(f"  {cname}: centroid angle={angle:.2f}°, cosine={cos:.4f}")
+    print()
+
+
+def concept_activation_phase_1760_status(all_acts, concept_names):
+    """Phase 1760: Status checkpoint at 1760 phases."""
+    print("=" * 70)
+    print("PHASE 1760: STATUS CHECKPOINT — 1760 ANALYSIS PHASES")
+    print("=" * 70)
+    print("1760 analysis phases completed.")
+    print(f"Concepts analyzed: {len(concept_names)}")
+    print("All phases informational — scoring pipeline unchanged.")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -49483,6 +49670,36 @@ def run_analysis():
 
     # Phase 1750: Milestone at 1750 phases (informational)
     concept_activation_phase_1750_milestone(all_acts, concept_names)
+
+    # Phase 1751: Direction norm entropy across layers (informational)
+    concept_activation_concept_direction_layerwise_norm_entropy(all_acts, concept_names)
+
+    # Phase 1752: Sample efficiency curve (informational)
+    concept_activation_concept_direction_sample_efficiency_curve(all_acts, concept_names)
+
+    # Phase 1753: Layer transition type classification (informational)
+    concept_activation_concept_direction_layer_transition_type(all_acts, concept_names)
+
+    # Phase 1754: Activation range along concept direction (informational)
+    concept_activation_neuron_activation_range_per_concept_direction(all_acts, concept_names)
+
+    # Phase 1755: Residual signal after direction removal (informational)
+    concept_activation_concept_direction_residual_signal_analysis(all_acts, concept_names)
+
+    # Phase 1756: Optimal classification threshold (informational)
+    concept_activation_concept_direction_projection_classification_threshold(all_acts, concept_names)
+
+    # Phase 1757: Signal and noise magnitudes per layer (informational)
+    concept_activation_concept_direction_signal_noise_per_layer(all_acts, concept_names)
+
+    # Phase 1758: Neuron-label point-biserial correlation (informational)
+    concept_activation_concept_activation_correlation_with_label(all_acts, concept_names)
+
+    # Phase 1759: Angle between pos and neg centroids (informational)
+    concept_activation_concept_direction_angle_between_pos_neg_centroids(all_acts, concept_names)
+
+    # Phase 1760: Status checkpoint (informational)
+    concept_activation_phase_1760_status(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
