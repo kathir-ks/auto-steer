@@ -52460,6 +52460,235 @@ def post2000_concept_activation_phase_2160_checkpoint(all_acts, concept_names):
     print()
 
 
+def post2000_concept_activation_concept_direction_inner_product_evolution(all_acts, concept_names):
+    """Phase 2161: How inner products between concept pairs evolve across layers."""
+    print("=" * 70)
+    print("PHASE 2161: Concept Inner Product Evolution Across Layers")
+    print("=" * 70)
+    from itertools import combinations
+    for c1, c2 in list(combinations(concept_names, 2))[:4]:
+        inner_products = []
+        for l in range(24):
+            d1 = np.mean(all_acts[c1]["positive"][l], axis=0) - np.mean(all_acts[c1]["negative"][l], axis=0)
+            d2 = np.mean(all_acts[c2]["positive"][l], axis=0) - np.mean(all_acts[c2]["negative"][l], axis=0)
+            cos = np.dot(d1, d2) / (np.linalg.norm(d1) * np.linalg.norm(d2) + 1e-10)
+            inner_products.append(cos)
+        max_cos_l = int(np.argmax(np.abs(inner_products)))
+        print(f"  {c1} vs {c2}: max |cos|={np.abs(inner_products[max_cos_l]):.4f} at L{max_cos_l}, "
+              f"final={inner_products[-1]:.4f}")
+    print()
+
+
+def post2000_concept_activation_neuron_activation_normality_test(all_acts, concept_names):
+    """Phase 2162: Test normality of neuron activations using Shapiro-Wilk approximation."""
+    print("=" * 70)
+    print("PHASE 2162: Neuron Activation Normality (Jarque-Bera)")
+    print("=" * 70)
+    from scipy.stats import jarque_bera
+    layer = 10
+    for cname in concept_names[:4]:
+        combined = np.vstack([all_acts[cname]["positive"][layer],
+                               all_acts[cname]["negative"][layer]])
+        non_normal = 0
+        for j in range(min(100, combined.shape[1])):
+            stat, p = jarque_bera(combined[:, j])
+            if p < 0.05:
+                non_normal += 1
+        print(f"  {cname} L{layer}: {non_normal}/100 neurons reject normality (p<0.05)")
+    print()
+
+
+def post2000_concept_activation_concept_representation_robustness_score(all_acts, concept_names):
+    """Phase 2163: Overall robustness score combining multiple robustness metrics."""
+    print("=" * 70)
+    print("PHASE 2163: Concept Representation Robustness Score")
+    print("=" * 70)
+    layer = 10
+    np.random.seed(42)
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        # Subsample stability
+        cosines = []
+        for _ in range(10):
+            idx = np.random.choice(len(pos), len(pos)//2, replace=False)
+            d = np.mean(pos[idx], axis=0) - np.mean(neg[:len(neg)//2], axis=0)
+            d_full = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+            cos = np.dot(d, d_full) / (np.linalg.norm(d) * np.linalg.norm(d_full) + 1e-10)
+            cosines.append(cos)
+        stability = np.mean(cosines)
+        # Signal strength
+        signal = np.linalg.norm(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+        noise = np.mean([np.mean(np.std(pos, axis=0)), np.mean(np.std(neg, axis=0))])
+        snr = signal / (noise + 1e-10)
+        robustness = stability * min(snr / 10, 1.0)
+        print(f"  {cname} L{layer}: robustness={robustness:.4f} "
+              f"(stability={stability:.4f}, SNR={snr:.4f})")
+    print()
+
+
+def post2000_concept_activation_neuron_activation_coactivation_pairs(all_acts, concept_names):
+    """Phase 2164: Identify frequently co-activated neuron pairs."""
+    print("=" * 70)
+    print("PHASE 2164: Neuron Co-activation Pairs")
+    print("=" * 70)
+    layer = 10
+    cname = concept_names[0]
+    combined = np.vstack([all_acts[cname]["positive"][layer],
+                           all_acts[cname]["negative"][layer]])
+    # Top 30 most variable neurons
+    var = np.var(combined, axis=0)
+    top30 = np.argsort(var)[-30:]
+    sub = combined[:, top30]
+    corr = np.corrcoef(sub, rowvar=False)
+    # Find strongest pairs
+    pairs = []
+    for i in range(30):
+        for j in range(i+1, 30):
+            pairs.append((top30[i], top30[j], corr[i, j]))
+    pairs.sort(key=lambda x: abs(x[2]), reverse=True)
+    print(f"  {cname} L{layer}: strongest co-activation pairs:")
+    for n1, n2, r in pairs[:3]:
+        print(f"    neurons {n1}-{n2}: r={r:.4f}")
+    print()
+
+
+def post2000_concept_activation_concept_direction_projection_kurtosis(all_acts, concept_names):
+    """Phase 2165: Kurtosis of concept direction projections."""
+    print("=" * 70)
+    print("PHASE 2165: Concept Projection Kurtosis")
+    print("=" * 70)
+    from scipy.stats import kurtosis
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        direction = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        direction = direction / (np.linalg.norm(direction) + 1e-10)
+        all_proj = np.concatenate([pos @ direction, neg @ direction])
+        k = kurtosis(all_proj, fisher=True)
+        print(f"  {cname} L{layer}: projection kurtosis={k:.4f} "
+              f"({'platykurtic' if k < 0 else 'leptokurtic'})")
+    print()
+
+
+def post2000_concept_activation_layer_concept_decodability_profile(all_acts, concept_names):
+    """Phase 2166: Full decodability profile across all layers."""
+    print("=" * 70)
+    print("PHASE 2166: Full Layer Decodability Profile")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        accs = []
+        for l in range(24):
+            pos = all_acts[cname]["positive"][l]
+            neg = all_acts[cname]["negative"][l]
+            d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+            d = d / (np.linalg.norm(d) + 1e-10)
+            X = np.vstack([pos, neg])
+            y = np.array([1]*len(pos) + [0]*len(neg))
+            proj = X @ d
+            t = np.median(proj)
+            acc = max(np.mean((proj > t) == y), np.mean((proj <= t) == y))
+            accs.append(acc)
+        first_90 = next((l for l in range(24) if accs[l] >= 0.9), None)
+        always_90 = all(a >= 0.9 for a in accs)
+        print(f"  {cname}: first ≥90% at L{first_90}, always ≥90%: {always_90}, "
+              f"mean acc={np.mean(accs):.4f}")
+    print()
+
+
+def post2000_concept_activation_neuron_response_coefficient_of_determination(all_acts, concept_names):
+    """Phase 2167: R² of neuron activations predicted by concept labels."""
+    print("=" * 70)
+    print("PHASE 2167: Neuron R² from Concept Labels")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        X = np.vstack([pos, neg])
+        y = np.array([1.0]*len(pos) + [0.0]*len(neg))
+        ss_total = np.sum((X - np.mean(X, axis=0))**2, axis=0)
+        group_means = np.where(y.reshape(-1, 1) == 1, np.mean(pos, axis=0), np.mean(neg, axis=0))
+        ss_res = np.sum((X - group_means)**2, axis=0)
+        r2 = 1 - ss_res / (ss_total + 1e-10)
+        top5 = np.argsort(r2)[-5:][::-1]
+        print(f"  {cname} L{layer}: top R² neurons {top5.tolist()}, "
+              f"max R²={r2[top5[0]]:.4f}, mean R²={np.mean(r2):.4f}")
+    print()
+
+
+def post2000_concept_activation_concept_direction_stability_window(all_acts, concept_names):
+    """Phase 2168: Stability window — largest layer range where direction is stable."""
+    print("=" * 70)
+    print("PHASE 2168: Concept Direction Stability Window")
+    print("=" * 70)
+    for cname in concept_names:
+        directions = []
+        for l in range(24):
+            d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+            d = d / (np.linalg.norm(d) + 1e-10)
+            directions.append(d)
+        # Find longest window where adjacent cosines > 0.9
+        best_start, best_len = 0, 1
+        curr_start, curr_len = 0, 1
+        for l in range(23):
+            cos = np.dot(directions[l], directions[l+1])
+            if cos > 0.9:
+                curr_len += 1
+                if curr_len > best_len:
+                    best_len = curr_len
+                    best_start = curr_start
+            else:
+                curr_start = l + 1
+                curr_len = 1
+        print(f"  {cname}: stability window L{best_start}-L{best_start+best_len-1} "
+              f"({best_len} layers, cos>0.9)")
+    print()
+
+
+def post2000_concept_activation_concept_pair_discriminability_asymmetry(all_acts, concept_names):
+    """Phase 2169: Asymmetry in how well one concept direction classifies the other."""
+    print("=" * 70)
+    print("PHASE 2169: Cross-Classification Asymmetry")
+    print("=" * 70)
+    layer = 10
+    from itertools import combinations
+    for c1, c2 in list(combinations(concept_names, 2))[:5]:
+        # c1's direction on c2's data
+        d1 = np.mean(all_acts[c1]["positive"][layer], axis=0) - np.mean(all_acts[c1]["negative"][layer], axis=0)
+        d1 = d1 / (np.linalg.norm(d1) + 1e-10)
+        X2 = np.vstack([all_acts[c2]["positive"][layer], all_acts[c2]["negative"][layer]])
+        y2 = np.array([1]*len(all_acts[c2]["positive"][layer]) + [0]*len(all_acts[c2]["negative"][layer]))
+        proj1on2 = X2 @ d1
+        t = np.median(proj1on2)
+        acc_1on2 = max(np.mean((proj1on2 > t) == y2), np.mean((proj1on2 <= t) == y2))
+        # c2's direction on c1's data
+        d2 = np.mean(all_acts[c2]["positive"][layer], axis=0) - np.mean(all_acts[c2]["negative"][layer], axis=0)
+        d2 = d2 / (np.linalg.norm(d2) + 1e-10)
+        X1 = np.vstack([all_acts[c1]["positive"][layer], all_acts[c1]["negative"][layer]])
+        y1 = np.array([1]*len(all_acts[c1]["positive"][layer]) + [0]*len(all_acts[c1]["negative"][layer]))
+        proj2on1 = X1 @ d2
+        t = np.median(proj2on1)
+        acc_2on1 = max(np.mean((proj2on1 > t) == y1), np.mean((proj2on1 <= t) == y1))
+        asymmetry = abs(acc_1on2 - acc_2on1)
+        print(f"  {c1}↔{c2}: {c1}→{c2}={acc_1on2:.4f}, {c2}→{c1}={acc_2on1:.4f}, "
+              f"asymmetry={asymmetry:.4f}")
+    print()
+
+
+def post2000_concept_activation_phase_2170_checkpoint(all_acts, concept_names):
+    """Phase 2170: Research checkpoint at 2170 phases."""
+    print("=" * 70)
+    print("PHASE 2170: RESEARCH CHECKPOINT (2170 PHASES)")
+    print("=" * 70)
+    print(f"  2170 analysis phases completed — 170 beyond the 2000 milestone!")
+    print(f"  Phases 2161-2170: inner product evolution, normality test,")
+    print(f"  robustness score, co-activation pairs, projection kurtosis,")
+    print(f"  decodability profile, R², stability window, cross-class asymmetry")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -59014,6 +59243,36 @@ def run_analysis():
 
     # Phase 2160: Research checkpoint (informational)
     post2000_concept_activation_phase_2160_checkpoint(all_acts, concept_names)
+
+    # Phase 2161: Inner product evolution (informational)
+    post2000_concept_activation_concept_direction_inner_product_evolution(all_acts, concept_names)
+
+    # Phase 2162: Normality test (informational)
+    post2000_concept_activation_neuron_activation_normality_test(all_acts, concept_names)
+
+    # Phase 2163: Robustness score (informational)
+    post2000_concept_activation_concept_representation_robustness_score(all_acts, concept_names)
+
+    # Phase 2164: Co-activation pairs (informational)
+    post2000_concept_activation_neuron_activation_coactivation_pairs(all_acts, concept_names)
+
+    # Phase 2165: Projection kurtosis (informational)
+    post2000_concept_activation_concept_direction_projection_kurtosis(all_acts, concept_names)
+
+    # Phase 2166: Full decodability profile (informational)
+    post2000_concept_activation_layer_concept_decodability_profile(all_acts, concept_names)
+
+    # Phase 2167: Neuron R² (informational)
+    post2000_concept_activation_neuron_response_coefficient_of_determination(all_acts, concept_names)
+
+    # Phase 2168: Stability window (informational)
+    post2000_concept_activation_concept_direction_stability_window(all_acts, concept_names)
+
+    # Phase 2169: Cross-class asymmetry (informational)
+    post2000_concept_activation_concept_pair_discriminability_asymmetry(all_acts, concept_names)
+
+    # Phase 2170: Research checkpoint (informational)
+    post2000_concept_activation_phase_2170_checkpoint(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
