@@ -41894,6 +41894,195 @@ def concept_activation_phase_1630_status(all_acts, concept_names):
     print()
 
 
+def concept_activation_concept_subspace_dimension_estimation(all_acts, concept_names):
+    """Phase 1631: Estimate intrinsic dimensionality of each concept's subspace."""
+    print("=" * 70)
+    print("PHASE 1631: CONCEPT SUBSPACE DIMENSION ESTIMATION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        acts = np.vstack([all_acts[cname]["positive"][layer], all_acts[cname]["negative"][layer]])
+        centered = acts - acts.mean(0)
+        _, S, _ = np.linalg.svd(centered, full_matrices=False)
+        S2 = S**2
+        cumvar = np.cumsum(S2) / np.sum(S2)
+        dim_80 = int(np.searchsorted(cumvar, 0.80)) + 1
+        dim_90 = int(np.searchsorted(cumvar, 0.90)) + 1
+        eff_dim = np.sum(S2)**2 / (np.sum(S2**2) + 1e-10)
+        print(f"  {cname}: eff_dim={eff_dim:.1f}, 80%={dim_80}d, 90%={dim_90}d")
+    print()
+
+
+def concept_activation_layer_representation_divergence(all_acts, concept_names):
+    """Phase 1632: Measure KL-like divergence between representations at different layers."""
+    print("=" * 70)
+    print("PHASE 1632: LAYER REPRESENTATION DIVERGENCE")
+    print("=" * 70)
+    cname = concept_names[0]
+    for l1, l2 in [(0, 12), (0, 23), (6, 18), (12, 23)]:
+        acts1 = np.vstack([all_acts[cname]["positive"][l1], all_acts[cname]["negative"][l1]])
+        acts2 = np.vstack([all_acts[cname]["positive"][l2], all_acts[cname]["negative"][l2]])
+        # Use Frobenius norm of covariance difference as divergence proxy
+        cov1 = np.cov(acts1.T)
+        cov2 = np.cov(acts2.T)
+        div = np.linalg.norm(cov1 - cov2, 'fro') / (np.linalg.norm(cov1, 'fro') + 1e-10)
+        print(f"  L{l1} vs L{l2}: relative divergence={div:.4f}")
+    print()
+
+
+def concept_activation_neuron_response_reliability(all_acts, concept_names):
+    """Phase 1633: Measure reliability of neuron responses across repeated presentations."""
+    print("=" * 70)
+    print("PHASE 1633: NEURON RESPONSE RELIABILITY")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        # Split-half reliability
+        n = len(pos)
+        half = n // 2
+        r1 = pos[:half].mean(0)
+        r2 = pos[half:].mean(0)
+        reliability = np.corrcoef(r1, r2)[0, 1]
+        print(f"  {cname}: split-half reliability={reliability:.4f}")
+    print()
+
+
+def concept_activation_concept_direction_projection_overlap(all_acts, concept_names):
+    """Phase 1634: Measure overlap of projection distributions for concept pairs."""
+    print("=" * 70)
+    print("PHASE 1634: CONCEPT PAIR PROJECTION OVERLAP")
+    print("=" * 70)
+    layer = 10
+    for i in range(min(3, len(concept_names))):
+        for j in range(i+1, min(4, len(concept_names))):
+            c1, c2 = concept_names[i], concept_names[j]
+            d1 = np.mean(all_acts[c1]["positive"][layer], axis=0) - np.mean(all_acts[c1]["negative"][layer], axis=0)
+            d1_norm = d1 / (np.linalg.norm(d1) + 1e-10)
+            # Project c2 data onto c1 direction
+            c2_pos_proj = all_acts[c2]["positive"][layer] @ d1_norm
+            c2_neg_proj = all_acts[c2]["negative"][layer] @ d1_norm
+            c2_spread = np.std(np.concatenate([c2_pos_proj, c2_neg_proj]))
+            c1_pos_proj = all_acts[c1]["positive"][layer] @ d1_norm
+            c1_neg_proj = all_acts[c1]["negative"][layer] @ d1_norm
+            c1_spread = np.std(np.concatenate([c1_pos_proj, c1_neg_proj]))
+            print(f"  {c1}→{c2}: c2 spread on c1 dir={c2_spread:.4f} vs c1 spread={c1_spread:.4f}")
+    print()
+
+
+def concept_activation_layer_concept_information_bottleneck(all_acts, concept_names):
+    """Phase 1635: Identify information bottleneck layers for each concept."""
+    print("=" * 70)
+    print("PHASE 1635: CONCEPT INFORMATION BOTTLENECK LAYERS")
+    print("=" * 70)
+    for cname in concept_names:
+        signal_strengths = []
+        for l in range(24):
+            d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+            signal_strengths.append(np.linalg.norm(d))
+        # Find bottleneck: local minimum in signal strength
+        local_mins = []
+        for l in range(1, 23):
+            if signal_strengths[l] < signal_strengths[l-1] and signal_strengths[l] < signal_strengths[l+1]:
+                local_mins.append((l, signal_strengths[l]))
+        if local_mins:
+            bottleneck_l, bottleneck_s = min(local_mins, key=lambda x: x[1])
+            print(f"  {cname}: bottleneck at L{bottleneck_l} (signal={bottleneck_s:.4f})")
+        else:
+            print(f"  {cname}: no bottleneck detected (monotonic signal)")
+    print()
+
+
+def concept_activation_concept_direction_gram_determinant(all_acts, concept_names):
+    """Phase 1636: Compute Gram matrix determinant of concept directions per layer."""
+    print("=" * 70)
+    print("PHASE 1636: CONCEPT DIRECTION GRAM DETERMINANT PER LAYER")
+    print("=" * 70)
+    for l in [0, 5, 10, 15, 23]:
+        dirs = []
+        for cname in concept_names:
+            d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+            dirs.append(d / (np.linalg.norm(d) + 1e-10))
+        G = np.array(dirs) @ np.array(dirs).T
+        det = np.linalg.det(G)
+        cond = np.linalg.cond(G)
+        print(f"  L{l}: det={det:.6f}, cond={cond:.2f}")
+    print()
+
+
+def concept_activation_neuron_response_variability_ratio(all_acts, concept_names):
+    """Phase 1637: Compare neuron response variability within vs between concepts."""
+    print("=" * 70)
+    print("PHASE 1637: NEURON RESPONSE VARIABILITY RATIO")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        within_var = (np.mean(np.var(pos, axis=0)) + np.mean(np.var(neg, axis=0))) / 2
+        between_var = np.mean((pos.mean(0) - neg.mean(0))**2)
+        ratio = between_var / (within_var + 1e-10)
+        print(f"  {cname}: between/within ratio={ratio:.4f}")
+    print()
+
+
+def concept_activation_concept_direction_stability_across_seeds(all_acts, concept_names):
+    """Phase 1638: Test stability of concept directions estimated with different random seeds."""
+    print("=" * 70)
+    print("PHASE 1638: CONCEPT DIRECTION STABILITY ACROSS SEEDS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        full_dir = pos.mean(0) - neg.mean(0)
+        full_dir = full_dir / (np.linalg.norm(full_dir) + 1e-10)
+        cosines = []
+        for seed in range(10):
+            rng = np.random.RandomState(seed)
+            idx_p = rng.choice(len(pos), len(pos), replace=True)
+            idx_n = rng.choice(len(neg), len(neg), replace=True)
+            d = pos[idx_p].mean(0) - neg[idx_n].mean(0)
+            d = d / (np.linalg.norm(d) + 1e-10)
+            cosines.append(np.dot(d, full_dir))
+        print(f"  {cname}: bootstrap cosine={np.mean(cosines):.6f} ± {np.std(cosines):.6f}")
+    print()
+
+
+def concept_activation_concept_category_hierarchy_analysis(all_acts, concept_names):
+    """Phase 1639: Analyze hierarchical structure among concepts using linkage."""
+    print("=" * 70)
+    print("PHASE 1639: CONCEPT CATEGORY HIERARCHY ANALYSIS")
+    print("=" * 70)
+    layer = 10
+    dirs = []
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        dirs.append(d / (np.linalg.norm(d) + 1e-10))
+    D = np.array(dirs)
+    cos_sim = D @ D.T
+    dist = 1 - cos_sim
+    np.fill_diagonal(dist, 0)
+    condensed = dist[np.triu_indices_from(dist, k=1)]
+    Z = linkage(condensed, method='average')
+    print("  Linkage distances (merge order):")
+    for i in range(len(Z)):
+        c1, c2, d_val, n = Z[i]
+        print(f"    Merge {i+1}: clusters {int(c1)},{int(c2)} at distance={d_val:.4f}")
+    print()
+
+
+def concept_activation_phase_1640_status(all_acts, concept_names):
+    """Phase 1640: Status checkpoint at 1640 phases."""
+    print("=" * 70)
+    print("PHASE 1640: STATUS CHECKPOINT — 1640 ANALYSIS PHASES")
+    print("=" * 70)
+    print("1640 analysis phases completed.")
+    print(f"Concepts analyzed: {len(concept_names)}")
+    print("All phases informational — scoring pipeline unchanged.")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -46858,6 +47047,36 @@ def run_analysis():
 
     # Phase 1630: Status checkpoint (informational)
     concept_activation_phase_1630_status(all_acts, concept_names)
+
+    # Phase 1631: Concept subspace dimension estimation (informational)
+    concept_activation_concept_subspace_dimension_estimation(all_acts, concept_names)
+
+    # Phase 1632: Layer representation divergence (informational)
+    concept_activation_layer_representation_divergence(all_acts, concept_names)
+
+    # Phase 1633: Neuron response reliability (informational)
+    concept_activation_neuron_response_reliability(all_acts, concept_names)
+
+    # Phase 1634: Concept pair projection overlap (informational)
+    concept_activation_concept_direction_projection_overlap(all_acts, concept_names)
+
+    # Phase 1635: Concept information bottleneck layers (informational)
+    concept_activation_layer_concept_information_bottleneck(all_acts, concept_names)
+
+    # Phase 1636: Gram determinant per layer (informational)
+    concept_activation_concept_direction_gram_determinant(all_acts, concept_names)
+
+    # Phase 1637: Neuron response variability ratio (informational)
+    concept_activation_neuron_response_variability_ratio(all_acts, concept_names)
+
+    # Phase 1638: Direction stability across seeds (informational)
+    concept_activation_concept_direction_stability_across_seeds(all_acts, concept_names)
+
+    # Phase 1639: Concept category hierarchy (informational)
+    concept_activation_concept_category_hierarchy_analysis(all_acts, concept_names)
+
+    # Phase 1640: Status checkpoint (informational)
+    concept_activation_phase_1640_status(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
