@@ -40501,6 +40501,203 @@ def concept_activation_phase_1560_status(all_acts, concept_names):
     print()
 
 
+def concept_activation_mutual_information_layer_curve(all_acts, concept_names):
+    """Phase 1561: Compute mutual information between activations and labels across layers."""
+    print("=" * 70)
+    print("PHASE 1561: MUTUAL INFORMATION LAYER CURVE")
+    print("=" * 70)
+    for cname in concept_names:
+        mi_values = []
+        for l in range(24):
+            pos = all_acts[cname]["positive"][l]
+            neg = all_acts[cname]["negative"][l]
+            X = np.vstack([pos, neg])
+            y = np.array([1]*len(pos) + [0]*len(neg))
+            # Use top-10 neurons by variance for MI estimate
+            var_idx = np.argsort(np.var(X, axis=0))[-10:]
+            mi = mutual_info_classif(X[:, var_idx], y, random_state=42).sum()
+            mi_values.append(mi)
+        peak = int(np.argmax(mi_values))
+        print(f"  {cname}: MI peak at L{peak} ({mi_values[peak]:.4f}), "
+              f"L0={mi_values[0]:.4f}, L23={mi_values[23]:.4f}")
+    print()
+
+
+def concept_activation_concept_subspace_overlap_analysis(all_acts, concept_names):
+    """Phase 1562: Measure overlap between concept subspaces using principal angles."""
+    print("=" * 70)
+    print("PHASE 1562: CONCEPT SUBSPACE OVERLAP VIA PRINCIPAL ANGLES")
+    print("=" * 70)
+    layer = 10
+    subspaces = {}
+    for cname in concept_names:
+        acts = np.vstack([all_acts[cname]["positive"][layer], all_acts[cname]["negative"][layer]])
+        centered = acts - acts.mean(0)
+        U, S, Vt = np.linalg.svd(centered, full_matrices=False)
+        subspaces[cname] = Vt[:5]  # top-5 PCs
+    pairs = [(concept_names[i], concept_names[j])
+             for i in range(len(concept_names)) for j in range(i+1, len(concept_names))]
+    for c1, c2 in pairs[:6]:
+        cos_angles = np.linalg.svd(subspaces[c1] @ subspaces[c2].T, compute_uv=False)
+        max_cos = cos_angles[0]
+        print(f"  {c1} vs {c2}: max principal angle cosine={max_cos:.4f}")
+    print()
+
+
+def concept_activation_neuron_activation_range_analysis(all_acts, concept_names):
+    """Phase 1563: Analyze the dynamic range of neuron activations per concept."""
+    print("=" * 70)
+    print("PHASE 1563: NEURON ACTIVATION DYNAMIC RANGE")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        acts = np.vstack([all_acts[cname]["positive"][layer], all_acts[cname]["negative"][layer]])
+        ranges = np.ptp(acts, axis=0)  # max - min per neuron
+        active_neurons = np.sum(ranges > 1.0)
+        print(f"  {cname}: mean range={np.mean(ranges):.3f}, max range={np.max(ranges):.3f}, "
+              f"neurons with range>1.0: {active_neurons}, "
+              f"top-5 range neurons: {np.argsort(ranges)[-5:][::-1].tolist()}")
+    print()
+
+
+def concept_activation_concept_direction_cosine_to_mean(all_acts, concept_names):
+    """Phase 1564: Measure cosine between concept directions and the global mean activation."""
+    print("=" * 70)
+    print("PHASE 1564: CONCEPT DIRECTION VS GLOBAL MEAN ACTIVATION")
+    print("=" * 70)
+    layer = 10
+    all_data = []
+    for cname in concept_names:
+        all_data.append(all_acts[cname]["positive"][layer])
+        all_data.append(all_acts[cname]["negative"][layer])
+    global_mean = np.mean(np.vstack(all_data), axis=0)
+    global_mean_norm = global_mean / (np.linalg.norm(global_mean) + 1e-10)
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        d_norm = d / (np.linalg.norm(d) + 1e-10)
+        cos = np.dot(d_norm, global_mean_norm)
+        print(f"  {cname}: cosine to global mean = {cos:.4f}")
+    print()
+
+
+def concept_activation_layerwise_classification_margin(all_acts, concept_names):
+    """Phase 1565: Compute classification margin (min distance to decision boundary) per layer."""
+    print("=" * 70)
+    print("PHASE 1565: LAYERWISE CLASSIFICATION MARGIN")
+    print("=" * 70)
+    for cname in concept_names:
+        margins = []
+        for l in range(24):
+            pos = all_acts[cname]["positive"][l]
+            neg = all_acts[cname]["negative"][l]
+            d = pos.mean(0) - neg.mean(0)
+            d_norm = d / (np.linalg.norm(d) + 1e-10)
+            pos_proj = pos @ d_norm
+            neg_proj = neg @ d_norm
+            threshold = (np.mean(pos_proj) + np.mean(neg_proj)) / 2
+            margin = min(np.min(pos_proj - threshold), np.min(threshold - neg_proj))
+            margins.append(margin)
+        best_layer = int(np.argmax(margins))
+        print(f"  {cname}: best margin at L{best_layer} ({margins[best_layer]:.4f}), "
+              f"worst at L{int(np.argmin(margins))} ({margins[int(np.argmin(margins))]:.4f})")
+    print()
+
+
+def concept_activation_neuron_firing_rate_per_concept(all_acts, concept_names):
+    """Phase 1566: Compute fraction of neurons with above-mean activation per concept."""
+    print("=" * 70)
+    print("PHASE 1566: NEURON FIRING RATE PER CONCEPT")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        all_mean = np.mean(np.vstack([pos, neg]), axis=0)
+        pos_firing = np.mean(pos > all_mean, axis=1)
+        neg_firing = np.mean(neg > all_mean, axis=1)
+        print(f"  {cname}: pos firing rate={np.mean(pos_firing):.4f} ± {np.std(pos_firing):.4f}, "
+              f"neg firing rate={np.mean(neg_firing):.4f} ± {np.std(neg_firing):.4f}")
+    print()
+
+
+def concept_activation_pca_concept_alignment(all_acts, concept_names):
+    """Phase 1567: Check if concept directions align with top PCA components of all activations."""
+    print("=" * 70)
+    print("PHASE 1567: PCA-CONCEPT DIRECTION ALIGNMENT")
+    print("=" * 70)
+    layer = 10
+    all_data = []
+    for cname in concept_names:
+        all_data.extend([all_acts[cname]["positive"][layer], all_acts[cname]["negative"][layer]])
+    all_data = np.vstack(all_data)
+    centered = all_data - all_data.mean(0)
+    _, S, Vt = np.linalg.svd(centered, full_matrices=False)
+    top_pcs = Vt[:10]
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        d_norm = d / (np.linalg.norm(d) + 1e-10)
+        alignments = [abs(np.dot(d_norm, top_pcs[k])) for k in range(10)]
+        best_pc = int(np.argmax(alignments))
+        print(f"  {cname}: best alignment with PC{best_pc} ({alignments[best_pc]:.4f}), "
+              f"total variance in top-10 PCs: {sum(a**2 for a in alignments):.4f}")
+    print()
+
+
+def concept_activation_activation_sparsity_gini(all_acts, concept_names):
+    """Phase 1568: Compute Gini coefficient of activation magnitudes as sparsity measure."""
+    print("=" * 70)
+    print("PHASE 1568: ACTIVATION SPARSITY VIA GINI COEFFICIENT")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        acts = np.vstack([all_acts[cname]["positive"][layer], all_acts[cname]["negative"][layer]])
+        abs_acts = np.abs(acts)
+        # Gini per sample, then average
+        ginis = []
+        for i in range(len(abs_acts)):
+            sorted_vals = np.sort(abs_acts[i])
+            n = len(sorted_vals)
+            index = np.arange(1, n + 1)
+            gini = (2 * np.sum(index * sorted_vals) / (n * np.sum(sorted_vals) + 1e-10)) - (n + 1) / n
+            ginis.append(gini)
+        print(f"  {cname}: mean Gini={np.mean(ginis):.4f} ± {np.std(ginis):.4f}")
+    print()
+
+
+def concept_activation_concept_direction_robustness_to_outliers(all_acts, concept_names):
+    """Phase 1569: Test robustness of concept directions to outlier removal."""
+    print("=" * 70)
+    print("PHASE 1569: CONCEPT DIRECTION ROBUSTNESS TO OUTLIERS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        full_dir = pos.mean(0) - neg.mean(0)
+        full_dir = full_dir / (np.linalg.norm(full_dir) + 1e-10)
+        # Remove top 10% outliers by norm
+        pos_norms = np.linalg.norm(pos, axis=1)
+        neg_norms = np.linalg.norm(neg, axis=1)
+        pos_keep = pos[pos_norms < np.percentile(pos_norms, 90)]
+        neg_keep = neg[neg_norms < np.percentile(neg_norms, 90)]
+        trimmed_dir = pos_keep.mean(0) - neg_keep.mean(0)
+        trimmed_dir = trimmed_dir / (np.linalg.norm(trimmed_dir) + 1e-10)
+        cos = np.dot(full_dir, trimmed_dir)
+        print(f"  {cname}: cosine(full, trimmed_90%)={cos:.6f}")
+    print()
+
+
+def concept_activation_phase_1570_status(all_acts, concept_names):
+    """Phase 1570: Status checkpoint at 1570 phases."""
+    print("=" * 70)
+    print("PHASE 1570: STATUS CHECKPOINT — 1570 ANALYSIS PHASES")
+    print("=" * 70)
+    print("1570 analysis phases completed.")
+    print(f"Concepts analyzed: {len(concept_names)}")
+    print("All phases informational — scoring pipeline unchanged.")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -45255,6 +45452,36 @@ def run_analysis():
 
     # Phase 1560: Status checkpoint (informational)
     concept_activation_phase_1560_status(all_acts, concept_names)
+
+    # Phase 1561: Mutual information layer curve (informational)
+    concept_activation_mutual_information_layer_curve(all_acts, concept_names)
+
+    # Phase 1562: Concept subspace overlap via principal angles (informational)
+    concept_activation_concept_subspace_overlap_analysis(all_acts, concept_names)
+
+    # Phase 1563: Neuron activation dynamic range (informational)
+    concept_activation_neuron_activation_range_analysis(all_acts, concept_names)
+
+    # Phase 1564: Concept direction vs global mean (informational)
+    concept_activation_concept_direction_cosine_to_mean(all_acts, concept_names)
+
+    # Phase 1565: Layerwise classification margin (informational)
+    concept_activation_layerwise_classification_margin(all_acts, concept_names)
+
+    # Phase 1566: Neuron firing rate per concept (informational)
+    concept_activation_neuron_firing_rate_per_concept(all_acts, concept_names)
+
+    # Phase 1567: PCA-concept direction alignment (informational)
+    concept_activation_pca_concept_alignment(all_acts, concept_names)
+
+    # Phase 1568: Activation sparsity via Gini coefficient (informational)
+    concept_activation_activation_sparsity_gini(all_acts, concept_names)
+
+    # Phase 1569: Concept direction robustness to outliers (informational)
+    concept_activation_concept_direction_robustness_to_outliers(all_acts, concept_names)
+
+    # Phase 1570: Status checkpoint (informational)
+    concept_activation_phase_1570_status(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
