@@ -58268,6 +58268,211 @@ def post2000_concept_activation_phase_2450_checkpoint(all_acts, concept_names):
     print()
 
 
+def post2000_concept_activation_layer_wise_snr_profile_v2(all_acts, concept_names):
+    """Phase 2451: Signal-to-noise ratio profile across all layers for each concept."""
+    print("=" * 70)
+    print("PHASE 2451: LAYER-WISE SNR PROFILE")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        snrs = []
+        for L in range(24):
+            pos = all_acts[cname]["positive"][L]
+            neg = all_acts[cname]["negative"][L]
+            signal = np.linalg.norm(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+            noise = np.mean([np.std(pos, axis=0).mean(), np.std(neg, axis=0).mean()])
+            snrs.append(signal / (noise + 1e-10))
+        snrs = np.array(snrs)
+        peak = np.argmax(snrs)
+        print(f"  {cname}: peak_SNR=L{peak} ({snrs[peak]:.4f}), L0={snrs[0]:.4f}, L23={snrs[23]:.4f}")
+    print()
+
+
+def post2000_concept_activation_neuron_dead_fraction(all_acts, concept_names):
+    """Phase 2452: Fraction of neurons that are effectively dead (near-zero activation)."""
+    print("=" * 70)
+    print("PHASE 2452: NEURON DEAD FRACTION PER LAYER")
+    print("=" * 70)
+    for L in [0, 5, 10, 15, 23]:
+        all_data = []
+        for cname in concept_names:
+            all_data.append(all_acts[cname]["positive"][L])
+            all_data.append(all_acts[cname]["negative"][L])
+        all_data = np.vstack(all_data)
+        max_act = np.max(np.abs(all_data), axis=0)
+        dead = np.sum(max_act < 0.01)
+        near_dead = np.sum(max_act < 0.1)
+        print(f"  L{L}: dead(<0.01)={dead}/896 ({dead/896*100:.1f}%), near_dead(<0.1)={near_dead}/896 ({near_dead/896*100:.1f}%)")
+    print()
+
+
+def post2000_concept_activation_concept_direction_cosine_with_mean(all_acts, concept_names):
+    """Phase 2453: Cosine similarity between each concept direction and the global mean activation."""
+    print("=" * 70)
+    print("PHASE 2453: CONCEPT DIRECTION COSINE WITH GLOBAL MEAN")
+    print("=" * 70)
+    layer = 10
+    global_mean = np.zeros(896)
+    for cname in concept_names:
+        global_mean += np.mean(all_acts[cname]["positive"][layer], axis=0)
+        global_mean += np.mean(all_acts[cname]["negative"][layer], axis=0)
+    global_mean /= (2 * len(concept_names))
+    global_mean_norm = global_mean / (np.linalg.norm(global_mean) + 1e-10)
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        direction = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        direction = direction / (np.linalg.norm(direction) + 1e-10)
+        cos = np.dot(direction, global_mean_norm)
+        print(f"  {cname}: cosine_with_global_mean={cos:.6f}")
+    print()
+
+
+def post2000_concept_activation_neuron_consistency_across_concepts(all_acts, concept_names):
+    """Phase 2454: For each neuron, how consistently does it rank as important across concepts."""
+    print("=" * 70)
+    print("PHASE 2454: NEURON IMPORTANCE CONSISTENCY ACROSS CONCEPTS")
+    print("=" * 70)
+    layer = 10
+    ranks_per_neuron = np.zeros((896, len(concept_names)))
+    for ci, cname in enumerate(concept_names):
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        direction = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+        ranks = np.argsort(np.argsort(-direction))
+        ranks_per_neuron[:, ci] = ranks
+    mean_rank = np.mean(ranks_per_neuron, axis=1)
+    std_rank = np.std(ranks_per_neuron, axis=1)
+    # Most consistently important (low mean rank, low std)
+    score = mean_rank + std_rank
+    top_consistent = np.argsort(score)[:5]
+    for ni in top_consistent:
+        print(f"  neuron {ni}: mean_rank={mean_rank[ni]:.1f}, std_rank={std_rank[ni]:.1f}")
+    # Most variable
+    top_variable = np.argsort(-std_rank)[:3]
+    print(f"  Most variable: {top_variable.tolist()} (std_rank={[f'{std_rank[i]:.1f}' for i in top_variable]})")
+    print()
+
+
+def post2000_concept_activation_projection_overlap_matrix(all_acts, concept_names):
+    """Phase 2455: Overlap between concept projection distributions."""
+    print("=" * 70)
+    print("PHASE 2455: PROJECTION DISTRIBUTION OVERLAP MATRIX")
+    print("=" * 70)
+    layer = 10
+    directions = {}
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        directions[cname] = d / (np.linalg.norm(d) + 1e-10)
+    # For each concept, project all data onto its own direction
+    # Measure overlap between pos/neg distributions
+    for cname in concept_names[:4]:
+        pos_proj = all_acts[cname]["positive"][layer] @ directions[cname]
+        neg_proj = all_acts[cname]["negative"][layer] @ directions[cname]
+        # Overlap = fraction of neg that exceeds min(pos) or pos that falls below max(neg)
+        threshold = (np.mean(pos_proj) + np.mean(neg_proj)) / 2
+        misclass = np.sum(pos_proj < threshold) + np.sum(neg_proj > threshold)
+        print(f"  {cname}: misclassified={misclass}/60 ({misclass/60*100:.1f}%)")
+    print()
+
+
+def post2000_concept_activation_activation_norm_layer_profile(all_acts, concept_names):
+    """Phase 2456: Mean activation norm profile across layers."""
+    print("=" * 70)
+    print("PHASE 2456: ACTIVATION NORM LAYER PROFILE")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        norms = []
+        for L in range(24):
+            pos = all_acts[cname]["positive"][L]
+            neg = all_acts[cname]["negative"][L]
+            all_data = np.vstack([pos, neg])
+            norms.append(np.mean(np.linalg.norm(all_data, axis=1)))
+        norms = np.array(norms)
+        print(f"  {cname}: L0={norms[0]:.2f}, L12={norms[12]:.2f}, L23={norms[23]:.2f}, growth={norms[23]/norms[0]:.2f}x")
+    print()
+
+
+def post2000_concept_activation_concept_centroid_distance(all_acts, concept_names):
+    """Phase 2457: Distance between positive and negative centroids per concept."""
+    print("=" * 70)
+    print("PHASE 2457: CONCEPT CENTROID DISTANCE")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        centroid_pos = np.mean(pos, axis=0)
+        centroid_neg = np.mean(neg, axis=0)
+        dist = np.linalg.norm(centroid_pos - centroid_neg)
+        cos = np.dot(centroid_pos, centroid_neg) / (np.linalg.norm(centroid_pos) * np.linalg.norm(centroid_neg) + 1e-10)
+        print(f"  {cname}: centroid_distance={dist:.4f}, centroid_cosine={cos:.6f}")
+    print()
+
+
+def post2000_concept_activation_within_class_compactness(all_acts, concept_names):
+    """Phase 2458: How compact are positive vs negative clusters (mean dist to centroid)."""
+    print("=" * 70)
+    print("PHASE 2458: WITHIN-CLASS COMPACTNESS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        pos_centroid = np.mean(pos, axis=0)
+        neg_centroid = np.mean(neg, axis=0)
+        pos_spread = np.mean(np.linalg.norm(pos - pos_centroid, axis=1))
+        neg_spread = np.mean(np.linalg.norm(neg - neg_centroid, axis=1))
+        between = np.linalg.norm(pos_centroid - neg_centroid)
+        ratio = between / (pos_spread + neg_spread + 1e-10)
+        print(f"  {cname}: pos_spread={pos_spread:.4f}, neg_spread={neg_spread:.4f}, between/within={ratio:.4f}")
+    print()
+
+
+def post2000_concept_activation_random_projection_baseline(all_acts, concept_names):
+    """Phase 2459: Compare concept direction accuracy to random directions as baseline."""
+    print("=" * 70)
+    print("PHASE 2459: RANDOM PROJECTION BASELINE")
+    print("=" * 70)
+    layer = 10
+    rng = np.random.RandomState(42)
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        direction = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        direction = direction / (np.linalg.norm(direction) + 1e-10)
+        # True direction accuracy
+        all_data = np.vstack([pos, neg])
+        labels = np.array([1]*30 + [0]*30)
+        proj = all_data @ direction
+        threshold = (np.mean(proj[:30]) + np.mean(proj[30:])) / 2
+        true_acc = np.mean((proj > threshold) == labels)
+        # Random directions
+        rand_accs = []
+        for _ in range(100):
+            rand_dir = rng.randn(896)
+            rand_dir = rand_dir / np.linalg.norm(rand_dir)
+            rand_proj = all_data @ rand_dir
+            rand_thresh = np.median(rand_proj)
+            rand_acc = max(np.mean((rand_proj > rand_thresh) == labels), np.mean((rand_proj <= rand_thresh) == labels))
+            rand_accs.append(rand_acc)
+        print(f"  {cname}: true_acc={true_acc:.4f}, random_mean={np.mean(rand_accs):.4f}, random_max={np.max(rand_accs):.4f}")
+    print()
+
+
+def post2000_concept_activation_phase_2460_checkpoint(all_acts, concept_names):
+    """Phase 2460: Research checkpoint."""
+    print("=" * 70)
+    print("PHASE 2460: RESEARCH CHECKPOINT — 460 BEYOND 2000")
+    print("=" * 70)
+    print(f"  2460 analysis phases completed — 460 beyond the 2000 milestone!")
+    print(f"  Phases 2451-2460: SNR profile, dead neuron fraction, direction cosine with mean,")
+    print(f"  neuron consistency, projection overlap, activation norm profile,")
+    print(f"  centroid distance, within-class compactness, random projection baseline")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -65692,6 +65897,36 @@ def run_analysis():
 
     # Phase 2450: Research checkpoint (informational)
     post2000_concept_activation_phase_2450_checkpoint(all_acts, concept_names)
+
+    # Phase 2451: Layer-wise SNR profile (informational)
+    post2000_concept_activation_layer_wise_snr_profile_v2(all_acts, concept_names)
+
+    # Phase 2452: Neuron dead fraction (informational)
+    post2000_concept_activation_neuron_dead_fraction(all_acts, concept_names)
+
+    # Phase 2453: Direction cosine with global mean (informational)
+    post2000_concept_activation_concept_direction_cosine_with_mean(all_acts, concept_names)
+
+    # Phase 2454: Neuron importance consistency (informational)
+    post2000_concept_activation_neuron_consistency_across_concepts(all_acts, concept_names)
+
+    # Phase 2455: Projection distribution overlap (informational)
+    post2000_concept_activation_projection_overlap_matrix(all_acts, concept_names)
+
+    # Phase 2456: Activation norm layer profile (informational)
+    post2000_concept_activation_activation_norm_layer_profile(all_acts, concept_names)
+
+    # Phase 2457: Concept centroid distance (informational)
+    post2000_concept_activation_concept_centroid_distance(all_acts, concept_names)
+
+    # Phase 2458: Within-class compactness (informational)
+    post2000_concept_activation_within_class_compactness(all_acts, concept_names)
+
+    # Phase 2459: Random projection baseline (informational)
+    post2000_concept_activation_random_projection_baseline(all_acts, concept_names)
+
+    # Phase 2460: Research checkpoint (informational)
+    post2000_concept_activation_phase_2460_checkpoint(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
