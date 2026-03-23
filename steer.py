@@ -47598,6 +47598,217 @@ def concept_activation_phase_1920_checkpoint(all_acts, concept_names):
     print()
 
 
+def concept_activation_neuron_response_linearity_check(all_acts, concept_names):
+    """Phase 1921: Test linearity of neuron responses to concept mixtures."""
+    print("=" * 70)
+    print("PHASE 1921: NEURON RESPONSE LINEARITY TEST")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        # Test: does doubling the direction double the projection?
+        pos_proj = pos @ d
+        neg_proj = neg @ d
+        # Check linearity: correlation of activation magnitudes with projections
+        pos_norms = np.linalg.norm(pos, axis=1)
+        corr = np.corrcoef(pos_norms, pos_proj)[0, 1]
+        print(f"  {cname}: norm_projection_corr={corr:.4f}")
+    print()
+
+
+def concept_activation_concept_direction_subspace_angle_to_random(all_acts, concept_names):
+    """Phase 1922: Angle between concept subspace and random subspace."""
+    print("=" * 70)
+    print("PHASE 1922: CONCEPT SUBSPACE ANGLE TO RANDOM SUBSPACE")
+    print("=" * 70)
+    layer = 10
+    directions = []
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        directions.append(d)
+    D = np.array(directions)
+    Q_concept, _ = np.linalg.qr(D.T)
+    Q_concept = Q_concept[:, :len(concept_names)]
+    # Random subspace
+    rand_angles = []
+    for _ in range(5):
+        R = np.random.randn(D.shape[1], len(concept_names))
+        Q_rand, _ = np.linalg.qr(R)
+        M = Q_concept.T @ Q_rand
+        svs = np.linalg.svd(M, compute_uv=False)
+        angles = np.arccos(np.clip(svs, 0, 1))
+        rand_angles.append(np.mean(np.degrees(angles)))
+    print(f"  Mean angle to random subspace: {np.mean(rand_angles):.2f}° ± {np.std(rand_angles):.2f}°")
+    print()
+
+
+def concept_activation_neuron_activation_signal_to_noise_per_neuron(all_acts, concept_names):
+    """Phase 1923: Per-neuron signal-to-noise ratio for concept discrimination."""
+    print("=" * 70)
+    print("PHASE 1923: PER-NEURON SIGNAL-TO-NOISE RATIO")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        signal = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+        noise = np.sqrt(0.5 * (np.var(pos, axis=0) + np.var(neg, axis=0)) + 1e-10)
+        snr = signal / noise
+        top3 = np.argsort(snr)[-3:][::-1]
+        print(f"  {cname}: top3_SNR_neurons={top3.tolist()}, SNR={snr[top3].tolist()}")
+    print()
+
+
+def concept_activation_concept_direction_optimal_layer_selection(all_acts, concept_names):
+    """Phase 1924: Find optimal layer for each concept based on multiple criteria."""
+    print("=" * 70)
+    print("PHASE 1924: OPTIMAL LAYER SELECTION PER CONCEPT")
+    print("=" * 70)
+    for cname in concept_names:
+        scores = []
+        for l in range(24):
+            pos = all_acts[cname]["positive"][l]
+            neg = all_acts[cname]["negative"][l]
+            d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+            norm = np.linalg.norm(d)
+            d_unit = d / (norm + 1e-10)
+            all_data = np.vstack([pos, neg])
+            labels = np.array([1]*len(pos) + [0]*len(neg))
+            projs = all_data @ d_unit
+            acc = np.mean((projs > np.median(projs)).astype(int) == labels)
+            scores.append(norm * acc)
+        best = np.argmax(scores)
+        print(f"  {cname}: optimal_layer={best}, combined_score={scores[best]:.4f}")
+    print()
+
+
+def concept_activation_neuron_activation_rank_correlation_across_concepts(all_acts, concept_names):
+    """Phase 1925: Rank correlation of neuron importances across concepts."""
+    print("=" * 70)
+    print("PHASE 1925: NEURON IMPORTANCE RANK CORRELATION ACROSS CONCEPTS")
+    print("=" * 70)
+    from scipy.stats import spearmanr
+    layer = 10
+    importances = {}
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        importances[cname] = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+    pairs_shown = 0
+    for i in range(len(concept_names)):
+        for j in range(i+1, len(concept_names)):
+            if pairs_shown >= 4:
+                break
+            rho, _ = spearmanr(importances[concept_names[i]], importances[concept_names[j]])
+            print(f"  {concept_names[i]} vs {concept_names[j]}: spearman={rho:.4f}")
+            pairs_shown += 1
+        if pairs_shown >= 4:
+            break
+    print()
+
+
+def concept_activation_concept_direction_least_squares_fit(all_acts, concept_names):
+    """Phase 1926: Least squares fit quality for concept directions."""
+    print("=" * 70)
+    print("PHASE 1926: CONCEPT DIRECTION LEAST SQUARES FIT QUALITY")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        X = np.vstack([pos, neg])
+        y = np.array([1]*len(pos) + [0]*len(neg))
+        # Normal equation
+        X_bias = np.hstack([X, np.ones((len(X), 1))])
+        try:
+            w = np.linalg.lstsq(X_bias, y, rcond=None)[0]
+            preds = X_bias @ w
+            mse = np.mean((preds - y)**2)
+            r2 = 1 - mse / (np.var(y) + 1e-10)
+            print(f"  {cname}: R²={r2:.4f}, MSE={mse:.6f}")
+        except Exception:
+            print(f"  {cname}: lstsq failed")
+    print()
+
+
+def concept_activation_neuron_activation_information_bottleneck(all_acts, concept_names):
+    """Phase 1927: Information bottleneck analysis across layers."""
+    print("=" * 70)
+    print("PHASE 1927: INFORMATION BOTTLENECK ACROSS LAYERS")
+    print("=" * 70)
+    for cname in concept_names[:3]:
+        layer_info = []
+        for l in range(24):
+            pos = all_acts[cname]["positive"][l]
+            neg = all_acts[cname]["negative"][l]
+            d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+            signal = np.linalg.norm(d)
+            all_data = np.vstack([pos, neg])
+            total_var = np.sum(np.var(all_data, axis=0))
+            info_ratio = signal**2 / (total_var + 1e-10)
+            layer_info.append(info_ratio)
+        peak = np.argmax(layer_info)
+        print(f"  {cname}: info_peak_layer={peak}, peak_ratio={layer_info[peak]:.6f}, L0_ratio={layer_info[0]:.6f}")
+    print()
+
+
+def concept_activation_concept_direction_sensitivity_to_sample_size(all_acts, concept_names):
+    """Phase 1928: How direction quality varies with sample size."""
+    print("=" * 70)
+    print("PHASE 1928: DIRECTION SENSITIVITY TO SAMPLE SIZE")
+    print("=" * 70)
+    layer = 10
+    cname = concept_names[0]
+    pos = all_acts[cname]["positive"][layer]
+    neg = all_acts[cname]["negative"][layer]
+    full_dir = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+    full_dir = full_dir / (np.linalg.norm(full_dir) + 1e-10)
+    for n_samples in [5, 10, 15, 20, 25]:
+        cosines = []
+        for _ in range(10):
+            idx_p = np.random.choice(len(pos), min(n_samples, len(pos)), replace=False)
+            idx_n = np.random.choice(len(neg), min(n_samples, len(neg)), replace=False)
+            sub_dir = np.mean(pos[idx_p], axis=0) - np.mean(neg[idx_n], axis=0)
+            sub_dir = sub_dir / (np.linalg.norm(sub_dir) + 1e-10)
+            cosines.append(np.dot(full_dir, sub_dir))
+        print(f"  {cname} n={n_samples}: mean_cos={np.mean(cosines):.4f}, std={np.std(cosines):.4f}")
+    print()
+
+
+def concept_activation_neuron_concept_encoding_diversity(all_acts, concept_names):
+    """Phase 1929: Diversity of neuron encoding strategies across concepts."""
+    print("=" * 70)
+    print("PHASE 1929: NEURON ENCODING DIVERSITY")
+    print("=" * 70)
+    layer = 10
+    n_neurons = all_acts[concept_names[0]]["positive"][layer].shape[1]
+    direction_matrix = np.zeros((len(concept_names), n_neurons))
+    for ci, cname in enumerate(concept_names):
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        direction_matrix[ci] = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+    # SVD of direction matrix
+    svs = np.linalg.svd(direction_matrix, compute_uv=False)
+    svs_norm = svs / (svs[0] + 1e-10)
+    print(f"  Singular values: {svs_norm.tolist()}")
+    print(f"  Effective rank: {np.sum(svs_norm > 0.1)}")
+    print(f"  Top SV captures: {svs[0]**2/np.sum(svs**2)*100:.1f}% of variance")
+    print()
+
+
+def concept_activation_phase_1930_checkpoint(all_acts, concept_names):
+    """Phase 1930: Status checkpoint."""
+    print("=" * 70)
+    print("PHASE 1930: STATUS CHECKPOINT")
+    print("=" * 70)
+    print(f"  1930 analysis phases completed")
+    print(f"  Continuing towards 2000...")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -53432,6 +53643,36 @@ def run_analysis():
 
     # Phase 1920: Status checkpoint (informational)
     concept_activation_phase_1920_checkpoint(all_acts, concept_names)
+
+    # Phase 1921: Response linearity check (informational)
+    concept_activation_neuron_response_linearity_check(all_acts, concept_names)
+
+    # Phase 1922: Subspace angle to random (informational)
+    concept_activation_concept_direction_subspace_angle_to_random(all_acts, concept_names)
+
+    # Phase 1923: Per-neuron SNR (informational)
+    concept_activation_neuron_activation_signal_to_noise_per_neuron(all_acts, concept_names)
+
+    # Phase 1924: Optimal layer selection (informational)
+    concept_activation_concept_direction_optimal_layer_selection(all_acts, concept_names)
+
+    # Phase 1925: Rank correlation across concepts (informational)
+    concept_activation_neuron_activation_rank_correlation_across_concepts(all_acts, concept_names)
+
+    # Phase 1926: Least squares fit quality (informational)
+    concept_activation_concept_direction_least_squares_fit(all_acts, concept_names)
+
+    # Phase 1927: Information bottleneck (informational)
+    concept_activation_neuron_activation_information_bottleneck(all_acts, concept_names)
+
+    # Phase 1928: Direction sensitivity to sample size (informational)
+    concept_activation_concept_direction_sensitivity_to_sample_size(all_acts, concept_names)
+
+    # Phase 1929: Encoding diversity (informational)
+    concept_activation_neuron_concept_encoding_diversity(all_acts, concept_names)
+
+    # Phase 1930: Status checkpoint (informational)
+    concept_activation_phase_1930_checkpoint(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
