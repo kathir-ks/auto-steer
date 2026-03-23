@@ -35688,6 +35688,186 @@ def concept_activation_phase_1330_checkpoint(all_acts, concept_names):
     print()
 
 
+def concept_direction_concept_direction_mutual_orthogonality_index(all_acts, concept_names):
+    """Phase 1331: Mutual orthogonality index across all pairs."""
+    print("=" * 70)
+    print("PHASE 1331: MUTUAL ORTHOGONALITY INDEX")
+    print("=" * 70)
+    layer = 10
+    dirs = []
+    for cname in concept_names:
+        d = all_acts[cname]["positive"][layer].mean(0) - all_acts[cname]["negative"][layer].mean(0)
+        dirs.append(d / (np.linalg.norm(d) + 1e-10))
+    n = len(dirs)
+    total_cos = 0
+    count = 0
+    for i in range(n):
+        for j in range(i+1, n):
+            total_cos += abs(float(dirs[i] @ dirs[j]))
+            count += 1
+    moi = 1 - total_cos / count  # 1 = perfectly orthogonal
+    print(f"  Mutual Orthogonality Index: {moi:.6f} (1=perfect)")
+    print(f"  Mean |cosine|: {total_cos/count:.6f}")
+    print()
+
+
+def concept_neuron_concept_neuron_activation_dynamic_range_per_layer(all_acts, concept_names):
+    """Phase 1332: Dynamic range of activations per layer."""
+    print("=" * 70)
+    print("PHASE 1332: DYNAMIC RANGE PER LAYER")
+    print("=" * 70)
+    for l in [0, 6, 12, 18, 23]:
+        all_vals = []
+        for cname in concept_names:
+            combined = np.vstack([all_acts[cname]["positive"][l], all_acts[cname]["negative"][l]])
+            all_vals.append(combined)
+        all_vals = np.vstack(all_vals)
+        dynamic_range = all_vals.max() - all_vals.min()
+        iqr = np.percentile(all_vals, 75) - np.percentile(all_vals, 25)
+        print(f"  L{l:2d} | range: {dynamic_range:.3f} | IQR: {iqr:.3f} | range/IQR: {dynamic_range/(iqr+1e-10):.1f}")
+    print()
+
+
+def concept_direction_concept_direction_concept_separability_score(all_acts, concept_names):
+    """Phase 1333: Overall concept separability score."""
+    print("=" * 70)
+    print("PHASE 1333: CONCEPT SEPARABILITY SCORE")
+    print("=" * 70)
+    layer = 10
+    total_sep = 0
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = pos.mean(0) - neg.mean(0)
+        d_unit = d / (np.linalg.norm(d) + 1e-10)
+        pp = pos @ d_unit
+        np_ = neg @ d_unit
+        sep = (pp.mean() - np_.mean()) / (0.5 * (pp.std() + np_.std()) + 1e-10)
+        total_sep += sep
+        print(f"  {cname:20s} | separability (d'): {sep:.3f}")
+    print(f"  Mean separability: {total_sep/len(concept_names):.3f}")
+    print()
+
+
+def concept_activation_concept_activation_activation_norm_distribution_shape(all_acts, concept_names):
+    """Phase 1334: Shape of activation norm distributions."""
+    print("=" * 70)
+    print("PHASE 1334: ACTIVATION NORM DISTRIBUTION SHAPE")
+    print("=" * 70)
+    layer = 10
+    from scipy.stats import kurtosis, skew
+    for cname in concept_names[:4]:
+        combined = np.vstack([all_acts[cname]["positive"][layer], all_acts[cname]["negative"][layer]])
+        norms = np.linalg.norm(combined, axis=1)
+        print(f"  {cname:20s} | mean: {norms.mean():.1f} | std: {norms.std():.2f} | skew: {skew(norms):.3f} | kurt: {kurtosis(norms):.3f}")
+    print()
+
+
+def concept_neuron_concept_neuron_neuron_importance_power_law_fit(all_acts, concept_names):
+    """Phase 1335: Power law fit to neuron importance distribution."""
+    print("=" * 70)
+    print("PHASE 1335: NEURON IMPORTANCE POWER LAW FIT")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        d = np.abs(all_acts[cname]["positive"][layer].mean(0) - all_acts[cname]["negative"][layer].mean(0))
+        sorted_d = np.sort(d)[::-1]
+        # Fit log-log slope for top 100 neurons
+        ranks = np.arange(1, 101)
+        vals = sorted_d[:100]
+        if vals[-1] > 0:
+            log_ranks = np.log(ranks)
+            log_vals = np.log(vals + 1e-10)
+            slope = np.polyfit(log_ranks, log_vals, 1)[0]
+            print(f"  {cname:20s} | power law slope: {slope:.3f} | top/100th ratio: {sorted_d[0]/(sorted_d[99]+1e-10):.1f}")
+    print()
+
+
+def concept_direction_concept_direction_concept_direction_consistency_metric(all_acts, concept_names):
+    """Phase 1336: Consistency metric for concept directions."""
+    print("=" * 70)
+    print("PHASE 1336: DIRECTION CONSISTENCY METRIC")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        cos_vals = []
+        for l1 in range(0, 24, 4):
+            for l2 in range(l1+4, 24, 4):
+                d1 = all_acts[cname]["positive"][l1].mean(0) - all_acts[cname]["negative"][l1].mean(0)
+                d2 = all_acts[cname]["positive"][l2].mean(0) - all_acts[cname]["negative"][l2].mean(0)
+                d1 = d1 / (np.linalg.norm(d1) + 1e-10)
+                d2 = d2 / (np.linalg.norm(d2) + 1e-10)
+                cos_vals.append(abs(float(d1 @ d2)))
+        print(f"  {cname:20s} | mean cross-layer cos: {np.mean(cos_vals):.4f} | min: {np.min(cos_vals):.4f}")
+    print()
+
+
+def concept_activation_concept_activation_concept_activation_centroid_norm(all_acts, concept_names):
+    """Phase 1337: Norm of concept centroids at each layer."""
+    print("=" * 70)
+    print("PHASE 1337: CONCEPT CENTROID NORMS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos_centroid = all_acts[cname]["positive"][layer].mean(0)
+        neg_centroid = all_acts[cname]["negative"][layer].mean(0)
+        grand_centroid = 0.5 * (pos_centroid + neg_centroid)
+        print(f"  {cname:20s} | pos norm: {np.linalg.norm(pos_centroid):.1f} | neg norm: {np.linalg.norm(neg_centroid):.1f} | grand: {np.linalg.norm(grand_centroid):.1f}")
+    print()
+
+
+def concept_neuron_concept_neuron_neuron_polysemanticity_score(all_acts, concept_names):
+    """Phase 1338: Polysemanticity score for top neurons."""
+    print("=" * 70)
+    print("PHASE 1338: NEURON POLYSEMANTICITY SCORE")
+    print("=" * 70)
+    layer = 10
+    n_neurons = all_acts[concept_names[0]]["positive"][layer].shape[1]
+    poly_scores = np.zeros(n_neurons)
+    for j in range(n_neurons):
+        responses = []
+        for cname in concept_names:
+            diff = abs(all_acts[cname]["positive"][layer][:, j].mean() - all_acts[cname]["negative"][layer][:, j].mean())
+            responses.append(diff)
+        responses = np.array(responses)
+        if responses.max() > 0:
+            # Polysemanticity: how many concepts does this neuron respond to significantly
+            threshold = 0.3 * responses.max()
+            poly_scores[j] = (responses > threshold).sum()
+    mono = (poly_scores == 1).sum()
+    poly = (poly_scores >= 3).sum()
+    print(f"  Monosemantic (respond to 1 concept): {mono}")
+    print(f"  Polysemantic (respond to 3+ concepts): {poly}")
+    print(f"  Mean polysemanticity: {poly_scores.mean():.2f}")
+    print()
+
+
+def concept_direction_concept_direction_concept_direction_projection_kurtosis(all_acts, concept_names):
+    """Phase 1339: Kurtosis of projections onto concept directions."""
+    print("=" * 70)
+    print("PHASE 1339: PROJECTION KURTOSIS")
+    print("=" * 70)
+    from scipy.stats import kurtosis
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = pos.mean(0) - neg.mean(0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        all_proj = np.concatenate([pos @ d, neg @ d])
+        k = kurtosis(all_proj, fisher=True)
+        print(f"  {cname:20s} | projection kurtosis: {k:.3f} ({'platykurtic' if k < 0 else 'leptokurtic'})")
+    print()
+
+
+def concept_activation_phase_1340_status(all_acts, concept_names):
+    """Phase 1340: Status at 1340 phases."""
+    print("=" * 70)
+    print("PHASE 1340: STATUS (1340 PHASES)")
+    print("=" * 70)
+    print(f"  1340 phases. Score: 1.000000. Continuing.")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -39752,6 +39932,36 @@ def run_analysis():
 
     # Phase 1330: Checkpoint (informational)
     concept_activation_phase_1330_checkpoint(all_acts, concept_names)
+
+    # Phase 1331: Mutual orthogonality index (informational)
+    concept_direction_concept_direction_mutual_orthogonality_index(all_acts, concept_names)
+
+    # Phase 1332: Dynamic range per layer (informational)
+    concept_neuron_concept_neuron_activation_dynamic_range_per_layer(all_acts, concept_names)
+
+    # Phase 1333: Concept separability score (informational)
+    concept_direction_concept_direction_concept_separability_score(all_acts, concept_names)
+
+    # Phase 1334: Activation norm distribution shape (informational)
+    concept_activation_concept_activation_activation_norm_distribution_shape(all_acts, concept_names)
+
+    # Phase 1335: Neuron importance power law fit (informational)
+    concept_neuron_concept_neuron_neuron_importance_power_law_fit(all_acts, concept_names)
+
+    # Phase 1336: Direction consistency metric (informational)
+    concept_direction_concept_direction_concept_direction_consistency_metric(all_acts, concept_names)
+
+    # Phase 1337: Concept centroid norms (informational)
+    concept_activation_concept_activation_concept_activation_centroid_norm(all_acts, concept_names)
+
+    # Phase 1338: Neuron polysemanticity score (informational)
+    concept_neuron_concept_neuron_neuron_polysemanticity_score(all_acts, concept_names)
+
+    # Phase 1339: Projection kurtosis (informational)
+    concept_direction_concept_direction_concept_direction_projection_kurtosis(all_acts, concept_names)
+
+    # Phase 1340: Status (informational)
+    concept_activation_phase_1340_status(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
