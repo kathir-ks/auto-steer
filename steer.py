@@ -44740,6 +44740,175 @@ def concept_activation_phase_1780_status(all_acts, concept_names):
     print()
 
 
+def concept_activation_concept_direction_projection_skewness_per_class(all_acts, concept_names):
+    """Phase 1781: Compare skewness of projections for pos vs neg classes."""
+    print("=" * 70)
+    print("PHASE 1781: PROJECTION SKEWNESS PER CLASS")
+    print("=" * 70)
+    from scipy.stats import skew
+    layer = 10
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        d_norm = d / (np.linalg.norm(d) + 1e-10)
+        pos_proj = all_acts[cname]["positive"][layer] @ d_norm
+        neg_proj = all_acts[cname]["negative"][layer] @ d_norm
+        print(f"  {cname}: pos skew={skew(pos_proj):.4f}, neg skew={skew(neg_proj):.4f}")
+    print()
+
+
+def concept_activation_concept_direction_inter_layer_correlation(all_acts, concept_names):
+    """Phase 1782: Correlate concept direction components across non-adjacent layers."""
+    print("=" * 70)
+    print("PHASE 1782: INTER-LAYER DIRECTION COMPONENT CORRELATION")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        for l1, l2 in [(0, 23), (5, 15), (10, 20)]:
+            d1 = np.mean(all_acts[cname]["positive"][l1], axis=0) - np.mean(all_acts[cname]["negative"][l1], axis=0)
+            d2 = np.mean(all_acts[cname]["positive"][l2], axis=0) - np.mean(all_acts[cname]["negative"][l2], axis=0)
+            corr = np.corrcoef(d1, d2)[0, 1]
+            print(f"  {cname} L{l1}↔L{l2}: component corr={corr:.4f}")
+    print()
+
+
+def concept_activation_concept_activation_mean_absolute_diff(all_acts, concept_names):
+    """Phase 1783: Compute mean absolute difference between pos/neg activations."""
+    print("=" * 70)
+    print("PHASE 1783: MEAN ABSOLUTE DIFFERENCE POS VS NEG")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        mad = np.mean(np.abs(pos.mean(0) - neg.mean(0)))
+        max_diff = np.max(np.abs(pos.mean(0) - neg.mean(0)))
+        print(f"  {cname}: mean abs diff={mad:.4f}, max abs diff={max_diff:.4f}")
+    print()
+
+
+def concept_activation_concept_direction_layer_window_classification(all_acts, concept_names):
+    """Phase 1784: Classify concepts using direction from a window of layers."""
+    print("=" * 70)
+    print("PHASE 1784: LAYER WINDOW CLASSIFICATION")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        for start in [0, 8, 16]:
+            end = min(start + 8, 24)
+            # Average direction across window
+            d_avg = np.zeros(896)
+            for l in range(start, end):
+                d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+                d_avg += d / (np.linalg.norm(d) + 1e-10)
+            d_avg = d_avg / (np.linalg.norm(d_avg) + 1e-10)
+            # Test at middle layer
+            mid = (start + end) // 2
+            pp = all_acts[cname]["positive"][mid] @ d_avg
+            np_ = all_acts[cname]["negative"][mid] @ d_avg
+            t = (np.mean(pp) + np.mean(np_)) / 2
+            acc = (np.sum(pp > t) + np.sum(np_ <= t)) / (len(pp) + len(np_))
+            print(f"  {cname} window L{start}-L{end-1} → L{mid}: acc={acc:.4f}")
+    print()
+
+
+def concept_activation_concept_direction_sign_flip_count(all_acts, concept_names):
+    """Phase 1785: Count how many dimensions flip sign across layers."""
+    print("=" * 70)
+    print("PHASE 1785: DIRECTION SIGN FLIP COUNT ACROSS LAYERS")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        total_flips = 0
+        for l in range(23):
+            d1 = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+            d2 = np.mean(all_acts[cname]["positive"][l+1], axis=0) - np.mean(all_acts[cname]["negative"][l+1], axis=0)
+            flips = np.sum(np.sign(d1) != np.sign(d2))
+            total_flips += flips
+        mean_flips = total_flips / 23
+        print(f"  {cname}: mean sign flips per layer transition={mean_flips:.0f}/896")
+    print()
+
+
+def concept_activation_concept_direction_projection_tail_ratio(all_acts, concept_names):
+    """Phase 1786: Compute tail ratio of concept projection distributions."""
+    print("=" * 70)
+    print("PHASE 1786: PROJECTION TAIL RATIO")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        d_norm = d / (np.linalg.norm(d) + 1e-10)
+        all_proj = np.concatenate([
+            all_acts[cname]["positive"][layer] @ d_norm,
+            all_acts[cname]["negative"][layer] @ d_norm
+        ])
+        p90 = np.percentile(np.abs(all_proj - np.mean(all_proj)), 90)
+        p50 = np.percentile(np.abs(all_proj - np.mean(all_proj)), 50)
+        tail_ratio = p90 / (p50 + 1e-10)
+        print(f"  {cname}: tail ratio (p90/p50)={tail_ratio:.4f}")
+    print()
+
+
+def concept_activation_concept_activation_layer_dependency_analysis(all_acts, concept_names):
+    """Phase 1787: Analyze how layer l+1 activations depend on layer l."""
+    print("=" * 70)
+    print("PHASE 1787: LAYER DEPENDENCY ANALYSIS")
+    print("=" * 70)
+    cname = concept_names[0]
+    for l in [0, 5, 10, 15, 20]:
+        acts_l = np.vstack([all_acts[cname]["positive"][l], all_acts[cname]["negative"][l]])
+        acts_l1 = np.vstack([all_acts[cname]["positive"][l+1], all_acts[cname]["negative"][l+1]])
+        # Correlation between corresponding neurons
+        corrs = [np.corrcoef(acts_l[:, j], acts_l1[:, j])[0, 1] for j in range(0, 896, 50)]
+        print(f"  L{l}→L{l+1}: mean neuron corr={np.mean(corrs):.4f}, "
+              f"min={np.min(corrs):.4f}, max={np.max(corrs):.4f}")
+    print()
+
+
+def concept_activation_concept_direction_explained_ratio_per_concept(all_acts, concept_names):
+    """Phase 1788: Compute what fraction of total concept variance each direction explains."""
+    print("=" * 70)
+    print("PHASE 1788: DIRECTION EXPLAINED RATIO PER CONCEPT")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        acts = np.vstack([all_acts[cname]["positive"][layer], all_acts[cname]["negative"][layer]])
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        d_norm = d / (np.linalg.norm(d) + 1e-10)
+        proj_var = np.var(acts @ d_norm)
+        total_var = np.sum(np.var(acts, axis=0))
+        ratio = proj_var / (total_var + 1e-10)
+        print(f"  {cname}: direction explains {ratio*100:.3f}% of concept variance")
+    print()
+
+
+def concept_activation_concept_direction_projection_normality_per_class(all_acts, concept_names):
+    """Phase 1789: Test normality of projections separately for pos and neg classes."""
+    print("=" * 70)
+    print("PHASE 1789: PROJECTION NORMALITY PER CLASS")
+    print("=" * 70)
+    from scipy.stats import shapiro
+    layer = 10
+    for cname in concept_names[:4]:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        d_norm = d / (np.linalg.norm(d) + 1e-10)
+        pos_proj = all_acts[cname]["positive"][layer] @ d_norm
+        neg_proj = all_acts[cname]["negative"][layer] @ d_norm
+        _, p_pos = shapiro(pos_proj)
+        _, p_neg = shapiro(neg_proj)
+        print(f"  {cname}: pos Shapiro p={p_pos:.4f}, neg p={p_neg:.4f} "
+              f"({'both normal' if p_pos > 0.05 and p_neg > 0.05 else 'non-normal'})")
+    print()
+
+
+def concept_activation_phase_1790_status(all_acts, concept_names):
+    """Phase 1790: Status checkpoint at 1790 phases."""
+    print("=" * 70)
+    print("PHASE 1790: STATUS CHECKPOINT — 1790 ANALYSIS PHASES")
+    print("=" * 70)
+    print("1790 analysis phases completed.")
+    print(f"Concepts analyzed: {len(concept_names)}")
+    print("All phases informational — scoring pipeline unchanged.")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -50154,6 +50323,36 @@ def run_analysis():
 
     # Phase 1780: Status checkpoint (informational)
     concept_activation_phase_1780_status(all_acts, concept_names)
+
+    # Phase 1781: Projection skewness per class (informational)
+    concept_activation_concept_direction_projection_skewness_per_class(all_acts, concept_names)
+
+    # Phase 1782: Inter-layer direction component correlation (informational)
+    concept_activation_concept_direction_inter_layer_correlation(all_acts, concept_names)
+
+    # Phase 1783: Mean absolute difference pos vs neg (informational)
+    concept_activation_concept_activation_mean_absolute_diff(all_acts, concept_names)
+
+    # Phase 1784: Layer window classification (informational)
+    concept_activation_concept_direction_layer_window_classification(all_acts, concept_names)
+
+    # Phase 1785: Direction sign flip count (informational)
+    concept_activation_concept_direction_sign_flip_count(all_acts, concept_names)
+
+    # Phase 1786: Projection tail ratio (informational)
+    concept_activation_concept_direction_projection_tail_ratio(all_acts, concept_names)
+
+    # Phase 1787: Layer dependency analysis (informational)
+    concept_activation_concept_activation_layer_dependency_analysis(all_acts, concept_names)
+
+    # Phase 1788: Direction explained ratio per concept (informational)
+    concept_activation_concept_direction_explained_ratio_per_concept(all_acts, concept_names)
+
+    # Phase 1789: Projection normality per class (informational)
+    concept_activation_concept_direction_projection_normality_per_class(all_acts, concept_names)
+
+    # Phase 1790: Status checkpoint (informational)
+    concept_activation_phase_1790_status(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
