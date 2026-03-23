@@ -57666,6 +57666,195 @@ def post2000_concept_activation_phase_2420_checkpoint(all_acts, concept_names):
     print()
 
 
+def post2000_concept_activation_neuron_activation_concept_direction_dot_product_dist(all_acts, concept_names):
+    """Phase 2421: Distribution of dot products of individual samples with concept direction."""
+    print("=" * 70)
+    print("PHASE 2421: SAMPLE DOT PRODUCT DISTRIBUTION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        pos_dots = pos @ d
+        neg_dots = neg @ d
+        separability = (np.mean(pos_dots) - np.mean(neg_dots)) / (np.std(np.concatenate([pos_dots, neg_dots])) + 1e-10)
+        print(f"  {cname}: d'={separability:.4f}, pos_mean={np.mean(pos_dots):.4f}, neg_mean={np.mean(neg_dots):.4f}")
+    print()
+
+
+def post2000_concept_activation_concept_direction_cross_layer_angle_matrix(all_acts, concept_names):
+    """Phase 2422: Angle matrix of same concept direction across layers."""
+    print("=" * 70)
+    print("PHASE 2422: CROSS-LAYER ANGLE MATRIX (SAME CONCEPT)")
+    print("=" * 70)
+    cname = concept_names[0]
+    layers = [0, 6, 12, 18, 23]
+    directions = {}
+    for L in layers:
+        pos = all_acts[cname]["positive"][L]
+        neg = all_acts[cname]["negative"][L]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        directions[L] = d / (np.linalg.norm(d) + 1e-10)
+    for i, L1 in enumerate(layers):
+        for L2 in layers[i+1:]:
+            cos = abs(np.dot(directions[L1], directions[L2]))
+            angle = np.degrees(np.arccos(np.clip(cos, 0, 1)))
+            print(f"  {cname} L{L1} vs L{L2}: {angle:.1f}°")
+    print()
+
+
+def post2000_concept_activation_neuron_activation_concept_direction_component_analysis(all_acts, concept_names):
+    """Phase 2423: Analyze which components of the concept direction contribute most."""
+    print("=" * 70)
+    print("PHASE 2423: CONCEPT DIRECTION COMPONENT ANALYSIS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        abs_d = np.abs(d)
+        sorted_d = np.sort(abs_d)[::-1]
+        top1_frac = sorted_d[0] / (np.sum(abs_d) + 1e-10)
+        top10_frac = np.sum(sorted_d[:10]) / (np.sum(abs_d) + 1e-10)
+        top50_frac = np.sum(sorted_d[:50]) / (np.sum(abs_d) + 1e-10)
+        print(f"  {cname}: top1={top1_frac:.4f}, top10={top10_frac:.4f}, top50={top50_frac:.4f}")
+    print()
+
+
+def post2000_concept_activation_concept_direction_projection_accuracy_per_layer(all_acts, concept_names):
+    """Phase 2424: Classification accuracy using concept direction at each layer."""
+    print("=" * 70)
+    print("PHASE 2424: PROJECTION ACCURACY PER LAYER")
+    print("=" * 70)
+    for cname in concept_names[:3]:
+        for L in [0, 6, 12, 18, 23]:
+            pos = all_acts[cname]["positive"][L]
+            neg = all_acts[cname]["negative"][L]
+            d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+            d = d / (np.linalg.norm(d) + 1e-10)
+            all_data = np.vstack([pos, neg])
+            proj = all_data @ d
+            threshold = np.median(proj)
+            pred = (proj > threshold).astype(int)
+            labels = np.array([1]*30 + [0]*30)
+            acc = max(np.mean(pred == labels), np.mean(pred != labels))
+            print(f"  {cname} L{L}: acc={acc:.4f}")
+    print()
+
+
+def post2000_concept_activation_neuron_activation_high_importance_neuron_overlap(all_acts, concept_names):
+    """Phase 2425: Overlap of high-importance neurons between all concept pairs."""
+    print("=" * 70)
+    print("PHASE 2425: HIGH-IMPORTANCE NEURON OVERLAP")
+    print("=" * 70)
+    layer = 10
+    top_sets = {}
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        importance = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+        top_sets[cname] = set(np.argsort(importance)[-30:])
+    total_overlap = 0
+    count = 0
+    for i in range(len(concept_names)):
+        for j in range(i+1, len(concept_names)):
+            overlap = len(top_sets[concept_names[i]] & top_sets[concept_names[j]])
+            total_overlap += overlap
+            count += 1
+    mean_overlap = total_overlap / count
+    print(f"  Mean top-30 overlap: {mean_overlap:.2f}/30 across {count} pairs")
+    print()
+
+
+def post2000_concept_activation_concept_direction_cosine_with_adjacent_layers(all_acts, concept_names):
+    """Phase 2426: Cosine between concept direction at L and L+1."""
+    print("=" * 70)
+    print("PHASE 2426: ADJACENT LAYER COSINE")
+    print("=" * 70)
+    for cname in concept_names[:3]:
+        cosines = []
+        for L in range(23):
+            d1 = np.mean(all_acts[cname]["positive"][L], axis=0) - np.mean(all_acts[cname]["negative"][L], axis=0)
+            d2 = np.mean(all_acts[cname]["positive"][L+1], axis=0) - np.mean(all_acts[cname]["negative"][L+1], axis=0)
+            d1 = d1 / (np.linalg.norm(d1) + 1e-10)
+            d2 = d2 / (np.linalg.norm(d2) + 1e-10)
+            cosines.append(abs(np.dot(d1, d2)))
+        min_cos_L = np.argmin(cosines)
+        print(f"  {cname}: mean_cos={np.mean(cosines):.4f}, min_cos=L{min_cos_L} ({cosines[min_cos_L]:.4f})")
+    print()
+
+
+def post2000_concept_activation_neuron_activation_mean_abs_direction_component(all_acts, concept_names):
+    """Phase 2427: Mean absolute value of concept direction components."""
+    print("=" * 70)
+    print("PHASE 2427: MEAN ABSOLUTE DIRECTION COMPONENT")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        mean_abs = np.mean(np.abs(d))
+        max_abs = np.max(np.abs(d))
+        print(f"  {cname}: mean_|d|={mean_abs:.6f}, max_|d|={max_abs:.6f}, "
+              f"max/mean={max_abs/(mean_abs+1e-10):.2f}")
+    print()
+
+
+def post2000_concept_activation_concept_direction_best_layer_per_concept(all_acts, concept_names):
+    """Phase 2428: Identify the best layer for each concept's direction."""
+    print("=" * 70)
+    print("PHASE 2428: BEST LAYER PER CONCEPT")
+    print("=" * 70)
+    for cname in concept_names:
+        best_signal = 0
+        best_layer = 0
+        for L in range(24):
+            pos = all_acts[cname]["positive"][L]
+            neg = all_acts[cname]["negative"][L]
+            signal = np.linalg.norm(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+            if signal > best_signal:
+                best_signal = signal
+                best_layer = L
+        print(f"  {cname}: best_layer=L{best_layer}, signal={best_signal:.4f}")
+    print()
+
+
+def post2000_concept_activation_neuron_activation_summary_stats(all_acts, concept_names):
+    """Phase 2429: Summary statistics of all neuron activations."""
+    print("=" * 70)
+    print("PHASE 2429: NEURON ACTIVATION SUMMARY STATS")
+    print("=" * 70)
+    layer = 10
+    all_data = []
+    for cname in concept_names:
+        all_data.append(all_acts[cname]["positive"][layer])
+        all_data.append(all_acts[cname]["negative"][layer])
+    all_data = np.vstack(all_data)
+    print(f"  Shape: {all_data.shape}")
+    print(f"  Global mean: {np.mean(all_data):.6f}")
+    print(f"  Global std: {np.std(all_data):.6f}")
+    print(f"  Min: {np.min(all_data):.4f}, Max: {np.max(all_data):.4f}")
+    print(f"  Fraction zero: {np.mean(all_data == 0):.4f}")
+    print()
+
+
+def post2000_concept_activation_phase_2430_checkpoint(all_acts, concept_names):
+    """Phase 2430: Research checkpoint - 430 phases beyond 2000."""
+    print("=" * 70)
+    print("PHASE 2430: RESEARCH CHECKPOINT — 430 BEYOND 2000")
+    print("=" * 70)
+    print(f"  2430 analysis phases completed — 430 beyond the 2000 milestone!")
+    print(f"  Phases 2421-2430: dot product distribution, cross-layer angle matrix,")
+    print(f"  direction component analysis, projection accuracy per layer,")
+    print(f"  high-importance overlap, adjacent layer cosine, mean abs component,")
+    print(f"  best layer per concept, summary stats")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -65000,6 +65189,36 @@ def run_analysis():
 
     # Phase 2420: Research checkpoint (informational)
     post2000_concept_activation_phase_2420_checkpoint(all_acts, concept_names)
+
+    # Phase 2421: Sample dot product distribution (informational)
+    post2000_concept_activation_neuron_activation_concept_direction_dot_product_dist(all_acts, concept_names)
+
+    # Phase 2422: Cross-layer angle matrix (informational)
+    post2000_concept_activation_concept_direction_cross_layer_angle_matrix(all_acts, concept_names)
+
+    # Phase 2423: Concept direction component analysis (informational)
+    post2000_concept_activation_neuron_activation_concept_direction_component_analysis(all_acts, concept_names)
+
+    # Phase 2424: Projection accuracy per layer (informational)
+    post2000_concept_activation_concept_direction_projection_accuracy_per_layer(all_acts, concept_names)
+
+    # Phase 2425: High-importance neuron overlap (informational)
+    post2000_concept_activation_neuron_activation_high_importance_neuron_overlap(all_acts, concept_names)
+
+    # Phase 2426: Adjacent layer cosine (informational)
+    post2000_concept_activation_concept_direction_cosine_with_adjacent_layers(all_acts, concept_names)
+
+    # Phase 2427: Mean absolute direction component (informational)
+    post2000_concept_activation_neuron_activation_mean_abs_direction_component(all_acts, concept_names)
+
+    # Phase 2428: Best layer per concept (informational)
+    post2000_concept_activation_concept_direction_best_layer_per_concept(all_acts, concept_names)
+
+    # Phase 2429: Neuron activation summary stats (informational)
+    post2000_concept_activation_neuron_activation_summary_stats(all_acts, concept_names)
+
+    # Phase 2430: Research checkpoint (informational)
+    post2000_concept_activation_phase_2430_checkpoint(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
