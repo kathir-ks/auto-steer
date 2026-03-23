@@ -50205,6 +50205,206 @@ def post2000_concept_activation_phase_2050_checkpoint(all_acts, concept_names):
     print()
 
 
+def post2000_concept_activation_neuron_firing_rate_consistency(all_acts, concept_names):
+    """Phase 2051: Consistency of neuron firing rates across positive/negative samples."""
+    print("=" * 70)
+    print("PHASE 2051: Neuron Firing Rate Consistency")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        # Firing rate = fraction of samples where neuron > median
+        combined = np.vstack([pos, neg])
+        medians = np.median(combined, axis=0)
+        pos_rate = np.mean(pos > medians, axis=0)
+        neg_rate = np.mean(neg > medians, axis=0)
+        rate_diff = np.abs(pos_rate - neg_rate)
+        top5 = np.argsort(rate_diff)[-5:][::-1]
+        print(f"  {cname} L{layer}: top discriminative neurons {top5.tolist()}, "
+              f"max rate diff={rate_diff[top5[0]]:.4f}")
+    print()
+
+
+def post2000_concept_activation_concept_subspace_volume(all_acts, concept_names):
+    """Phase 2052: Volume of the concept subspace spanned by concept directions."""
+    print("=" * 70)
+    print("PHASE 2052: Concept Subspace Volume (Gram Determinant)")
+    print("=" * 70)
+    for l in [0, 6, 10, 18, 23]:
+        directions = []
+        for cname in concept_names:
+            d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+            norm = np.linalg.norm(d)
+            if norm > 0:
+                d = d / norm
+            directions.append(d)
+        gram = np.array(directions) @ np.array(directions).T
+        det = np.linalg.det(gram)
+        print(f"  L{l}: Gram det={det:.6f} (1.0=perfectly orthogonal)")
+    print()
+
+
+def post2000_concept_activation_neuron_activation_percentile_spread(all_acts, concept_names):
+    """Phase 2053: Spread of neuron activations measured by interquartile range."""
+    print("=" * 70)
+    print("PHASE 2053: Neuron Activation IQR Spread")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        combined = np.vstack([all_acts[cname]["positive"][layer],
+                               all_acts[cname]["negative"][layer]])
+        q75 = np.percentile(combined, 75, axis=0)
+        q25 = np.percentile(combined, 25, axis=0)
+        iqr = q75 - q25
+        top5 = np.argsort(iqr)[-5:][::-1]
+        print(f"  {cname} L{layer}: top IQR neurons {top5.tolist()}, "
+              f"max IQR={iqr[top5[0]]:.4f}, mean IQR={np.mean(iqr):.4f}")
+    print()
+
+
+def post2000_concept_activation_concept_direction_alignment_with_class_mean(all_acts, concept_names):
+    """Phase 2054: How well concept direction aligns with the difference of class means."""
+    print("=" * 70)
+    print("PHASE 2054: Direction Alignment with Class Mean Difference")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        diff_of_means = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        diff_of_means_norm = diff_of_means / (np.linalg.norm(diff_of_means) + 1e-10)
+        # Compare with LDA direction
+        pooled_cov = (np.cov(pos, rowvar=False) + np.cov(neg, rowvar=False)) / 2
+        try:
+            lda_dir = np.linalg.solve(pooled_cov + 1e-4 * np.eye(pos.shape[1]), diff_of_means)
+            lda_dir_norm = lda_dir / (np.linalg.norm(lda_dir) + 1e-10)
+            cos = np.abs(np.dot(diff_of_means_norm, lda_dir_norm))
+            print(f"  {cname} L{layer}: DoM vs LDA alignment={cos:.4f}")
+        except np.linalg.LinAlgError:
+            print(f"  {cname} L{layer}: LDA solve failed")
+    print()
+
+
+def post2000_concept_activation_layer_transition_information_gain(all_acts, concept_names):
+    """Phase 2055: Information gain at each layer transition."""
+    print("=" * 70)
+    print("PHASE 2055: Layer Transition Information Gain")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        info_gains = []
+        for l in range(23):
+            # Use Cohen's d as proxy for info
+            pos_l = all_acts[cname]["positive"][l]
+            neg_l = all_acts[cname]["negative"][l]
+            d_l = np.mean(pos_l, axis=0) - np.mean(neg_l, axis=0)
+            sig_l = np.linalg.norm(d_l)
+            pos_l1 = all_acts[cname]["positive"][l+1]
+            neg_l1 = all_acts[cname]["negative"][l+1]
+            d_l1 = np.mean(pos_l1, axis=0) - np.mean(neg_l1, axis=0)
+            sig_l1 = np.linalg.norm(d_l1)
+            info_gains.append(sig_l1 - sig_l)
+        max_gain_l = int(np.argmax(info_gains))
+        max_loss_l = int(np.argmin(info_gains))
+        print(f"  {cname}: max gain at L{max_gain_l}→L{max_gain_l+1} ({info_gains[max_gain_l]:.4f}), "
+              f"max loss at L{max_loss_l}→L{max_loss_l+1} ({info_gains[max_loss_l]:.4f})")
+    print()
+
+
+def post2000_concept_activation_neuron_bimodality_coefficient(all_acts, concept_names):
+    """Phase 2056: Bimodality coefficient of neuron activations."""
+    print("=" * 70)
+    print("PHASE 2056: Neuron Bimodality Coefficient")
+    print("=" * 70)
+    from scipy.stats import skew, kurtosis
+    layer = 10
+    for cname in concept_names[:4]:
+        combined = np.vstack([all_acts[cname]["positive"][layer],
+                               all_acts[cname]["negative"][layer]])
+        n = combined.shape[0]
+        skewness = skew(combined, axis=0)
+        kurt = kurtosis(combined, axis=0, fisher=True)
+        bc = (skewness ** 2 + 1) / (kurt + 3 * (n - 1) ** 2 / ((n - 2) * (n - 3)) + 1e-10)
+        bimodal_count = np.sum(bc > 0.555)
+        print(f"  {cname} L{layer}: {bimodal_count} bimodal neurons (BC>0.555), "
+              f"mean BC={np.mean(bc):.4f}")
+    print()
+
+
+def post2000_concept_activation_concept_separation_per_sample(all_acts, concept_names):
+    """Phase 2057: Per-sample concept separation analysis."""
+    print("=" * 70)
+    print("PHASE 2057: Per-Sample Concept Separation")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        direction = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        direction = direction / (np.linalg.norm(direction) + 1e-10)
+        pos_proj = pos @ direction
+        neg_proj = neg @ direction
+        threshold = (np.mean(pos_proj) + np.mean(neg_proj)) / 2
+        pos_correct = np.mean(pos_proj > threshold)
+        neg_correct = np.mean(neg_proj < threshold)
+        hardest_pos = np.argmin(pos_proj)
+        hardest_neg = np.argmax(neg_proj)
+        print(f"  {cname} L{layer}: pos_acc={pos_correct:.4f}, neg_acc={neg_correct:.4f}, "
+              f"hardest_pos=sample_{hardest_pos}, hardest_neg=sample_{hardest_neg}")
+    print()
+
+
+def post2000_concept_activation_weighted_layer_representation(all_acts, concept_names):
+    """Phase 2058: Optimal weighted combination of layers for concept representation."""
+    print("=" * 70)
+    print("PHASE 2058: Weighted Layer Representation")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        norms = []
+        for l in range(24):
+            d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+            norms.append(np.linalg.norm(d))
+        norms = np.array(norms)
+        weights = norms / (norms.sum() + 1e-10)
+        # Effective number of layers
+        eff_layers = np.exp(-np.sum(weights * np.log(weights + 1e-10)))
+        weighted_center = np.sum(weights * np.arange(24))
+        print(f"  {cname}: effective layers={eff_layers:.2f}, "
+              f"weighted center=L{weighted_center:.1f}, "
+              f"top weight at L{int(np.argmax(weights))} ({weights[np.argmax(weights)]:.4f})")
+    print()
+
+
+def post2000_concept_activation_neuron_concept_correlation_strength(all_acts, concept_names):
+    """Phase 2059: Pearson correlation between individual neuron activations and concept labels."""
+    print("=" * 70)
+    print("PHASE 2059: Neuron-Concept Correlation Strength")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        X = np.vstack([pos, neg])
+        y = np.array([1.0]*len(pos) + [0.0]*len(neg))
+        correlations = np.array([np.corrcoef(X[:, j], y)[0, 1] for j in range(X.shape[1])])
+        top5 = np.argsort(np.abs(correlations))[-5:][::-1]
+        print(f"  {cname} L{layer}: top correlated neurons {top5.tolist()}, "
+              f"max |r|={np.abs(correlations[top5[0]]):.4f}")
+    print()
+
+
+def post2000_concept_activation_phase_2060_checkpoint(all_acts, concept_names):
+    """Phase 2060: Research checkpoint at 2060 phases."""
+    print("=" * 70)
+    print("PHASE 2060: RESEARCH CHECKPOINT (2060 PHASES)")
+    print("=" * 70)
+    print(f"  2060 analysis phases completed — 60 beyond the 2000 milestone!")
+    print(f"  Phases 2051-2060: firing rate consistency, subspace volume, IQR spread,")
+    print(f"  DoM vs LDA, info gain, bimodality, per-sample separation,")
+    print(f"  weighted layer representation, neuron-concept correlation")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -56429,6 +56629,36 @@ def run_analysis():
 
     # Phase 2050: Research checkpoint (informational)
     post2000_concept_activation_phase_2050_checkpoint(all_acts, concept_names)
+
+    # Phase 2051: Firing rate consistency (informational)
+    post2000_concept_activation_neuron_firing_rate_consistency(all_acts, concept_names)
+
+    # Phase 2052: Concept subspace volume (informational)
+    post2000_concept_activation_concept_subspace_volume(all_acts, concept_names)
+
+    # Phase 2053: IQR spread (informational)
+    post2000_concept_activation_neuron_activation_percentile_spread(all_acts, concept_names)
+
+    # Phase 2054: DoM vs LDA alignment (informational)
+    post2000_concept_activation_concept_direction_alignment_with_class_mean(all_acts, concept_names)
+
+    # Phase 2055: Layer transition info gain (informational)
+    post2000_concept_activation_layer_transition_information_gain(all_acts, concept_names)
+
+    # Phase 2056: Bimodality coefficient (informational)
+    post2000_concept_activation_neuron_bimodality_coefficient(all_acts, concept_names)
+
+    # Phase 2057: Per-sample separation (informational)
+    post2000_concept_activation_concept_separation_per_sample(all_acts, concept_names)
+
+    # Phase 2058: Weighted layer representation (informational)
+    post2000_concept_activation_weighted_layer_representation(all_acts, concept_names)
+
+    # Phase 2059: Neuron-concept correlation (informational)
+    post2000_concept_activation_neuron_concept_correlation_strength(all_acts, concept_names)
+
+    # Phase 2060: Research checkpoint (informational)
+    post2000_concept_activation_phase_2060_checkpoint(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
