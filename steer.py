@@ -38428,6 +38428,226 @@ def concept_activation_phase_1460_status(all_acts, concept_names):
     print()
 
 
+def concept_direction_concept_direction_concept_direction_layer_specific_best_pair(all_acts, concept_names, num_layers):
+    """Phase 1461: Find the most orthogonal concept pair at each layer."""
+    print("=" * 70)
+    print("PHASE 1461: MOST ORTHOGONAL CONCEPT PAIR PER LAYER")
+    print("=" * 70)
+    for layer in range(0, num_layers, 6):
+        directions = {}
+        for cname in concept_names:
+            pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+            neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+            d = pos.mean(axis=0) - neg.mean(axis=0)
+            directions[cname] = d / (np.linalg.norm(d) + 1e-10)
+        best_angle = 0
+        best_pair = ("", "")
+        for i, ci in enumerate(concept_names):
+            for j in range(i+1, len(concept_names)):
+                cj = concept_names[j]
+                cos = abs(np.dot(directions[ci], directions[cj]))
+                angle = np.degrees(np.arccos(np.clip(cos, 0, 1)))
+                if angle > best_angle:
+                    best_angle = angle
+                    best_pair = (ci[:8], cj[:8])
+        print(f"  L{layer}: most orthogonal pair: {best_pair[0]} vs {best_pair[1]} ({best_angle:.1f}°)")
+    print()
+
+
+def concept_neuron_concept_neuron_neuron_top_neuron_activation_scatter(all_acts, concept_names):
+    """Phase 1462: Scatter stats of top neuron activations for pos vs neg class."""
+    print("=" * 70)
+    print("PHASE 1462: TOP NEURON ACTIVATION SCATTER")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        diff = np.abs(pos.mean(axis=0) - neg.mean(axis=0))
+        top2 = np.argsort(diff)[-2:][::-1]
+        # 2D scatter stats
+        pos_2d = pos[:, top2]
+        neg_2d = neg[:, top2]
+        pos_cov = np.cov(pos_2d.T)
+        neg_cov = np.cov(neg_2d.T)
+        print(f"  {cname}: neurons {top2[0]},{top2[1]}")
+        print(f"    pos cov det={np.linalg.det(pos_cov):.3f}, neg cov det={np.linalg.det(neg_cov):.3f}")
+    print()
+
+
+def concept_direction_concept_direction_concept_direction_concept_hierarchy_from_emergence(all_acts, concept_names, num_layers):
+    """Phase 1463: Build concept hierarchy based on emergence layer ordering."""
+    print("=" * 70)
+    print("PHASE 1463: CONCEPT HIERARCHY FROM EMERGENCE LAYERS")
+    print("=" * 70)
+    emergence = {}
+    for cname in concept_names:
+        for layer in range(num_layers):
+            pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+            neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+            d = pos.mean(axis=0) - neg.mean(axis=0)
+            d = d / (np.linalg.norm(d) + 1e-10)
+            combined = np.vstack([pos, neg])
+            labels = np.array([1]*len(pos) + [0]*len(neg))
+            proj = combined @ d
+            pred = (proj > np.median(proj)).astype(int)
+            acc = (pred == labels).mean()
+            if acc >= 0.8:
+                emergence[cname] = layer
+                break
+        else:
+            emergence[cname] = num_layers
+    sorted_concepts = sorted(emergence.items(), key=lambda x: x[1])
+    print("Concept emergence ordering (layer where acc >= 0.8):")
+    for cname, layer in sorted_concepts:
+        print(f"  L{layer}: {cname}")
+    print()
+
+
+def concept_activation_concept_activation_activation_layer_transition_smoothness_metric(all_acts, concept_names, num_layers):
+    """Phase 1464: Smoothness of activation transitions between layers."""
+    print("=" * 70)
+    print("PHASE 1464: LAYER TRANSITION SMOOTHNESS")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        pos_means = []
+        for layer in range(num_layers):
+            pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+            pos_means.append(pos.mean(axis=0))
+        # Layer-to-layer cosine similarity of mean activations
+        cosines = []
+        for i in range(len(pos_means)-1):
+            cos = np.dot(pos_means[i], pos_means[i+1]) / (np.linalg.norm(pos_means[i]) * np.linalg.norm(pos_means[i+1]) + 1e-10)
+            cosines.append(cos)
+        print(f"  {cname}: mean layer-transition cosine={np.mean(cosines):.4f}, min={np.min(cosines):.4f}")
+    print()
+
+
+def concept_neuron_concept_neuron_neuron_discriminative_neuron_count_threshold(all_acts, concept_names):
+    """Phase 1465: Count of neurons exceeding various discrimination thresholds."""
+    print("=" * 70)
+    print("PHASE 1465: DISCRIMINATIVE NEURON COUNT BY THRESHOLD")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        diff = np.abs(pos.mean(axis=0) - neg.mean(axis=0))
+        pooled_std = np.sqrt((np.var(pos, axis=0) + np.var(neg, axis=0)) / 2) + 1e-10
+        effect_sizes = diff / pooled_std
+        for threshold in [0.5, 1.0, 2.0, 3.0]:
+            count = np.sum(effect_sizes > threshold)
+            print(f"  {cname}: neurons with effect size > {threshold}: {count}")
+    print()
+
+
+def concept_direction_concept_direction_concept_direction_concept_direction_stability_window(all_acts, concept_names, num_layers):
+    """Phase 1466: Window of layers where concept direction is most stable."""
+    print("=" * 70)
+    print("PHASE 1466: DIRECTION STABILITY WINDOW")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        directions = []
+        for layer in range(num_layers):
+            pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+            neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+            d = pos.mean(axis=0) - neg.mean(axis=0)
+            directions.append(d / (np.linalg.norm(d) + 1e-10))
+        # Find the window of 5 consecutive layers with highest avg pairwise cosine
+        best_window_start = 0
+        best_avg_cos = -1
+        for start in range(num_layers - 5):
+            cosines = []
+            for i in range(start, start+5):
+                for j in range(i+1, start+5):
+                    cosines.append(np.dot(directions[i], directions[j]))
+            avg_cos = np.mean(cosines)
+            if avg_cos > best_avg_cos:
+                best_avg_cos = avg_cos
+                best_window_start = start
+        print(f"  {cname}: most stable window L{best_window_start}-L{best_window_start+4} (avg cosine={best_avg_cos:.4f})")
+    print()
+
+
+def concept_activation_concept_activation_activation_per_concept_effective_rank(all_acts, concept_names):
+    """Phase 1467: Effective rank of activation matrix per concept."""
+    print("=" * 70)
+    print("PHASE 1467: ACTIVATION EFFECTIVE RANK PER CONCEPT")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        combined = np.vstack([pos, neg])
+        centered = combined - combined.mean(axis=0)
+        U, S, Vt = np.linalg.svd(centered, full_matrices=False)
+        S_sq = S ** 2
+        S_norm = S_sq / (S_sq.sum() + 1e-10)
+        eff_rank = np.exp(-np.sum(S_norm[S_norm > 0] * np.log(S_norm[S_norm > 0] + 1e-10)))
+        print(f"  {cname}: effective rank={eff_rank:.1f}, top SV={S[0]:.2f}")
+    print()
+
+
+def concept_neuron_concept_neuron_neuron_most_polysemantic_neuron(all_acts, concept_names):
+    """Phase 1468: Find the most polysemantic neuron (responds to most concepts)."""
+    print("=" * 70)
+    print("PHASE 1468: MOST POLYSEMANTIC NEURON")
+    print("=" * 70)
+    layer = 10
+    n_neurons = 896
+    neuron_concept_count = np.zeros(n_neurons)
+    for cname in concept_names:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        diff = np.abs(pos.mean(axis=0) - neg.mean(axis=0))
+        pooled_std = np.sqrt((np.var(pos, axis=0) + np.var(neg, axis=0)) / 2) + 1e-10
+        effect = diff / pooled_std
+        significant = effect > 1.0
+        neuron_concept_count += significant
+    most_poly = np.argmax(neuron_concept_count)
+    print(f"Most polysemantic neuron: {most_poly} (responds to {int(neuron_concept_count[most_poly])}/{len(concept_names)} concepts)")
+    top5 = np.argsort(neuron_concept_count)[-5:][::-1]
+    for n in top5:
+        print(f"  neuron {n}: {int(neuron_concept_count[n])} concepts")
+    print()
+
+
+def concept_direction_concept_direction_concept_direction_direction_cosine_decay_with_distance(all_acts, concept_names, num_layers):
+    """Phase 1469: How cosine similarity of directions decays with layer distance."""
+    print("=" * 70)
+    print("PHASE 1469: DIRECTION COSINE DECAY WITH LAYER DISTANCE")
+    print("=" * 70)
+    for cname in concept_names[:3]:
+        directions = []
+        for layer in range(num_layers):
+            pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+            neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+            d = pos.mean(axis=0) - neg.mean(axis=0)
+            directions.append(d / (np.linalg.norm(d) + 1e-10))
+        # Average cosine by layer distance
+        dist_cosines = {}
+        for i in range(num_layers):
+            for j in range(i+1, num_layers):
+                dist = j - i
+                cos = np.dot(directions[i], directions[j])
+                dist_cosines.setdefault(dist, []).append(cos)
+        for dist in [1, 2, 5, 10, 15, 20]:
+            if dist in dist_cosines:
+                print(f"  {cname}: distance={dist} layers, mean cosine={np.mean(dist_cosines[dist]):.4f}")
+    print()
+
+
+def concept_activation_phase_1470_status(all_acts, concept_names):
+    """Phase 1470: Status at 1470 phases."""
+    print("=" * 70)
+    print("PHASE 1470: STATUS AT 1470 PHASES")
+    print("=" * 70)
+    print("1470 analysis phases completed.")
+    print(f"Concepts analyzed: {len(concept_names)}")
+    print("All phases informational — scoring pipeline unchanged.")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -42882,6 +43102,36 @@ def run_analysis():
 
     # Phase 1460: Status at 1460 phases (informational)
     concept_activation_phase_1460_status(all_acts, concept_names)
+
+    # Phase 1461: Most orthogonal concept pair per layer (informational)
+    concept_direction_concept_direction_concept_direction_layer_specific_best_pair(all_acts, concept_names, num_layers)
+
+    # Phase 1462: Top neuron activation scatter (informational)
+    concept_neuron_concept_neuron_neuron_top_neuron_activation_scatter(all_acts, concept_names)
+
+    # Phase 1463: Concept hierarchy from emergence layers (informational)
+    concept_direction_concept_direction_concept_direction_concept_hierarchy_from_emergence(all_acts, concept_names, num_layers)
+
+    # Phase 1464: Layer transition smoothness (informational)
+    concept_activation_concept_activation_activation_layer_transition_smoothness_metric(all_acts, concept_names, num_layers)
+
+    # Phase 1465: Discriminative neuron count by threshold (informational)
+    concept_neuron_concept_neuron_neuron_discriminative_neuron_count_threshold(all_acts, concept_names)
+
+    # Phase 1466: Direction stability window (informational)
+    concept_direction_concept_direction_concept_direction_concept_direction_stability_window(all_acts, concept_names, num_layers)
+
+    # Phase 1467: Activation effective rank per concept (informational)
+    concept_activation_concept_activation_activation_per_concept_effective_rank(all_acts, concept_names)
+
+    # Phase 1468: Most polysemantic neuron (informational)
+    concept_neuron_concept_neuron_neuron_most_polysemantic_neuron(all_acts, concept_names)
+
+    # Phase 1469: Direction cosine decay with layer distance (informational)
+    concept_direction_concept_direction_concept_direction_direction_cosine_decay_with_distance(all_acts, concept_names, num_layers)
+
+    # Phase 1470: Status at 1470 phases (informational)
+    concept_activation_phase_1470_status(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
