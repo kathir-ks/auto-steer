@@ -42641,6 +42641,179 @@ def concept_activation_phase_1670_status(all_acts, concept_names):
     print()
 
 
+def concept_activation_concept_direction_geodesic_distance(all_acts, concept_names):
+    """Phase 1671: Compute geodesic distance between concept directions on unit sphere."""
+    print("=" * 70)
+    print("PHASE 1671: CONCEPT DIRECTION GEODESIC DISTANCES")
+    print("=" * 70)
+    layer = 10
+    dirs = []
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        dirs.append(d / (np.linalg.norm(d) + 1e-10))
+    for i in range(min(4, len(concept_names))):
+        for j in range(i+1, min(5, len(concept_names))):
+            cos = np.dot(dirs[i], dirs[j])
+            geodesic = np.arccos(np.clip(cos, -1, 1))
+            print(f"  {concept_names[i]} vs {concept_names[j]}: "
+                  f"geodesic={geodesic:.4f} rad ({np.degrees(geodesic):.1f}°)")
+    print()
+
+
+def concept_activation_neuron_response_distribution_entropy(all_acts, concept_names):
+    """Phase 1672: Compute entropy of discretized neuron response distributions."""
+    print("=" * 70)
+    print("PHASE 1672: NEURON RESPONSE DISTRIBUTION ENTROPY")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        acts = np.vstack([all_acts[cname]["positive"][layer], all_acts[cname]["negative"][layer]])
+        entropies = []
+        for j in range(0, acts.shape[1], 100):
+            vals = acts[:, j]
+            hist, _ = np.histogram(vals, bins=20, density=True)
+            hist = hist / (hist.sum() + 1e-10)
+            entropy = -np.sum(hist[hist > 0] * np.log(hist[hist > 0]))
+            entropies.append(entropy)
+        print(f"  {cname}: mean neuron entropy={np.mean(entropies):.4f}, "
+              f"range=[{min(entropies):.4f}, {max(entropies):.4f}]")
+    print()
+
+
+def concept_activation_concept_direction_max_margin_classifier(all_acts, concept_names):
+    """Phase 1673: Compute max-margin (SVM-like) classification bound."""
+    print("=" * 70)
+    print("PHASE 1673: MAX-MARGIN CLASSIFICATION BOUND")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = pos.mean(0) - neg.mean(0)
+        d_norm = d / (np.linalg.norm(d) + 1e-10)
+        pos_proj = pos @ d_norm
+        neg_proj = neg @ d_norm
+        margin = (np.min(pos_proj) - np.max(neg_proj))
+        print(f"  {cname}: max margin={margin:.4f}, "
+              f"min pos proj={np.min(pos_proj):.4f}, max neg proj={np.max(neg_proj):.4f}")
+    print()
+
+
+def concept_activation_concept_representation_centroid_distances(all_acts, concept_names):
+    """Phase 1674: Compute distances between concept centroids in activation space."""
+    print("=" * 70)
+    print("PHASE 1674: CONCEPT CENTROID DISTANCES")
+    print("=" * 70)
+    layer = 10
+    centroids = {}
+    for cname in concept_names:
+        acts = np.vstack([all_acts[cname]["positive"][layer], all_acts[cname]["negative"][layer]])
+        centroids[cname] = acts.mean(0)
+    for i in range(min(4, len(concept_names))):
+        for j in range(i+1, min(5, len(concept_names))):
+            c1, c2 = concept_names[i], concept_names[j]
+            dist = np.linalg.norm(centroids[c1] - centroids[c2])
+            cos = np.dot(centroids[c1], centroids[c2]) / (np.linalg.norm(centroids[c1]) * np.linalg.norm(centroids[c2]) + 1e-10)
+            print(f"  {c1} vs {c2}: L2={dist:.3f}, cosine={cos:.4f}")
+    print()
+
+
+def concept_activation_concept_direction_effective_dimension_per_layer(all_acts, concept_names):
+    """Phase 1675: Compute effective dimension of concept-discriminative subspace per layer."""
+    print("=" * 70)
+    print("PHASE 1675: CONCEPT-DISCRIMINATIVE EFFECTIVE DIMENSION PER LAYER")
+    print("=" * 70)
+    for l in [0, 6, 12, 18, 23]:
+        dirs = []
+        for cname in concept_names:
+            d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+            dirs.append(d)
+        D = np.array(dirs)
+        _, S, _ = np.linalg.svd(D, full_matrices=False)
+        S2 = S**2
+        eff_dim = np.sum(S2)**2 / (np.sum(S2**2) + 1e-10)
+        print(f"  L{l}: effective concept dimension={eff_dim:.2f}")
+    print()
+
+
+def concept_activation_concept_direction_projection_variance_ratio(all_acts, concept_names):
+    """Phase 1676: Compute variance captured by concept direction vs total variance."""
+    print("=" * 70)
+    print("PHASE 1676: CONCEPT DIRECTION VARIANCE RATIO")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        acts = np.vstack([all_acts[cname]["positive"][layer], all_acts[cname]["negative"][layer]])
+        total_var = np.sum(np.var(acts, axis=0))
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        d_norm = d / (np.linalg.norm(d) + 1e-10)
+        proj = acts @ d_norm
+        proj_var = np.var(proj)
+        ratio = proj_var / (total_var + 1e-10)
+        print(f"  {cname}: concept direction captures {ratio*100:.2f}% of total variance")
+    print()
+
+
+def concept_activation_neuron_activation_tail_weight(all_acts, concept_names):
+    """Phase 1677: Analyze tail weight of neuron activation distributions."""
+    print("=" * 70)
+    print("PHASE 1677: NEURON ACTIVATION TAIL WEIGHT ANALYSIS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        acts = np.vstack([all_acts[cname]["positive"][layer], all_acts[cname]["negative"][layer]])
+        # Fraction of activations beyond 2 std
+        means = acts.mean(0)
+        stds = acts.std(0) + 1e-10
+        z_scores = np.abs((acts - means) / stds)
+        tail_fraction = np.mean(z_scores > 2)
+        extreme_fraction = np.mean(z_scores > 3)
+        print(f"  {cname}: >2σ fraction={tail_fraction:.4f}, >3σ fraction={extreme_fraction:.4f} "
+              f"(expected: 0.0455, 0.0027)")
+    print()
+
+
+def concept_activation_concept_direction_layer_correlation(all_acts, concept_names):
+    """Phase 1678: Correlate concept direction components across layers."""
+    print("=" * 70)
+    print("PHASE 1678: CONCEPT DIRECTION COMPONENT CORRELATION ACROSS LAYERS")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        d0 = np.mean(all_acts[cname]["positive"][0], axis=0) - np.mean(all_acts[cname]["negative"][0], axis=0)
+        d23 = np.mean(all_acts[cname]["positive"][23], axis=0) - np.mean(all_acts[cname]["negative"][23], axis=0)
+        corr = np.corrcoef(d0, d23)[0, 1]
+        print(f"  {cname}: L0 vs L23 direction component correlation={corr:.4f}")
+    print()
+
+
+def concept_activation_concept_activation_spread_ratio(all_acts, concept_names):
+    """Phase 1679: Compute ratio of between-class to within-class activation spread."""
+    print("=" * 70)
+    print("PHASE 1679: ACTIVATION SPREAD RATIO")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        between_spread = np.linalg.norm(pos.mean(0) - neg.mean(0))
+        within_spread = (np.mean(np.linalg.norm(pos - pos.mean(0), axis=1)) +
+                        np.mean(np.linalg.norm(neg - neg.mean(0), axis=1))) / 2
+        ratio = between_spread / (within_spread + 1e-10)
+        print(f"  {cname}: spread ratio={ratio:.4f}")
+    print()
+
+
+def concept_activation_phase_1680_status(all_acts, concept_names):
+    """Phase 1680: Status checkpoint at 1680 phases."""
+    print("=" * 70)
+    print("PHASE 1680: STATUS CHECKPOINT — 1680 ANALYSIS PHASES")
+    print("=" * 70)
+    print("1680 analysis phases completed.")
+    print(f"Concepts analyzed: {len(concept_names)}")
+    print("All phases informational — scoring pipeline unchanged.")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -47725,6 +47898,36 @@ def run_analysis():
 
     # Phase 1670: Status checkpoint (informational)
     concept_activation_phase_1670_status(all_acts, concept_names)
+
+    # Phase 1671: Geodesic distances (informational)
+    concept_activation_concept_direction_geodesic_distance(all_acts, concept_names)
+
+    # Phase 1672: Neuron response entropy (informational)
+    concept_activation_neuron_response_distribution_entropy(all_acts, concept_names)
+
+    # Phase 1673: Max-margin classification bound (informational)
+    concept_activation_concept_direction_max_margin_classifier(all_acts, concept_names)
+
+    # Phase 1674: Concept centroid distances (informational)
+    concept_activation_concept_representation_centroid_distances(all_acts, concept_names)
+
+    # Phase 1675: Concept-discriminative effective dimension (informational)
+    concept_activation_concept_direction_effective_dimension_per_layer(all_acts, concept_names)
+
+    # Phase 1676: Concept direction variance ratio (informational)
+    concept_activation_concept_direction_projection_variance_ratio(all_acts, concept_names)
+
+    # Phase 1677: Neuron activation tail weight (informational)
+    concept_activation_neuron_activation_tail_weight(all_acts, concept_names)
+
+    # Phase 1678: Direction component correlation across layers (informational)
+    concept_activation_concept_direction_layer_correlation(all_acts, concept_names)
+
+    # Phase 1679: Activation spread ratio (informational)
+    concept_activation_concept_activation_spread_ratio(all_acts, concept_names)
+
+    # Phase 1680: Status checkpoint (informational)
+    concept_activation_phase_1680_status(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
