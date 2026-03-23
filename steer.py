@@ -48570,6 +48570,199 @@ def concept_activation_phase_1970_checkpoint(all_acts, concept_names):
     print()
 
 
+def concept_activation_neuron_concept_direction_stability_vs_magnitude(all_acts, concept_names):
+    """Phase 1971: Relationship between direction stability and magnitude."""
+    print("=" * 70)
+    print("PHASE 1971: DIRECTION STABILITY VS MAGNITUDE")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        magnitude = np.linalg.norm(d)
+        # Stability via bootstrap
+        cosines = []
+        for _ in range(10):
+            idx = np.random.choice(len(pos), len(pos), replace=True)
+            boot_d = np.mean(pos[idx], axis=0) - np.mean(neg, axis=0)
+            boot_d = boot_d / (np.linalg.norm(boot_d) + 1e-10)
+            cosines.append(np.dot(d/(magnitude+1e-10), boot_d))
+        stability = np.mean(cosines)
+        print(f"  {cname}: magnitude={magnitude:.4f}, stability={stability:.6f}")
+    print()
+
+
+def concept_activation_concept_direction_layer_wise_condition_number(all_acts, concept_names):
+    """Phase 1972: Condition number of concept directions at each layer."""
+    print("=" * 70)
+    print("PHASE 1972: LAYER-WISE CONDITION NUMBER OF CONCEPT DIRECTIONS")
+    print("=" * 70)
+    for layer in [0, 4, 8, 12, 16, 20, 23]:
+        directions = []
+        for cname in concept_names:
+            d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+            d = d / (np.linalg.norm(d) + 1e-10)
+            directions.append(d)
+        G = np.array(directions) @ np.array(directions).T
+        cond = np.linalg.cond(G)
+        print(f"  Layer {layer:2d}: condition_number={cond:.2f}")
+    print()
+
+
+def concept_activation_neuron_activation_global_statistics(all_acts, concept_names):
+    """Phase 1973: Global statistics across all neurons and concepts."""
+    print("=" * 70)
+    print("PHASE 1973: GLOBAL NEURON ACTIVATION STATISTICS")
+    print("=" * 70)
+    layer = 10
+    all_data = []
+    for cname in concept_names:
+        all_data.append(all_acts[cname]["positive"][layer])
+        all_data.append(all_acts[cname]["negative"][layer])
+    all_data = np.vstack(all_data)
+    print(f"  Total samples: {len(all_data)}")
+    print(f"  Dimensions: {all_data.shape[1]}")
+    print(f"  Global mean norm: {np.mean(np.linalg.norm(all_data, axis=1)):.4f}")
+    print(f"  Global std of norms: {np.std(np.linalg.norm(all_data, axis=1)):.4f}")
+    print(f"  Sparsity (frac near zero): {np.mean(np.abs(all_data) < 0.01):.4f}")
+    print()
+
+
+def concept_activation_concept_direction_geometric_properties(all_acts, concept_names):
+    """Phase 1974: Geometric properties of concept direction arrangement."""
+    print("=" * 70)
+    print("PHASE 1974: GEOMETRIC PROPERTIES OF CONCEPT DIRECTIONS")
+    print("=" * 70)
+    layer = 10
+    directions = []
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        directions.append(d)
+    norms = [np.linalg.norm(d) for d in directions]
+    unit_dirs = [d/(np.linalg.norm(d)+1e-10) for d in directions]
+    # Centroid of unit directions
+    centroid = np.mean(unit_dirs, axis=0)
+    centroid_norm = np.linalg.norm(centroid)
+    # Spread around centroid
+    spread = np.mean([np.linalg.norm(d - centroid) for d in unit_dirs])
+    print(f"  Centroid norm: {centroid_norm:.4f} (0=uniform spread, 1=clustered)")
+    print(f"  Spread: {spread:.4f}")
+    print(f"  Norm range: [{min(norms):.4f}, {max(norms):.4f}]")
+    print()
+
+
+def concept_activation_neuron_concept_activation_mutual_info_profile(all_acts, concept_names):
+    """Phase 1975: Mutual information profile of top neurons."""
+    print("=" * 70)
+    print("PHASE 1975: MUTUAL INFORMATION PROFILE OF TOP NEURONS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:3]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        X = np.vstack([pos, neg])
+        y = np.array([1]*len(pos) + [0]*len(neg))
+        mi = mutual_info_classif(X, y, n_neighbors=3, random_state=42)
+        sorted_mi = np.sort(mi)[::-1]
+        print(f"  {cname}: top5_MI={sorted_mi[:5].tolist()}, total_MI={np.sum(mi):.4f}")
+    print()
+
+
+def concept_activation_concept_direction_projection_normality_test(all_acts, concept_names):
+    """Phase 1976: Test normality of concept direction projections."""
+    print("=" * 70)
+    print("PHASE 1976: PROJECTION NORMALITY TEST")
+    print("=" * 70)
+    from scipy.stats import shapiro
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        pos_proj = pos @ d
+        neg_proj = neg @ d
+        try:
+            _, p_pos = shapiro(pos_proj)
+            _, p_neg = shapiro(neg_proj)
+            print(f"  {cname}: pos_shapiro_p={p_pos:.4f}, neg_shapiro_p={p_neg:.4f}, pos_normal={p_pos>0.05}, neg_normal={p_neg>0.05}")
+        except Exception:
+            print(f"  {cname}: shapiro test failed")
+    print()
+
+
+def concept_activation_neuron_concept_activation_layer_profile_summary(all_acts, concept_names):
+    """Phase 1977: Summary of neuron activation profiles across layers."""
+    print("=" * 70)
+    print("PHASE 1977: NEURON ACTIVATION LAYER PROFILE SUMMARY")
+    print("=" * 70)
+    for cname in concept_names[:3]:
+        norms_per_layer = []
+        for l in range(24):
+            pos = all_acts[cname]["positive"][l]
+            neg = all_acts[cname]["negative"][l]
+            all_data = np.vstack([pos, neg])
+            norms_per_layer.append(np.mean(np.linalg.norm(all_data, axis=1)))
+        growth = norms_per_layer[-1] / (norms_per_layer[0] + 1e-10)
+        peak = np.argmax(norms_per_layer)
+        print(f"  {cname}: L0_norm={norms_per_layer[0]:.2f}, L23_norm={norms_per_layer[-1]:.2f}, growth={growth:.2f}x, peak_layer={peak}")
+    print()
+
+
+def concept_activation_concept_direction_final_orthogonality_check(all_acts, concept_names):
+    """Phase 1978: Final check of concept direction orthogonality."""
+    print("=" * 70)
+    print("PHASE 1978: FINAL ORTHOGONALITY CHECK")
+    print("=" * 70)
+    layer = 10
+    directions = []
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        directions.append(d)
+    G = np.array(directions) @ np.array(directions).T
+    off_diag = np.abs(G - np.eye(len(concept_names)))
+    max_off = np.max(off_diag)
+    mean_off = np.mean(off_diag[np.triu_indices_from(off_diag, k=1)])
+    det = np.linalg.det(G)
+    print(f"  Max off-diagonal |cos|: {max_off:.6f}")
+    print(f"  Mean off-diagonal |cos|: {mean_off:.6f}")
+    print(f"  Gram determinant: {det:.6f}")
+    print(f"  Orthogonality: {'excellent' if max_off < 0.1 else 'good' if max_off < 0.3 else 'moderate'}")
+    print()
+
+
+def concept_activation_neuron_concept_final_neuron_statistics(all_acts, concept_names):
+    """Phase 1979: Final summary of neuron statistics."""
+    print("=" * 70)
+    print("PHASE 1979: FINAL NEURON STATISTICS SUMMARY")
+    print("=" * 70)
+    layer = 10
+    n_neurons = all_acts[concept_names[0]]["positive"][layer].shape[1]
+    total_important = set()
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        diff = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+        top10 = set(np.argsort(diff)[-10:].tolist())
+        total_important.update(top10)
+    print(f"  Total neurons: {n_neurons}")
+    print(f"  Unique important neurons (top10 per concept): {len(total_important)}")
+    print(f"  Coverage: {len(total_important)/n_neurons:.4f}")
+    print()
+
+
+def concept_activation_phase_1980_checkpoint(all_acts, concept_names):
+    """Phase 1980: Status checkpoint."""
+    print("=" * 70)
+    print("PHASE 1980: STATUS CHECKPOINT")
+    print("=" * 70)
+    print(f"  1980 analysis phases completed")
+    print(f"  20 phases to 2000 MEGA MILESTONE!")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -54554,6 +54747,36 @@ def run_analysis():
 
     # Phase 1970: Status checkpoint (informational)
     concept_activation_phase_1970_checkpoint(all_acts, concept_names)
+
+    # Phase 1971: Direction stability vs magnitude (informational)
+    concept_activation_neuron_concept_direction_stability_vs_magnitude(all_acts, concept_names)
+
+    # Phase 1972: Layer-wise condition number (informational)
+    concept_activation_concept_direction_layer_wise_condition_number(all_acts, concept_names)
+
+    # Phase 1973: Global neuron statistics (informational)
+    concept_activation_neuron_activation_global_statistics(all_acts, concept_names)
+
+    # Phase 1974: Geometric properties (informational)
+    concept_activation_concept_direction_geometric_properties(all_acts, concept_names)
+
+    # Phase 1975: MI profile of top neurons (informational)
+    concept_activation_neuron_concept_activation_mutual_info_profile(all_acts, concept_names)
+
+    # Phase 1976: Projection normality test (informational)
+    concept_activation_concept_direction_projection_normality_test(all_acts, concept_names)
+
+    # Phase 1977: Layer profile summary (informational)
+    concept_activation_neuron_concept_activation_layer_profile_summary(all_acts, concept_names)
+
+    # Phase 1978: Final orthogonality check (informational)
+    concept_activation_concept_direction_final_orthogonality_check(all_acts, concept_names)
+
+    # Phase 1979: Final neuron statistics (informational)
+    concept_activation_neuron_concept_final_neuron_statistics(all_acts, concept_names)
+
+    # Phase 1980: Status checkpoint (informational)
+    concept_activation_phase_1980_checkpoint(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
