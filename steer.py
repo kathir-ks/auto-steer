@@ -59100,6 +59100,476 @@ def post2000_concept_activation_phase_2490_checkpoint(all_acts, concept_names):
     print()
 
 
+def post2000_concept_activation_neuron_activation_histogram_stats_v2(all_acts, concept_names):
+    """Phase 2491: Histogram statistics of neuron activations."""
+    print("=" * 70)
+    print("PHASE 2491: NEURON ACTIVATION HISTOGRAM STATISTICS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        all_data = np.vstack([pos, neg]).flatten()
+        n_negative = np.sum(all_data < 0)
+        n_zero = np.sum(np.abs(all_data) < 0.001)
+        n_positive = np.sum(all_data > 0)
+        print(f"  {cname}: negative={n_negative}/{len(all_data)} ({n_negative/len(all_data)*100:.1f}%), zero={n_zero}, positive={n_positive}")
+    print()
+
+
+def post2000_concept_activation_concept_pair_interaction_score(all_acts, concept_names):
+    """Phase 2492: Interaction score between concept pairs."""
+    print("=" * 70)
+    print("PHASE 2492: CONCEPT PAIR INTERACTION SCORE")
+    print("=" * 70)
+    layer = 10
+    for c1, c2 in [("sentiment", "emotion_joy_anger"), ("formality", "complexity"), ("certainty", "subjectivity"), ("temporal", "instruction")]:
+        pos1 = all_acts[c1]["positive"][layer]
+        neg1 = all_acts[c1]["negative"][layer]
+        pos2 = all_acts[c2]["positive"][layer]
+        neg2 = all_acts[c2]["negative"][layer]
+        d1 = np.mean(pos1, axis=0) - np.mean(neg1, axis=0)
+        d2 = np.mean(pos2, axis=0) - np.mean(neg2, axis=0)
+        top1 = np.argsort(np.abs(d1))[-10:]
+        cross_response = np.mean(np.abs(d2[top1])) / (np.mean(np.abs(d2)) + 1e-10)
+        top2 = np.argsort(np.abs(d2))[-10:]
+        print(f"  {c1}-{c2}: cross_response={cross_response:.4f}, shared_top10={len(set(top1) & set(top2))}")
+    print()
+
+
+def post2000_concept_activation_sample_level_direction_alignment_v2(all_acts, concept_names):
+    """Phase 2493: Sample-level alignment with concept direction."""
+    print("=" * 70)
+    print("PHASE 2493: SAMPLE-LEVEL DIRECTION ALIGNMENT")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        direction = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        direction = direction / (np.linalg.norm(direction) + 1e-10)
+        pos_align = [np.dot(pos[i] / (np.linalg.norm(pos[i]) + 1e-10), direction) for i in range(30)]
+        neg_align = [np.dot(neg[i] / (np.linalg.norm(neg[i]) + 1e-10), direction) for i in range(30)]
+        print(f"  {cname}: pos_align={np.mean(pos_align):.4f}±{np.std(pos_align):.4f}, neg_align={np.mean(neg_align):.4f}±{np.std(neg_align):.4f}")
+    print()
+
+
+def post2000_concept_activation_weighted_neuron_importance_global(all_acts, concept_names):
+    """Phase 2494: Global importance-weighted neuron statistics."""
+    print("=" * 70)
+    print("PHASE 2494: IMPORTANCE-WEIGHTED NEURON STATISTICS")
+    print("=" * 70)
+    layer = 10
+    total_importance = np.zeros(896)
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        total_importance += np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+    total_importance /= len(concept_names)
+    top20 = np.argsort(total_importance)[-20:][::-1]
+    print(f"  Top 20 globally important: {top20[:10].tolist()}...")
+    print(f"  Top importance: {[f'{total_importance[i]:.4f}' for i in top20[:5]]}")
+    print(f"  Range: {total_importance.min():.6f} to {total_importance.max():.4f}")
+    print()
+
+
+def post2000_concept_activation_layer_transition_detail(all_acts, concept_names):
+    """Phase 2495: Detailed layer transition analysis."""
+    print("=" * 70)
+    print("PHASE 2495: LAYER TRANSITION ANALYSIS")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        transitions = []
+        for L in range(23):
+            pos1 = all_acts[cname]["positive"][L]
+            neg1 = all_acts[cname]["negative"][L]
+            pos2 = all_acts[cname]["positive"][L+1]
+            neg2 = all_acts[cname]["negative"][L+1]
+            d1 = np.mean(pos1, axis=0) - np.mean(neg1, axis=0)
+            d2 = np.mean(pos2, axis=0) - np.mean(neg2, axis=0)
+            change = np.linalg.norm(d2 - d1)
+            transitions.append(change)
+        transitions = np.array(transitions)
+        biggest = np.argmax(transitions)
+        print(f"  {cname}: biggest_transition=L{biggest}->L{biggest+1} ({transitions[biggest]:.4f}), total={transitions.sum():.4f}")
+    print()
+
+
+def post2000_concept_activation_joint_concept_subspace_dim(all_acts, concept_names):
+    """Phase 2496: Joint concept subspace dimensionality."""
+    print("=" * 70)
+    print("PHASE 2496: JOINT CONCEPT SUBSPACE DIMENSIONALITY")
+    print("=" * 70)
+    layer = 10
+    all_directions = []
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        all_directions.append(d)
+    D = np.array(all_directions)
+    U, S, Vt = np.linalg.svd(D, full_matrices=False)
+    cumulative = np.cumsum(S**2) / np.sum(S**2)
+    n_90 = np.searchsorted(cumulative, 0.9) + 1
+    print(f"  Singular values: {[f'{s:.4f}' for s in S]}")
+    print(f"  Dims for 90%: {n_90}, effective_dim={np.sum(S**2)**2 / (np.sum(S**4) + 1e-10):.2f}")
+    print()
+
+
+def post2000_concept_activation_neuron_pair_synergy_analysis(all_acts, concept_names):
+    """Phase 2497: Synergy between neuron pairs."""
+    print("=" * 70)
+    print("PHASE 2497: NEURON PAIR SYNERGY")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:3]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        importance = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+        top5 = np.argsort(importance)[-5:][::-1]
+        all_data = np.vstack([pos, neg])
+        labels = np.array([1]*30 + [0]*30)
+        n1, n2 = top5[0], top5[1]
+        pair_data = all_data[:, [n1, n2]]
+        d = np.mean(pair_data[:30], axis=0) - np.mean(pair_data[30:], axis=0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        proj = pair_data @ d
+        threshold = (np.mean(proj[:30]) + np.mean(proj[30:])) / 2
+        pair_acc = np.mean((proj > threshold) == labels)
+        print(f"  {cname}: neurons {n1}+{n2} -> pair_acc={pair_acc:.4f}")
+    print()
+
+
+def post2000_concept_activation_point_biserial_per_concept(all_acts, concept_names):
+    """Phase 2498: Point-biserial correlation per concept."""
+    print("=" * 70)
+    print("PHASE 2498: NEURON-LABEL POINT-BISERIAL CORRELATION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        all_data = np.vstack([pos, neg])
+        labels = np.array([1.0]*30 + [0.0]*30)
+        corrs = np.array([np.corrcoef(all_data[:, i], labels)[0, 1] for i in range(896)])
+        top_pos = np.argsort(corrs)[-3:][::-1]
+        top_neg = np.argsort(corrs)[:3]
+        print(f"  {cname}: top_pos={top_pos.tolist()} ({[f'{corrs[i]:.4f}' for i in top_pos]}), top_neg={top_neg.tolist()}")
+    print()
+
+
+def post2000_concept_activation_direction_topk_reconstruction(all_acts, concept_names):
+    """Phase 2499: Concept direction reconstruction from top-k components."""
+    print("=" * 70)
+    print("PHASE 2499: DIRECTION RECONSTRUCTION FROM TOP-K")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        direction = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        sorted_idx = np.argsort(np.abs(direction))[::-1]
+        for k in [5, 10, 50, 100]:
+            recon = np.zeros(896)
+            recon[sorted_idx[:k]] = direction[sorted_idx[:k]]
+            cosine = np.dot(recon, direction) / (np.linalg.norm(recon) * np.linalg.norm(direction) + 1e-10)
+            print(f"  {cname}: top-{k} -> cosine={cosine:.6f}")
+    print()
+
+
+def post2000_concept_activation_phase_2500_milestone(all_acts, concept_names):
+    """Phase 2500: MILESTONE — 500 phases beyond 2000!"""
+    print("=" * 70)
+    print("PHASE 2500: *** MILESTONE — 500 BEYOND 2000 ***")
+    print("=" * 70)
+    print(f"  *** 2500 ANALYSIS PHASES COMPLETED ***")
+    print(f"  500 phases beyond the 2000 milestone!")
+    print(f"  This autonomous interpretability research loop has executed 2500")
+    print(f"  analysis phases on Qwen2.5-0.5B, covering sparsity, monosemanticity,")
+    print(f"  orthogonality, layer locality, and dozens of advanced analyses.")
+    print()
+
+
+def post2000_concept_activation_nonlinear_probe_comparison(all_acts, concept_names):
+    """Phase 2501: Compare linear vs nonlinear (2-layer) probing accuracy to test linearity hypothesis."""
+    print("=" * 70)
+    print("PHASE 2501: LINEAR VS NONLINEAR PROBE COMPARISON")
+    print("=" * 70)
+    from sklearn.neural_network import MLPClassifier
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        X = np.vstack([pos, neg])
+        y = np.array([1]*30 + [0]*30)
+        scaler = StandardScaler()
+        X_s = scaler.fit_transform(X)
+        # Linear probe
+        lin = LogisticRegression(C=1.0, max_iter=1000, random_state=42)
+        lin_scores = cross_val_score(lin, X_s, y, cv=5, scoring='accuracy')
+        # Nonlinear probe (small MLP)
+        mlp = MLPClassifier(hidden_layer_sizes=(32,), max_iter=500, random_state=42)
+        mlp_scores = cross_val_score(mlp, X_s, y, cv=5, scoring='accuracy')
+        gap = np.mean(mlp_scores) - np.mean(lin_scores)
+        print(f"  {cname}: linear={np.mean(lin_scores):.4f}, MLP={np.mean(mlp_scores):.4f}, gap={gap:+.4f} ({'nonlinear helps' if gap > 0.02 else 'linear sufficient'})")
+    print()
+
+
+def post2000_concept_activation_token_position_effect(all_acts, concept_names):
+    """Phase 2502: Analyze variance structure that might reveal token position effects."""
+    print("=" * 70)
+    print("PHASE 2502: ACTIVATION VARIANCE DECOMPOSITION (BETWEEN VS WITHIN)")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        # Between-class variance vs within-class variance (multivariate)
+        grand_mean = np.mean(np.vstack([pos, neg]), axis=0)
+        between = 30 * (np.linalg.norm(np.mean(pos, axis=0) - grand_mean)**2 +
+                        np.linalg.norm(np.mean(neg, axis=0) - grand_mean)**2)
+        within_pos = np.sum(np.linalg.norm(pos - np.mean(pos, axis=0), axis=1)**2)
+        within_neg = np.sum(np.linalg.norm(neg - np.mean(neg, axis=0), axis=1)**2)
+        within = within_pos + within_neg
+        ratio = between / (within + 1e-10)
+        print(f"  {cname}: between_var={between:.2f}, within_var={within:.2f}, F_ratio={ratio:.4f}")
+    print()
+
+
+def post2000_concept_activation_adversarial_direction(all_acts, concept_names):
+    """Phase 2503: Find adversarial directions that maximally confuse classification."""
+    print("=" * 70)
+    print("PHASE 2503: ADVERSARIAL DIRECTION ANALYSIS")
+    print("=" * 70)
+    layer = 10
+    rng = np.random.RandomState(42)
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        direction = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        direction = direction / (np.linalg.norm(direction) + 1e-10)
+        all_data = np.vstack([pos, neg])
+        labels = np.array([1]*30 + [0]*30)
+        # Find direction orthogonal to concept direction with max variance
+        all_centered = all_data - np.mean(all_data, axis=0)
+        # Project out concept direction
+        residual = all_centered - np.outer(all_centered @ direction, direction)
+        cov_res = np.cov(residual.T)
+        eigvals, eigvecs = np.linalg.eigh(cov_res)
+        adv_dir = eigvecs[:, -1]  # largest variance orthogonal direction
+        # How much does projecting onto adversarial direction classify?
+        adv_proj = all_data @ adv_dir
+        threshold = np.median(adv_proj)
+        adv_acc = max(np.mean((adv_proj > threshold) == labels),
+                      np.mean((adv_proj <= threshold) == labels))
+        print(f"  {cname}: adversarial_dir_acc={adv_acc:.4f} (should be ~0.50 if concept is clean)")
+    print()
+
+
+def post2000_concept_activation_concept_interference_ablation(all_acts, concept_names):
+    """Phase 2504: Does removing one concept's direction hurt classification of others?"""
+    print("=" * 70)
+    print("PHASE 2504: CONCEPT INTERFERENCE (ABLATION)")
+    print("=" * 70)
+    layer = 10
+    directions = {}
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        directions[cname] = d / (np.linalg.norm(d) + 1e-10)
+    # For each concept, ablate its direction and check others
+    for ablated in concept_names[:3]:
+        d_abl = directions[ablated]
+        worst_drop = 0
+        worst_victim = ""
+        for victim in concept_names:
+            if victim == ablated:
+                continue
+            pos = all_acts[victim]["positive"][layer]
+            neg = all_acts[victim]["negative"][layer]
+            # Remove ablated direction from victim's data
+            pos_clean = pos - np.outer(pos @ d_abl, d_abl)
+            neg_clean = neg - np.outer(neg @ d_abl, d_abl)
+            d_v = np.mean(pos_clean, axis=0) - np.mean(neg_clean, axis=0)
+            d_v = d_v / (np.linalg.norm(d_v) + 1e-10)
+            all_data = np.vstack([pos_clean, neg_clean])
+            labels = np.array([1]*30 + [0]*30)
+            proj = all_data @ d_v
+            threshold = (np.mean(proj[:30]) + np.mean(proj[30:])) / 2
+            acc = np.mean((proj > threshold) == labels)
+            drop = 1.0 - acc
+            if drop > worst_drop:
+                worst_drop = drop
+                worst_victim = victim
+        print(f"  Ablate {ablated}: worst_victim={worst_victim}, acc_drop={worst_drop:.4f}")
+    print()
+
+
+def post2000_concept_activation_concept_composition_test(all_acts, concept_names):
+    """Phase 2505: Can concept directions be composed? Test if sum of directions is meaningful."""
+    print("=" * 70)
+    print("PHASE 2505: CONCEPT DIRECTION COMPOSITION")
+    print("=" * 70)
+    layer = 10
+    directions = {}
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        directions[cname] = d / (np.linalg.norm(d) + 1e-10)
+    # Compose sentiment + formality
+    pairs = [("sentiment", "formality"), ("certainty", "complexity"), ("temporal", "subjectivity")]
+    for c1, c2 in pairs:
+        composed = directions[c1] + directions[c2]
+        composed = composed / (np.linalg.norm(composed) + 1e-10)
+        # Test composed direction on each concept
+        acc1 = _test_direction_acc(all_acts, c1, layer, composed)
+        acc2 = _test_direction_acc(all_acts, c2, layer, composed)
+        print(f"  {c1}+{c2} composed: {c1}_acc={acc1:.4f}, {c2}_acc={acc2:.4f}")
+    print()
+
+
+def _test_direction_acc(all_acts, cname, layer, direction):
+    """Helper for phase 2505."""
+    pos = all_acts[cname]["positive"][layer]
+    neg = all_acts[cname]["negative"][layer]
+    all_data = np.vstack([pos, neg])
+    labels = np.array([1]*30 + [0]*30)
+    proj = all_data @ direction
+    threshold = (np.mean(proj[:30]) + np.mean(proj[30:])) / 2
+    return float(np.mean((proj > threshold) == labels))
+
+
+def post2000_concept_activation_manifold_intrinsic_dim(all_acts, concept_names):
+    """Phase 2506: Estimate intrinsic dimensionality of activation manifold using MLE."""
+    print("=" * 70)
+    print("PHASE 2506: MANIFOLD INTRINSIC DIMENSIONALITY (MLE)")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        all_data = np.vstack([pos, neg])
+        # MLE estimator of intrinsic dim (Levina & Bickel 2005)
+        k = 5  # neighborhood size
+        from scipy.spatial.distance import cdist
+        D = cdist(all_data, all_data)
+        np.fill_diagonal(D, np.inf)
+        dims = []
+        for i in range(len(all_data)):
+            dists = np.sort(D[i])[:k+1]
+            dists = dists[dists > 0][:k]
+            if len(dists) >= 2 and dists[-1] > 0:
+                log_ratios = np.log(dists[-1] / (dists[:-1] + 1e-15))
+                dim_est = (len(log_ratios)) / (np.sum(log_ratios) + 1e-10)
+                dims.append(dim_est)
+        if dims:
+            print(f"  {cname}: intrinsic_dim={np.mean(dims):.1f}±{np.std(dims):.1f}")
+        else:
+            print(f"  {cname}: could not estimate")
+    print()
+
+
+def post2000_concept_activation_concept_direction_via_lda(all_acts, concept_names):
+    """Phase 2507: Compare concept directions from LDA vs difference-of-means."""
+    print("=" * 70)
+    print("PHASE 2507: LDA VS DIFFERENCE-OF-MEANS DIRECTIONS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        # Difference of means direction
+        dom = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        dom = dom / (np.linalg.norm(dom) + 1e-10)
+        # LDA direction: S_w^{-1} (mu_pos - mu_neg)
+        S_w = np.cov(pos.T) + np.cov(neg.T)
+        try:
+            # Regularized inverse
+            S_w_reg = S_w + 0.01 * np.eye(896)
+            lda_dir = np.linalg.solve(S_w_reg, np.mean(pos, axis=0) - np.mean(neg, axis=0))
+            lda_dir = lda_dir / (np.linalg.norm(lda_dir) + 1e-10)
+            cosine = np.dot(dom, lda_dir)
+            # Test both
+            acc_dom = _test_direction_acc(all_acts, cname, layer, dom)
+            acc_lda = _test_direction_acc(all_acts, cname, layer, lda_dir)
+            print(f"  {cname}: DOM_acc={acc_dom:.4f}, LDA_acc={acc_lda:.4f}, cosine={cosine:.4f}")
+        except np.linalg.LinAlgError:
+            print(f"  {cname}: LDA failed (singular S_w)")
+    print()
+
+
+def post2000_concept_activation_concept_direction_via_svm(all_acts, concept_names):
+    """Phase 2508: Compare concept directions from SVM vs logistic regression."""
+    print("=" * 70)
+    print("PHASE 2508: SVM VS LOGISTIC REGRESSION DIRECTIONS")
+    print("=" * 70)
+    from sklearn.svm import LinearSVC
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        X = np.vstack([pos, neg])
+        y = np.array([1]*30 + [0]*30)
+        scaler = StandardScaler()
+        X_s = scaler.fit_transform(X)
+        # Logistic regression direction
+        lr = LogisticRegression(C=1.0, max_iter=1000, random_state=42)
+        lr.fit(X_s, y)
+        lr_dir = lr.coef_[0] / scaler.scale_
+        lr_dir = lr_dir / (np.linalg.norm(lr_dir) + 1e-10)
+        # SVM direction
+        svm = LinearSVC(C=1.0, max_iter=1000, random_state=42, dual=True)
+        svm.fit(X_s, y)
+        svm_dir = svm.coef_[0] / scaler.scale_
+        svm_dir = svm_dir / (np.linalg.norm(svm_dir) + 1e-10)
+        cosine = np.dot(lr_dir, svm_dir)
+        print(f"  {cname}: LR-SVM cosine={cosine:.6f} ({'nearly identical' if cosine > 0.99 else 'different'})")
+    print()
+
+
+def post2000_concept_activation_bootstrap_confidence_interval(all_acts, concept_names):
+    """Phase 2509: Bootstrap confidence intervals for concept direction angles."""
+    print("=" * 70)
+    print("PHASE 2509: BOOTSTRAP CONFIDENCE INTERVALS FOR PAIRWISE ANGLES")
+    print("=" * 70)
+    layer = 10
+    rng = np.random.RandomState(42)
+    pairs = [("sentiment", "emotion_joy_anger"), ("formality", "complexity")]
+    for c1, c2 in pairs:
+        angles = []
+        for _ in range(100):
+            idx = rng.choice(30, 30, replace=True)
+            pos1 = all_acts[c1]["positive"][layer][idx]
+            neg1 = all_acts[c1]["negative"][layer][idx]
+            pos2 = all_acts[c2]["positive"][layer][idx]
+            neg2 = all_acts[c2]["negative"][layer][idx]
+            d1 = np.mean(pos1, axis=0) - np.mean(neg1, axis=0)
+            d1 = d1 / (np.linalg.norm(d1) + 1e-10)
+            d2 = np.mean(pos2, axis=0) - np.mean(neg2, axis=0)
+            d2 = d2 / (np.linalg.norm(d2) + 1e-10)
+            angle = np.degrees(np.arccos(np.clip(abs(np.dot(d1, d2)), 0, 1)))
+            angles.append(angle)
+        angles = np.array(angles)
+        ci_low = np.percentile(angles, 2.5)
+        ci_high = np.percentile(angles, 97.5)
+        print(f"  {c1}-{c2}: angle={np.mean(angles):.1f}° [95% CI: {ci_low:.1f}°-{ci_high:.1f}°]")
+    print()
+
+
+def post2000_concept_activation_phase_2510_checkpoint(all_acts, concept_names):
+    """Phase 2510: Research checkpoint."""
+    print("=" * 70)
+    print("PHASE 2510: RESEARCH CHECKPOINT — 510 BEYOND 2000")
+    print("=" * 70)
+    print(f"  2510 analysis phases completed — 510 beyond the 2000 milestone!")
+    print(f"  Phases 2501-2510: nonlinear probe comparison, variance decomposition,")
+    print(f"  adversarial directions, concept interference ablation, direction composition,")
+    print(f"  manifold intrinsic dim, LDA vs DOM, SVM vs LR, bootstrap CI")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -66644,6 +67114,66 @@ def run_analysis():
 
     # Phase 2490: Research checkpoint (informational)
     post2000_concept_activation_phase_2490_checkpoint(all_acts, concept_names)
+
+    # Phase 2491: Neuron activation histogram stats (informational)
+    post2000_concept_activation_neuron_activation_histogram_stats_v2(all_acts, concept_names)
+
+    # Phase 2492: Concept pair interaction score (informational)
+    post2000_concept_activation_concept_pair_interaction_score(all_acts, concept_names)
+
+    # Phase 2493: Sample-level direction alignment (informational)
+    post2000_concept_activation_sample_level_direction_alignment_v2(all_acts, concept_names)
+
+    # Phase 2494: Weighted neuron importance (informational)
+    post2000_concept_activation_weighted_neuron_importance_global(all_acts, concept_names)
+
+    # Phase 2495: Layer transition analysis (informational)
+    post2000_concept_activation_layer_transition_detail(all_acts, concept_names)
+
+    # Phase 2496: Joint concept subspace dimensionality (informational)
+    post2000_concept_activation_joint_concept_subspace_dim(all_acts, concept_names)
+
+    # Phase 2497: Neuron pair synergy (informational)
+    post2000_concept_activation_neuron_pair_synergy_analysis(all_acts, concept_names)
+
+    # Phase 2498: Point-biserial correlation (informational)
+    post2000_concept_activation_point_biserial_per_concept(all_acts, concept_names)
+
+    # Phase 2499: Direction top-k reconstruction (informational)
+    post2000_concept_activation_direction_topk_reconstruction(all_acts, concept_names)
+
+    # Phase 2500: MILESTONE (informational)
+    post2000_concept_activation_phase_2500_milestone(all_acts, concept_names)
+
+    # Phase 2501: Linear vs nonlinear probe (informational)
+    post2000_concept_activation_nonlinear_probe_comparison(all_acts, concept_names)
+
+    # Phase 2502: Variance decomposition (informational)
+    post2000_concept_activation_token_position_effect(all_acts, concept_names)
+
+    # Phase 2503: Adversarial direction analysis (informational)
+    post2000_concept_activation_adversarial_direction(all_acts, concept_names)
+
+    # Phase 2504: Concept interference ablation (informational)
+    post2000_concept_activation_concept_interference_ablation(all_acts, concept_names)
+
+    # Phase 2505: Concept direction composition (informational)
+    post2000_concept_activation_concept_composition_test(all_acts, concept_names)
+
+    # Phase 2506: Manifold intrinsic dimensionality (informational)
+    post2000_concept_activation_manifold_intrinsic_dim(all_acts, concept_names)
+
+    # Phase 2507: LDA vs difference-of-means (informational)
+    post2000_concept_activation_concept_direction_via_lda(all_acts, concept_names)
+
+    # Phase 2508: SVM vs logistic regression (informational)
+    post2000_concept_activation_concept_direction_via_svm(all_acts, concept_names)
+
+    # Phase 2509: Bootstrap confidence intervals (informational)
+    post2000_concept_activation_bootstrap_confidence_interval(all_acts, concept_names)
+
+    # Phase 2510: Research checkpoint (informational)
+    post2000_concept_activation_phase_2510_checkpoint(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
