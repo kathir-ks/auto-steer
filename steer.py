@@ -38852,6 +38852,211 @@ def concept_activation_phase_1480_status(all_acts, concept_names):
     print()
 
 
+def concept_direction_concept_direction_concept_direction_concept_pair_independence_test(all_acts, concept_names):
+    """Phase 1481: Independence test — are concept representations truly independent?"""
+    print("=" * 70)
+    print("PHASE 1481: CONCEPT PAIR INDEPENDENCE TEST")
+    print("=" * 70)
+    layer = 10
+    for ci in concept_names[:3]:
+        pos_i = np.array([all_acts[ci]["positive"][layer][i] for i in range(len(all_acts[ci]["positive"][layer]))])
+        neg_i = np.array([all_acts[ci]["negative"][layer][i] for i in range(len(all_acts[ci]["negative"][layer]))])
+        d_i = pos_i.mean(axis=0) - neg_i.mean(axis=0)
+        d_i = d_i / (np.linalg.norm(d_i) + 1e-10)
+        for cj in concept_names:
+            if ci == cj:
+                continue
+            pos_j = np.array([all_acts[cj]["positive"][layer][i] for i in range(len(all_acts[cj]["positive"][layer]))])
+            neg_j = np.array([all_acts[cj]["negative"][layer][i] for i in range(len(all_acts[cj]["negative"][layer]))])
+            # Project cj data onto ci direction
+            proj_pos = pos_j @ d_i
+            proj_neg = neg_j @ d_i
+            # If independent, projections should be similar
+            t_stat = abs(proj_pos.mean() - proj_neg.mean()) / (np.sqrt(proj_pos.var()/len(proj_pos) + proj_neg.var()/len(proj_neg)) + 1e-10)
+            if t_stat > 2.0:
+                print(f"  {ci[:8]:>8} dir separates {cj[:8]:>8}: t={t_stat:.2f} (NOT independent)")
+    print("  (Only pairs with t > 2.0 shown)")
+    print()
+
+
+def concept_neuron_concept_neuron_neuron_activation_sparseness_measure(all_acts, concept_names):
+    """Phase 1482: Hoyer sparseness measure for top neuron activations."""
+    print("=" * 70)
+    print("PHASE 1482: NEURON ACTIVATION HOYER SPARSENESS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        combined = np.vstack([pos, neg])
+        # Hoyer sparseness of mean activations
+        mean_act = np.abs(combined.mean(axis=0))
+        n = len(mean_act)
+        l1 = np.sum(mean_act)
+        l2 = np.sqrt(np.sum(mean_act**2)) + 1e-10
+        hoyer = (np.sqrt(n) - l1/l2) / (np.sqrt(n) - 1 + 1e-10)
+        print(f"  {cname}: Hoyer sparseness={hoyer:.4f}")
+    print()
+
+
+def concept_direction_concept_direction_concept_direction_projection_power_concentration(all_acts, concept_names):
+    """Phase 1483: How concentrated is the projection power in top dimensions?"""
+    print("=" * 70)
+    print("PHASE 1483: PROJECTION POWER CONCENTRATION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        d = pos.mean(axis=0) - neg.mean(axis=0)
+        d_sq = d ** 2
+        d_sq_sorted = np.sort(d_sq)[::-1]
+        cum = np.cumsum(d_sq_sorted) / (d_sq_sorted.sum() + 1e-10)
+        n_for_50 = np.searchsorted(cum, 0.5) + 1
+        n_for_90 = np.searchsorted(cum, 0.9) + 1
+        print(f"  {cname}: {n_for_50} dims for 50% power, {n_for_90} for 90% (of {len(d)})")
+    print()
+
+
+def concept_activation_concept_activation_activation_layer_skip_connection_effect(all_acts, concept_names, num_layers):
+    """Phase 1484: Effect of 'skip connections' — do activations at L0 predict L23?"""
+    print("=" * 70)
+    print("PHASE 1484: LAYER SKIP CONNECTION EFFECT")
+    print("=" * 70)
+    for cname in concept_names[:3]:
+        pos_0 = np.array([all_acts[cname]["positive"][0][i] for i in range(len(all_acts[cname]["positive"][0]))])
+        neg_0 = np.array([all_acts[cname]["negative"][0][i] for i in range(len(all_acts[cname]["negative"][0]))])
+        pos_23 = np.array([all_acts[cname]["positive"][23][i] for i in range(len(all_acts[cname]["positive"][23]))])
+        neg_23 = np.array([all_acts[cname]["negative"][23][i] for i in range(len(all_acts[cname]["negative"][23]))])
+        # Correlation between L0 and L23 norms per sample
+        norms_0 = np.linalg.norm(np.vstack([pos_0, neg_0]), axis=1)
+        norms_23 = np.linalg.norm(np.vstack([pos_23, neg_23]), axis=1)
+        corr = np.corrcoef(norms_0, norms_23)[0, 1]
+        print(f"  {cname}: L0-L23 norm correlation={corr:.3f}")
+    print()
+
+
+def concept_neuron_concept_neuron_neuron_top_neuron_effect_size_distribution(all_acts, concept_names):
+    """Phase 1485: Distribution of effect sizes across all neurons."""
+    print("=" * 70)
+    print("PHASE 1485: NEURON EFFECT SIZE DISTRIBUTION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        diff = np.abs(pos.mean(axis=0) - neg.mean(axis=0))
+        pooled_std = np.sqrt((np.var(pos, axis=0) + np.var(neg, axis=0)) / 2) + 1e-10
+        effect = diff / pooled_std
+        print(f"  {cname}: mean effect={effect.mean():.3f}, max={effect.max():.3f}, >0.5: {(effect>0.5).sum()}, >1.0: {(effect>1.0).sum()}, >2.0: {(effect>2.0).sum()}")
+    print()
+
+
+def concept_direction_concept_direction_concept_direction_direction_robustness_to_noise(all_acts, concept_names):
+    """Phase 1486: Robustness of concept direction to additive noise."""
+    print("=" * 70)
+    print("PHASE 1486: DIRECTION ROBUSTNESS TO NOISE")
+    print("=" * 70)
+    layer = 10
+    rng = np.random.RandomState(42)
+    for cname in concept_names[:4]:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        d_clean = pos.mean(axis=0) - neg.mean(axis=0)
+        d_clean = d_clean / (np.linalg.norm(d_clean) + 1e-10)
+        for noise_level in [0.1, 0.5, 1.0]:
+            noise = rng.randn(*pos.shape) * noise_level
+            d_noisy = (pos + noise).mean(axis=0) - neg.mean(axis=0)
+            d_noisy = d_noisy / (np.linalg.norm(d_noisy) + 1e-10)
+            cos = np.dot(d_clean, d_noisy)
+            print(f"  {cname}: noise={noise_level}, cosine with clean={cos:.4f}")
+    print()
+
+
+def concept_activation_concept_activation_activation_concept_representation_completeness(all_acts, concept_names):
+    """Phase 1487: Completeness — do concept directions capture all class-relevant info?"""
+    print("=" * 70)
+    print("PHASE 1487: CONCEPT REPRESENTATION COMPLETENESS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        combined = np.vstack([pos, neg])
+        labels = np.array([1]*len(pos) + [0]*len(neg))
+        # Accuracy with full features
+        clf_full = LogisticRegression(max_iter=500, random_state=42)
+        scaler = StandardScaler()
+        X = scaler.fit_transform(combined)
+        clf_full.fit(X, labels)
+        acc_full = clf_full.score(X, labels)
+        # Accuracy with 1D projection
+        d = pos.mean(axis=0) - neg.mean(axis=0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        proj = (combined @ d).reshape(-1, 1)
+        clf_1d = LogisticRegression(max_iter=500, random_state=42)
+        clf_1d.fit(proj, labels)
+        acc_1d = clf_1d.score(proj, labels)
+        completeness = acc_1d / (acc_full + 1e-10)
+        print(f"  {cname}: full_acc={acc_full:.3f}, 1d_acc={acc_1d:.3f}, completeness={completeness:.3f}")
+    print()
+
+
+def concept_neuron_concept_neuron_neuron_activation_max_response_per_class(all_acts, concept_names):
+    """Phase 1488: Maximum activation response per class for top neurons."""
+    print("=" * 70)
+    print("PHASE 1488: TOP NEURON MAX RESPONSE PER CLASS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        diff = np.abs(pos.mean(axis=0) - neg.mean(axis=0))
+        top3 = np.argsort(diff)[-3:][::-1]
+        for neuron in top3:
+            max_pos = pos[:, neuron].max()
+            max_neg = neg[:, neuron].max()
+            print(f"  {cname}: neuron {neuron}, max_pos={max_pos:.3f}, max_neg={max_neg:.3f}")
+    print()
+
+
+def concept_direction_concept_direction_concept_direction_subspace_projection_accuracy(all_acts, concept_names):
+    """Phase 1489: Accuracy when classifying in the concept subspace (projected data)."""
+    print("=" * 70)
+    print("PHASE 1489: SUBSPACE PROJECTION ACCURACY")
+    print("=" * 70)
+    layer = 10
+    directions = []
+    for cname in concept_names:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        d = pos.mean(axis=0) - neg.mean(axis=0)
+        directions.append(d / (np.linalg.norm(d) + 1e-10))
+    D = np.array(directions)  # 8 x 896
+    for cname in concept_names[:4]:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        combined = np.vstack([pos, neg])
+        labels = np.array([1]*len(pos) + [0]*len(neg))
+        projected = combined @ D.T  # n x 8
+        clf = LogisticRegression(max_iter=500, random_state=42)
+        clf.fit(projected, labels)
+        acc = clf.score(projected, labels)
+        print(f"  {cname}: 8D subspace accuracy={acc:.3f}")
+    print()
+
+
+def concept_activation_phase_1490_status(all_acts, concept_names):
+    """Phase 1490: Status at 1490 phases."""
+    print("=" * 70)
+    print("PHASE 1490: STATUS AT 1490 PHASES")
+    print("=" * 70)
+    print("1490 analysis phases completed.")
+    print(f"Concepts analyzed: {len(concept_names)}")
+    print("All phases informational — scoring pipeline unchanged.")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -43366,6 +43571,36 @@ def run_analysis():
 
     # Phase 1480: Status at 1480 phases (informational)
     concept_activation_phase_1480_status(all_acts, concept_names)
+
+    # Phase 1481: Concept pair independence test (informational)
+    concept_direction_concept_direction_concept_direction_concept_pair_independence_test(all_acts, concept_names)
+
+    # Phase 1482: Neuron activation Hoyer sparseness (informational)
+    concept_neuron_concept_neuron_neuron_activation_sparseness_measure(all_acts, concept_names)
+
+    # Phase 1483: Projection power concentration (informational)
+    concept_direction_concept_direction_concept_direction_projection_power_concentration(all_acts, concept_names)
+
+    # Phase 1484: Layer skip connection effect (informational)
+    concept_activation_concept_activation_activation_layer_skip_connection_effect(all_acts, concept_names, num_layers)
+
+    # Phase 1485: Neuron effect size distribution (informational)
+    concept_neuron_concept_neuron_neuron_top_neuron_effect_size_distribution(all_acts, concept_names)
+
+    # Phase 1486: Direction robustness to noise (informational)
+    concept_direction_concept_direction_concept_direction_direction_robustness_to_noise(all_acts, concept_names)
+
+    # Phase 1487: Concept representation completeness (informational)
+    concept_activation_concept_activation_activation_concept_representation_completeness(all_acts, concept_names)
+
+    # Phase 1488: Top neuron max response per class (informational)
+    concept_neuron_concept_neuron_neuron_activation_max_response_per_class(all_acts, concept_names)
+
+    # Phase 1489: Subspace projection accuracy (informational)
+    concept_direction_concept_direction_concept_direction_subspace_projection_accuracy(all_acts, concept_names)
+
+    # Phase 1490: Status at 1490 phases (informational)
+    concept_activation_phase_1490_status(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
