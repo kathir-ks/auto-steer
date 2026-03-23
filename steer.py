@@ -48198,6 +48198,190 @@ def concept_activation_phase_1950_milestone(all_acts, concept_names):
     print()
 
 
+def concept_activation_neuron_concept_signal_fraction(all_acts, concept_names):
+    """Phase 1951: Fraction of total neuron activity attributable to concept signal."""
+    print("=" * 70)
+    print("PHASE 1951: CONCEPT SIGNAL FRACTION OF TOTAL ACTIVITY")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        all_data = np.vstack([pos, neg])
+        total_activity = np.sum(np.abs(all_data))
+        signal = np.sum(np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))) * len(all_data)
+        fraction = signal / (total_activity + 1e-10)
+        print(f"  {cname}: signal_fraction={fraction:.6f}")
+    print()
+
+
+def concept_activation_concept_direction_mean_absolute_cosine(all_acts, concept_names):
+    """Phase 1952: Mean absolute cosine between all concept direction pairs."""
+    print("=" * 70)
+    print("PHASE 1952: MEAN ABSOLUTE COSINE BETWEEN CONCEPT PAIRS")
+    print("=" * 70)
+    for layer in [0, 6, 10, 18, 23]:
+        directions = []
+        for cname in concept_names:
+            d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+            d = d / (np.linalg.norm(d) + 1e-10)
+            directions.append(d)
+        cosines = []
+        for i in range(len(directions)):
+            for j in range(i+1, len(directions)):
+                cosines.append(abs(np.dot(directions[i], directions[j])))
+        print(f"  Layer {layer:2d}: mean_abs_cos={np.mean(cosines):.6f}, max={np.max(cosines):.6f}")
+    print()
+
+
+def concept_activation_neuron_activation_variance_partition(all_acts, concept_names):
+    """Phase 1953: Partition neuron variance into concept-related and noise."""
+    print("=" * 70)
+    print("PHASE 1953: NEURON VARIANCE PARTITION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        all_data = np.vstack([pos, neg])
+        total_var = np.sum(np.var(all_data, axis=0))
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        d_unit = d / (np.linalg.norm(d) + 1e-10)
+        projs = all_data @ d_unit
+        concept_var = np.var(projs)
+        noise_var = total_var - concept_var
+        print(f"  {cname}: concept_var={concept_var:.4f}, noise_var={noise_var:.2f}, ratio={concept_var/(noise_var+1e-10):.6f}")
+    print()
+
+
+def concept_activation_concept_direction_cross_concept_generalization(all_acts, concept_names):
+    """Phase 1954: Test if one concept's direction generalizes to classify another."""
+    print("=" * 70)
+    print("PHASE 1954: CROSS-CONCEPT GENERALIZATION")
+    print("=" * 70)
+    layer = 10
+    pairs_shown = 0
+    for i in range(len(concept_names)):
+        for j in range(i+1, len(concept_names)):
+            if pairs_shown >= 4:
+                break
+            c1, c2 = concept_names[i], concept_names[j]
+            d1 = np.mean(all_acts[c1]["positive"][layer], axis=0) - np.mean(all_acts[c1]["negative"][layer], axis=0)
+            d1 = d1 / (np.linalg.norm(d1) + 1e-10)
+            # Use c1's direction to classify c2
+            c2_data = np.vstack([all_acts[c2]["positive"][layer], all_acts[c2]["negative"][layer]])
+            c2_labels = np.array([1]*len(all_acts[c2]["positive"][layer]) + [0]*len(all_acts[c2]["negative"][layer]))
+            projs = c2_data @ d1
+            acc = np.mean((projs > np.median(projs)).astype(int) == c2_labels)
+            acc = max(acc, 1 - acc)
+            print(f"  {c1} dir -> {c2}: cross_acc={acc:.4f}")
+            pairs_shown += 1
+        if pairs_shown >= 4:
+            break
+    print()
+
+
+def concept_activation_neuron_concept_positive_negative_ratio(all_acts, concept_names):
+    """Phase 1955: Ratio of positive to negative mean activations per concept."""
+    print("=" * 70)
+    print("PHASE 1955: POSITIVE/NEGATIVE MEAN ACTIVATION RATIO")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        pos_mean_norm = np.linalg.norm(np.mean(pos, axis=0))
+        neg_mean_norm = np.linalg.norm(np.mean(neg, axis=0))
+        ratio = pos_mean_norm / (neg_mean_norm + 1e-10)
+        print(f"  {cname}: pos_norm={pos_mean_norm:.4f}, neg_norm={neg_mean_norm:.4f}, ratio={ratio:.4f}")
+    print()
+
+
+def concept_activation_concept_direction_half_space_margin(all_acts, concept_names):
+    """Phase 1956: Half-space margin for concept direction classifiers."""
+    print("=" * 70)
+    print("PHASE 1956: HALF-SPACE MARGIN ANALYSIS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        pos_proj = pos @ d
+        neg_proj = neg @ d
+        margin = np.min(pos_proj) - np.max(neg_proj)
+        normalized_margin = margin / (np.mean(pos_proj) - np.mean(neg_proj) + 1e-10)
+        print(f"  {cname}: margin={margin:.4f}, norm_margin={normalized_margin:.4f}")
+    print()
+
+
+def concept_activation_neuron_activation_layer_correlation_structure(all_acts, concept_names):
+    """Phase 1957: Correlation structure of activations across layers."""
+    print("=" * 70)
+    print("PHASE 1957: ACTIVATION CORRELATION STRUCTURE ACROSS LAYERS")
+    print("=" * 70)
+    cname = concept_names[0]
+    pos = all_acts[cname]["positive"]
+    for l1 in [0, 6, 12]:
+        l2 = l1 + 6
+        if l2 >= 24:
+            continue
+        data1 = np.mean(pos[l1], axis=0)
+        data2 = np.mean(pos[l2], axis=0)
+        corr = np.corrcoef(data1, data2)[0, 1]
+        print(f"  {cname} L{l1} vs L{l2}: mean_activation_corr={corr:.4f}")
+    print()
+
+
+def concept_activation_concept_direction_projection_skewness(all_acts, concept_names):
+    """Phase 1958: Skewness of projection distributions."""
+    print("=" * 70)
+    print("PHASE 1958: PROJECTION DISTRIBUTION SKEWNESS")
+    print("=" * 70)
+    from scipy.stats import skew
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        pos_proj = pos @ d
+        neg_proj = neg @ d
+        pos_skew = skew(pos_proj)
+        neg_skew = skew(neg_proj)
+        print(f"  {cname}: pos_skew={pos_skew:.4f}, neg_skew={neg_skew:.4f}")
+    print()
+
+
+def concept_activation_neuron_concept_response_range_ratio(all_acts, concept_names):
+    """Phase 1959: Ratio of response range for pos vs neg samples."""
+    print("=" * 70)
+    print("PHASE 1959: RESPONSE RANGE RATIO (POS VS NEG)")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        top_n = np.argmax(np.abs(d))
+        pos_range = np.max(pos[:, top_n]) - np.min(pos[:, top_n])
+        neg_range = np.max(neg[:, top_n]) - np.min(neg[:, top_n])
+        ratio = pos_range / (neg_range + 1e-10)
+        print(f"  {cname} neuron {top_n}: pos_range={pos_range:.4f}, neg_range={neg_range:.4f}, ratio={ratio:.4f}")
+    print()
+
+
+def concept_activation_phase_1960_checkpoint(all_acts, concept_names):
+    """Phase 1960: Status checkpoint."""
+    print("=" * 70)
+    print("PHASE 1960: STATUS CHECKPOINT")
+    print("=" * 70)
+    print(f"  1960 analysis phases completed")
+    print(f"  40 phases to 2000!")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -54122,6 +54306,36 @@ def run_analysis():
 
     # Phase 1950: Milestone (informational)
     concept_activation_phase_1950_milestone(all_acts, concept_names)
+
+    # Phase 1951: Signal fraction (informational)
+    concept_activation_neuron_concept_signal_fraction(all_acts, concept_names)
+
+    # Phase 1952: Mean absolute cosine (informational)
+    concept_activation_concept_direction_mean_absolute_cosine(all_acts, concept_names)
+
+    # Phase 1953: Variance partition (informational)
+    concept_activation_neuron_activation_variance_partition(all_acts, concept_names)
+
+    # Phase 1954: Cross-concept generalization (informational)
+    concept_activation_concept_direction_cross_concept_generalization(all_acts, concept_names)
+
+    # Phase 1955: Positive/negative ratio (informational)
+    concept_activation_neuron_concept_positive_negative_ratio(all_acts, concept_names)
+
+    # Phase 1956: Half-space margin (informational)
+    concept_activation_concept_direction_half_space_margin(all_acts, concept_names)
+
+    # Phase 1957: Layer correlation structure (informational)
+    concept_activation_neuron_activation_layer_correlation_structure(all_acts, concept_names)
+
+    # Phase 1958: Projection skewness (informational)
+    concept_activation_concept_direction_projection_skewness(all_acts, concept_names)
+
+    # Phase 1959: Response range ratio (informational)
+    concept_activation_neuron_concept_response_range_ratio(all_acts, concept_names)
+
+    # Phase 1960: Status checkpoint (informational)
+    concept_activation_phase_1960_checkpoint(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
