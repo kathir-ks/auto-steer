@@ -58473,6 +58473,213 @@ def post2000_concept_activation_phase_2460_checkpoint(all_acts, concept_names):
     print()
 
 
+def post2000_concept_activation_subspace_overlap_svd(all_acts, concept_names):
+    """Phase 2461: Measure overlap between concept subspaces using SVD."""
+    print("=" * 70)
+    print("PHASE 2461: CONCEPT SUBSPACE OVERLAP VIA SVD")
+    print("=" * 70)
+    layer = 10
+    subspaces = {}
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        diff = pos - np.mean(np.vstack([pos, neg]), axis=0)
+        U, S, Vt = np.linalg.svd(diff, full_matrices=False)
+        subspaces[cname] = Vt[:3]  # top 3 principal directions
+    pairs = [("sentiment", "emotion_joy_anger"), ("formality", "complexity"), ("certainty", "instruction")]
+    for c1, c2 in pairs:
+        # Grassmann distance: angles between subspaces
+        M = subspaces[c1] @ subspaces[c2].T
+        svals = np.linalg.svd(M, compute_uv=False)
+        angles = np.degrees(np.arccos(np.clip(svals, -1, 1)))
+        print(f"  {c1}-{c2}: principal_angles={[f'{a:.1f}°' for a in angles]}")
+    print()
+
+
+def post2000_concept_activation_residual_after_projection_v2(all_acts, concept_names):
+    """Phase 2462: How much activation remains after removing concept direction."""
+    print("=" * 70)
+    print("PHASE 2462: RESIDUAL AFTER CONCEPT DIRECTION PROJECTION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        direction = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        direction = direction / (np.linalg.norm(direction) + 1e-10)
+        all_data = np.vstack([pos, neg])
+        proj_component = np.outer(all_data @ direction, direction)
+        residual = all_data - proj_component
+        original_var = np.var(all_data)
+        residual_var = np.var(residual)
+        pct_removed = (1 - residual_var / (original_var + 1e-10)) * 100
+        print(f"  {cname}: variance_removed={pct_removed:.2f}%, residual_norm_ratio={np.mean(np.linalg.norm(residual, axis=1)) / np.mean(np.linalg.norm(all_data, axis=1)):.4f}")
+    print()
+
+
+def post2000_concept_activation_top_neuron_activation_distribution(all_acts, concept_names):
+    """Phase 2463: Distribution of the single most important neuron's activations."""
+    print("=" * 70)
+    print("PHASE 2463: TOP NEURON ACTIVATION DISTRIBUTION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        direction = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+        top_neuron = np.argmax(direction)
+        pos_vals = pos[:, top_neuron]
+        neg_vals = neg[:, top_neuron]
+        print(f"  {cname}: neuron={top_neuron}, pos_mean={np.mean(pos_vals):.4f}±{np.std(pos_vals):.4f}, neg_mean={np.mean(neg_vals):.4f}±{np.std(neg_vals):.4f}")
+    print()
+
+
+def post2000_concept_activation_layer_specific_direction_quality(all_acts, concept_names):
+    """Phase 2464: Quality of concept direction at each layer (measured by classification accuracy)."""
+    print("=" * 70)
+    print("PHASE 2464: LAYER-SPECIFIC DIRECTION CLASSIFICATION QUALITY")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        best_layer = -1
+        best_acc = 0
+        accs = []
+        for L in range(24):
+            pos = all_acts[cname]["positive"][L]
+            neg = all_acts[cname]["negative"][L]
+            direction = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+            direction = direction / (np.linalg.norm(direction) + 1e-10)
+            all_data = np.vstack([pos, neg])
+            labels = np.array([1]*30 + [0]*30)
+            proj = all_data @ direction
+            threshold = (np.mean(proj[:30]) + np.mean(proj[30:])) / 2
+            acc = np.mean((proj > threshold) == labels)
+            accs.append(acc)
+            if acc > best_acc:
+                best_acc = acc
+                best_layer = L
+        accs = np.array(accs)
+        n_perfect = np.sum(accs >= 1.0)
+        print(f"  {cname}: best=L{best_layer} ({best_acc:.4f}), n_perfect_layers={n_perfect}")
+    print()
+
+
+def post2000_concept_activation_concept_direction_robustness_v2(all_acts, concept_names):
+    """Phase 2465: Robustness of concept direction to noise perturbation."""
+    print("=" * 70)
+    print("PHASE 2465: CONCEPT DIRECTION ROBUSTNESS TO NOISE")
+    print("=" * 70)
+    layer = 10
+    rng = np.random.RandomState(42)
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        direction = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        direction = direction / (np.linalg.norm(direction) + 1e-10)
+        all_data = np.vstack([pos, neg])
+        labels = np.array([1]*30 + [0]*30)
+        # Add increasing noise
+        noise_levels = [0.1, 0.5, 1.0, 2.0]
+        for noise in noise_levels:
+            noisy_dir = direction + rng.randn(896) * noise
+            noisy_dir = noisy_dir / np.linalg.norm(noisy_dir)
+            proj = all_data @ noisy_dir
+            threshold = (np.mean(proj[:30]) + np.mean(proj[30:])) / 2
+            acc = np.mean((proj > threshold) == labels)
+            if noise == noise_levels[0] or noise == noise_levels[-1]:
+                print(f"  {cname}: noise={noise:.1f} -> acc={acc:.4f}")
+    print()
+
+
+def post2000_concept_activation_neuron_activation_range(all_acts, concept_names):
+    """Phase 2466: Range of neuron activations across all concepts."""
+    print("=" * 70)
+    print("PHASE 2466: NEURON ACTIVATION RANGE ACROSS CONCEPTS")
+    print("=" * 70)
+    layer = 10
+    all_data = []
+    for cname in concept_names:
+        all_data.append(all_acts[cname]["positive"][layer])
+        all_data.append(all_acts[cname]["negative"][layer])
+    all_data = np.vstack(all_data)
+    ranges = np.max(all_data, axis=0) - np.min(all_data, axis=0)
+    top_idx = np.argsort(ranges)[-5:][::-1]
+    bottom_idx = np.argsort(ranges)[:5]
+    print(f"  Widest range neurons: {top_idx.tolist()}, ranges={[f'{ranges[i]:.4f}' for i in top_idx]}")
+    print(f"  Narrowest range neurons: {bottom_idx.tolist()}, ranges={[f'{ranges[i]:.4f}' for i in bottom_idx]}")
+    print(f"  Mean range={np.mean(ranges):.4f}, median={np.median(ranges):.4f}")
+    print()
+
+
+def post2000_concept_activation_concept_separability_index_v2(all_acts, concept_names):
+    """Phase 2467: Separability index: ratio of between-concept to within-concept variance."""
+    print("=" * 70)
+    print("PHASE 2467: CONCEPT SEPARABILITY INDEX")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        between_var = np.var(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+        within_var = (np.mean(np.var(pos, axis=0)) + np.mean(np.var(neg, axis=0))) / 2
+        sep_index = between_var / (within_var + 1e-10)
+        print(f"  {cname}: separability_index={sep_index:.4f}")
+    print()
+
+
+def post2000_concept_activation_multi_layer_direction_consistency(all_acts, concept_names):
+    """Phase 2468: How consistent is the concept direction across consecutive layers."""
+    print("=" * 70)
+    print("PHASE 2468: MULTI-LAYER DIRECTION CONSISTENCY")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        cosines = []
+        for L in range(23):
+            pos1 = all_acts[cname]["positive"][L]
+            neg1 = all_acts[cname]["negative"][L]
+            d1 = np.mean(pos1, axis=0) - np.mean(neg1, axis=0)
+            d1 = d1 / (np.linalg.norm(d1) + 1e-10)
+            pos2 = all_acts[cname]["positive"][L+1]
+            neg2 = all_acts[cname]["negative"][L+1]
+            d2 = np.mean(pos2, axis=0) - np.mean(neg2, axis=0)
+            d2 = d2 / (np.linalg.norm(d2) + 1e-10)
+            cosines.append(np.dot(d1, d2))
+        cosines = np.array(cosines)
+        min_idx = np.argmin(cosines)
+        print(f"  {cname}: mean_consistency={cosines.mean():.4f}, min=L{min_idx}->L{min_idx+1} ({cosines[min_idx]:.4f})")
+    print()
+
+
+def post2000_concept_activation_activation_outlier_detection(all_acts, concept_names):
+    """Phase 2469: Detect activation outliers using z-score threshold."""
+    print("=" * 70)
+    print("PHASE 2469: ACTIVATION OUTLIER DETECTION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        all_data = np.vstack([pos, neg])
+        mean = np.mean(all_data, axis=0)
+        std = np.std(all_data, axis=0) + 1e-10
+        z_scores = np.abs((all_data - mean) / std)
+        n_outliers_per_sample = np.sum(z_scores > 3.0, axis=1)
+        print(f"  {cname}: mean_outlier_neurons={np.mean(n_outliers_per_sample):.1f}, max={np.max(n_outliers_per_sample)}, samples_with_outliers={np.sum(n_outliers_per_sample > 0)}/60")
+    print()
+
+
+def post2000_concept_activation_phase_2470_checkpoint(all_acts, concept_names):
+    """Phase 2470: Research checkpoint."""
+    print("=" * 70)
+    print("PHASE 2470: RESEARCH CHECKPOINT — 470 BEYOND 2000")
+    print("=" * 70)
+    print(f"  2470 analysis phases completed — 470 beyond the 2000 milestone!")
+    print(f"  Phases 2461-2470: subspace overlap SVD, residual after projection,")
+    print(f"  top neuron distribution, layer-specific direction quality,")
+    print(f"  direction robustness to noise, neuron activation range,")
+    print(f"  separability index, multi-layer consistency, outlier detection")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -65927,6 +66134,36 @@ def run_analysis():
 
     # Phase 2460: Research checkpoint (informational)
     post2000_concept_activation_phase_2460_checkpoint(all_acts, concept_names)
+
+    # Phase 2461: Subspace overlap via SVD (informational)
+    post2000_concept_activation_subspace_overlap_svd(all_acts, concept_names)
+
+    # Phase 2462: Residual after projection (informational)
+    post2000_concept_activation_residual_after_projection_v2(all_acts, concept_names)
+
+    # Phase 2463: Top neuron activation distribution (informational)
+    post2000_concept_activation_top_neuron_activation_distribution(all_acts, concept_names)
+
+    # Phase 2464: Layer-specific direction quality (informational)
+    post2000_concept_activation_layer_specific_direction_quality(all_acts, concept_names)
+
+    # Phase 2465: Direction robustness to noise (informational)
+    post2000_concept_activation_concept_direction_robustness_v2(all_acts, concept_names)
+
+    # Phase 2466: Neuron activation range (informational)
+    post2000_concept_activation_neuron_activation_range(all_acts, concept_names)
+
+    # Phase 2467: Concept separability index (informational)
+    post2000_concept_activation_concept_separability_index_v2(all_acts, concept_names)
+
+    # Phase 2468: Multi-layer direction consistency (informational)
+    post2000_concept_activation_multi_layer_direction_consistency(all_acts, concept_names)
+
+    # Phase 2469: Activation outlier detection (informational)
+    post2000_concept_activation_activation_outlier_detection(all_acts, concept_names)
+
+    # Phase 2470: Research checkpoint (informational)
+    post2000_concept_activation_phase_2470_checkpoint(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
