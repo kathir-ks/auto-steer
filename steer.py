@@ -36553,6 +36553,198 @@ def concept_activation_phase_1370_status(all_acts, concept_names):
     print()
 
 
+def concept_direction_concept_direction_direction_signal_ratio_per_layer(all_acts, concept_names, num_layers):
+    """Phase 1371: Ratio of concept direction norm to mean activation norm per layer."""
+    print("=" * 70)
+    print("PHASE 1371: DIRECTION NORM RATIO ACROSS LAYERS")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        ratios = []
+        for layer in range(num_layers):
+            pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+            neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+            d = pos.mean(axis=0) - neg.mean(axis=0)
+            d_norm = np.linalg.norm(d)
+            act_norm = np.mean(np.linalg.norm(np.vstack([pos, neg]), axis=1))
+            ratios.append(d_norm / (act_norm + 1e-10))
+        peak = np.argmax(ratios)
+        print(f"  {cname}: peak ratio at L{peak} ({ratios[peak]:.4f}), L0={ratios[0]:.4f}, L23={ratios[-1]:.4f}")
+    print()
+
+
+def concept_neuron_concept_neuron_neuron_activation_histogram_entropy(all_acts, concept_names):
+    """Phase 1372: Entropy of neuron activation histogram for top discriminative neurons."""
+    print("=" * 70)
+    print("PHASE 1372: NEURON ACTIVATION HISTOGRAM ENTROPY")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        combined = np.vstack([pos, neg])
+        labels = np.array([1]*len(pos) + [0]*len(neg))
+        diff = combined[labels==1].mean(axis=0) - combined[labels==0].mean(axis=0)
+        top_neuron = np.argmax(np.abs(diff))
+        vals = combined[:, top_neuron]
+        # Histogram entropy
+        hist, _ = np.histogram(vals, bins=20, density=True)
+        hist = hist / (hist.sum() + 1e-10)
+        entropy = -np.sum(hist[hist > 0] * np.log2(hist[hist > 0] + 1e-10))
+        print(f"  {cname}: top neuron {top_neuron}, histogram entropy={entropy:.3f} bits")
+    print()
+
+
+def concept_direction_concept_direction_concept_direction_geodesic_distance(all_acts, concept_names):
+    """Phase 1373: Geodesic (arc) distance between concept directions on unit sphere."""
+    print("=" * 70)
+    print("PHASE 1373: CONCEPT DIRECTION GEODESIC DISTANCE")
+    print("=" * 70)
+    layer = 10
+    directions = {}
+    for cname in concept_names:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        d = pos.mean(axis=0) - neg.mean(axis=0)
+        directions[cname] = d / (np.linalg.norm(d) + 1e-10)
+    print("Geodesic distances (radians) between concept directions:")
+    for i, ci in enumerate(concept_names):
+        for j in range(i+1, len(concept_names)):
+            cj = concept_names[j]
+            cos = np.clip(np.dot(directions[ci], directions[cj]), -1, 1)
+            geodesic = np.arccos(cos)
+            print(f"  {ci[:8]:>8} vs {cj[:8]:>8}: {geodesic:.4f} rad ({np.degrees(geodesic):.1f}°)")
+    print()
+
+
+def concept_activation_concept_activation_activation_mean_shift_magnitude(all_acts, concept_names, num_layers):
+    """Phase 1374: Magnitude of mean shift between positive and negative activations per layer."""
+    print("=" * 70)
+    print("PHASE 1374: ACTIVATION MEAN SHIFT MAGNITUDE PER LAYER")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        shifts = []
+        for layer in range(num_layers):
+            pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+            neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+            shift = np.linalg.norm(pos.mean(axis=0) - neg.mean(axis=0))
+            shifts.append(shift)
+        peak = np.argmax(shifts)
+        print(f"  {cname}: peak shift at L{peak} ({shifts[peak]:.3f}), growth L0→L23: {shifts[-1]/max(shifts[0],1e-10):.1f}x")
+    print()
+
+
+def concept_neuron_concept_neuron_neuron_weight_concentration(all_acts, concept_names):
+    """Phase 1375: How concentrated are probe weights on few neurons?"""
+    print("=" * 70)
+    print("PHASE 1375: NEURON WEIGHT CONCENTRATION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        combined = np.vstack([pos, neg])
+        labels = np.array([1]*len(pos) + [0]*len(neg))
+        clf = LogisticRegression(max_iter=1000, C=0.1, random_state=42)
+        scaler = StandardScaler()
+        X = scaler.fit_transform(combined)
+        clf.fit(X, labels)
+        weights = np.abs(clf.coef_[0])
+        weights_sorted = np.sort(weights)[::-1]
+        cum = np.cumsum(weights_sorted) / weights_sorted.sum()
+        n_for_90 = np.searchsorted(cum, 0.9) + 1
+        n_for_50 = np.searchsorted(cum, 0.5) + 1
+        print(f"  {cname}: {n_for_50} neurons for 50% weight, {n_for_90} for 90% weight (of {len(weights)})")
+    print()
+
+
+def concept_direction_concept_direction_concept_direction_mean_vs_median_direction(all_acts, concept_names):
+    """Phase 1376: Compare mean-based vs median-based concept directions."""
+    print("=" * 70)
+    print("PHASE 1376: MEAN VS MEDIAN CONCEPT DIRECTION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        d_mean = pos.mean(axis=0) - neg.mean(axis=0)
+        d_median = np.median(pos, axis=0) - np.median(neg, axis=0)
+        d_mean_n = d_mean / (np.linalg.norm(d_mean) + 1e-10)
+        d_median_n = d_median / (np.linalg.norm(d_median) + 1e-10)
+        cos = np.dot(d_mean_n, d_median_n)
+        print(f"  {cname}: mean-median cosine={cos:.4f}, mean_norm={np.linalg.norm(d_mean):.3f}, median_norm={np.linalg.norm(d_median):.3f}")
+    print()
+
+
+def concept_activation_concept_activation_activation_dimensionality_per_class(all_acts, concept_names):
+    """Phase 1377: Effective dimensionality of activations per class (positive vs negative)."""
+    print("=" * 70)
+    print("PHASE 1377: ACTIVATION DIMENSIONALITY PER CLASS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        for label, data in [("pos", pos), ("neg", neg)]:
+            centered = data - data.mean(axis=0)
+            U, S, Vt = np.linalg.svd(centered, full_matrices=False)
+            S_sq = S ** 2
+            S_norm = S_sq / (S_sq.sum() + 1e-10)
+            eff_dim = np.exp(-np.sum(S_norm[S_norm > 0] * np.log(S_norm[S_norm > 0] + 1e-10)))
+            print(f"  {cname} {label}: effective dim={eff_dim:.1f}, top SV explains {S_norm[0]*100:.1f}%")
+    print()
+
+
+def concept_neuron_concept_neuron_neuron_pairwise_correlation_top_set(all_acts, concept_names):
+    """Phase 1378: Pairwise correlation within top-10 discriminative neurons."""
+    print("=" * 70)
+    print("PHASE 1378: TOP NEURON PAIRWISE CORRELATION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        combined = np.vstack([pos, neg])
+        labels = np.array([1]*len(pos) + [0]*len(neg))
+        diff = combined[labels==1].mean(axis=0) - combined[labels==0].mean(axis=0)
+        top10 = np.argsort(np.abs(diff))[-10:]
+        corr_matrix = np.corrcoef(combined[:, top10].T)
+        off_diag = corr_matrix[np.triu_indices(10, k=1)]
+        print(f"  {cname}: mean |corr|={np.mean(np.abs(off_diag)):.3f}, max |corr|={np.max(np.abs(off_diag)):.3f}")
+    print()
+
+
+def concept_direction_concept_direction_concept_direction_projection_tail_shape(all_acts, concept_names):
+    """Phase 1379: Kurtosis of projections onto concept directions."""
+    print("=" * 70)
+    print("PHASE 1379: PROJECTION KURTOSIS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        combined = np.vstack([pos, neg])
+        d = pos.mean(axis=0) - neg.mean(axis=0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        proj = combined @ d
+        mean_p = proj.mean()
+        std_p = proj.std() + 1e-10
+        kurtosis = np.mean(((proj - mean_p) / std_p) ** 4) - 3
+        skew = np.mean(((proj - mean_p) / std_p) ** 3)
+        print(f"  {cname}: kurtosis={kurtosis:.3f}, skewness={skew:.3f}")
+    print()
+
+
+def concept_activation_phase_1380_status(all_acts, concept_names):
+    """Phase 1380: Status at 1380 phases."""
+    print("=" * 70)
+    print("PHASE 1380: STATUS AT 1380 PHASES")
+    print("=" * 70)
+    print("1380 analysis phases completed.")
+    print(f"Concepts analyzed: {len(concept_names)}")
+    print("All phases informational — scoring pipeline unchanged.")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -40737,6 +40929,36 @@ def run_analysis():
 
     # Phase 1370: Status at 1370 phases (informational)
     concept_activation_phase_1370_status(all_acts, concept_names)
+
+    # Phase 1371: Direction signal ratio per layer (informational)
+    concept_direction_concept_direction_direction_signal_ratio_per_layer(all_acts, concept_names, num_layers)
+
+    # Phase 1372: Neuron activation histogram entropy (informational)
+    concept_neuron_concept_neuron_neuron_activation_histogram_entropy(all_acts, concept_names)
+
+    # Phase 1373: Concept direction geodesic distance (informational)
+    concept_direction_concept_direction_concept_direction_geodesic_distance(all_acts, concept_names)
+
+    # Phase 1374: Activation mean shift magnitude per layer (informational)
+    concept_activation_concept_activation_activation_mean_shift_magnitude(all_acts, concept_names, num_layers)
+
+    # Phase 1375: Neuron weight concentration (informational)
+    concept_neuron_concept_neuron_neuron_weight_concentration(all_acts, concept_names)
+
+    # Phase 1376: Mean vs median concept direction (informational)
+    concept_direction_concept_direction_concept_direction_mean_vs_median_direction(all_acts, concept_names)
+
+    # Phase 1377: Activation dimensionality per class (informational)
+    concept_activation_concept_activation_activation_dimensionality_per_class(all_acts, concept_names)
+
+    # Phase 1378: Top neuron pairwise correlation (informational)
+    concept_neuron_concept_neuron_neuron_pairwise_correlation_top_set(all_acts, concept_names)
+
+    # Phase 1379: Projection tail shape (informational)
+    concept_direction_concept_direction_concept_direction_projection_tail_shape(all_acts, concept_names)
+
+    # Phase 1380: Status at 1380 phases (informational)
+    concept_activation_phase_1380_status(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
