@@ -36332,6 +36332,227 @@ def concept_activation_phase_1360_summary(all_acts, concept_names):
     print()
 
 
+def concept_direction_concept_direction_random_permutation_baseline(all_acts, concept_names):
+    """Phase 1361: Compare concept directions to random directions for significance."""
+    print("=" * 70)
+    print("PHASE 1361: RANDOM BASELINE COMPARISON")
+    print("=" * 70)
+    layer = 10
+    rng = np.random.RandomState(42)
+    for cname in concept_names[:4]:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        combined = np.vstack([pos, neg])
+        labels = np.array([1]*len(pos) + [0]*len(neg))
+        real_diff = pos.mean(axis=0) - neg.mean(axis=0)
+        real_norm = np.linalg.norm(real_diff)
+        # Permutation test
+        perm_norms = []
+        for _ in range(100):
+            perm_labels = rng.permutation(labels)
+            perm_diff = combined[perm_labels==1].mean(axis=0) - combined[perm_labels==0].mean(axis=0)
+            perm_norms.append(np.linalg.norm(perm_diff))
+        perm_norms = np.array(perm_norms)
+        p_value = (perm_norms >= real_norm).mean()
+        z_score = (real_norm - perm_norms.mean()) / (perm_norms.std() + 1e-10)
+        print(f"  {cname}: real_norm={real_norm:.3f}, perm_mean={perm_norms.mean():.3f}, z={z_score:.1f}, p={p_value:.4f}")
+    print()
+
+
+def concept_neuron_concept_neuron_neuron_activation_percentile_spread(all_acts, concept_names):
+    """Phase 1362: Spread of neuron activations across percentiles."""
+    print("=" * 70)
+    print("PHASE 1362: NEURON ACTIVATION PERCENTILE SPREAD")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        combined = np.vstack([pos, neg])
+        labels = np.array([1]*len(pos) + [0]*len(neg))
+        diff = combined[labels==1].mean(axis=0) - combined[labels==0].mean(axis=0)
+        top_neuron = np.argmax(np.abs(diff))
+        vals_pos = pos[:, top_neuron]
+        vals_neg = neg[:, top_neuron]
+        p10_p, p50_p, p90_p = np.percentile(vals_pos, [10, 50, 90])
+        p10_n, p50_n, p90_n = np.percentile(vals_neg, [10, 50, 90])
+        print(f"  {cname} neuron {top_neuron}:")
+        print(f"    pos: p10={p10_p:.3f}, p50={p50_p:.3f}, p90={p90_p:.3f}")
+        print(f"    neg: p10={p10_n:.3f}, p50={p50_n:.3f}, p90={p90_n:.3f}")
+        print(f"    separation: {abs(p50_p - p50_n):.3f}")
+    print()
+
+
+def concept_direction_concept_direction_concept_direction_cross_layer_transfer(all_acts, concept_names, num_layers):
+    """Phase 1363: Cross-layer transfer — can direction from one layer classify at another?"""
+    print("=" * 70)
+    print("PHASE 1363: CROSS-LAYER DIRECTION TRANSFER")
+    print("=" * 70)
+    for cname in concept_names[:3]:
+        src_layer = 10
+        pos_src = np.array([all_acts[cname]["positive"][src_layer][i] for i in range(len(all_acts[cname]["positive"][src_layer]))])
+        neg_src = np.array([all_acts[cname]["negative"][src_layer][i] for i in range(len(all_acts[cname]["negative"][src_layer]))])
+        d_src = pos_src.mean(axis=0) - neg_src.mean(axis=0)
+        d_src = d_src / (np.linalg.norm(d_src) + 1e-10)
+        accs = []
+        for tgt_layer in [0, 5, 10, 15, 20, 23]:
+            pos_t = np.array([all_acts[cname]["positive"][tgt_layer][i] for i in range(len(all_acts[cname]["positive"][tgt_layer]))])
+            neg_t = np.array([all_acts[cname]["negative"][tgt_layer][i] for i in range(len(all_acts[cname]["negative"][tgt_layer]))])
+            combined = np.vstack([pos_t, neg_t])
+            labels = np.array([1]*len(pos_t) + [0]*len(neg_t))
+            proj = combined @ d_src
+            threshold = np.median(proj)
+            pred = (proj > threshold).astype(int)
+            acc = (pred == labels).mean()
+            accs.append((tgt_layer, acc))
+        acc_str = ", ".join(f"L{l}:{a:.2f}" for l, a in accs)
+        print(f"  {cname} (src=L10): {acc_str}")
+    print()
+
+
+def concept_activation_concept_activation_activation_covariance_trace(all_acts, concept_names):
+    """Phase 1364: Trace of activation covariance per concept — total variance."""
+    print("=" * 70)
+    print("PHASE 1364: ACTIVATION COVARIANCE TRACE")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        combined = np.vstack([pos, neg])
+        total_var = np.var(combined, axis=0).sum()
+        pos_var = np.var(pos, axis=0).sum()
+        neg_var = np.var(neg, axis=0).sum()
+        print(f"  {cname}: total_var={total_var:.1f}, pos_var={pos_var:.1f}, neg_var={neg_var:.1f}, ratio={total_var/(pos_var+neg_var+1e-10):.3f}")
+    print()
+
+
+def concept_neuron_concept_neuron_neuron_firing_rate_per_concept(all_acts, concept_names):
+    """Phase 1365: Neuron firing rate (fraction > 0) per concept class."""
+    print("=" * 70)
+    print("PHASE 1365: NEURON FIRING RATE PER CONCEPT")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        pos_rate = (pos > 0).mean(axis=0)
+        neg_rate = (neg > 0).mean(axis=0)
+        rate_diff = np.abs(pos_rate - neg_rate)
+        top5 = np.argsort(rate_diff)[-5:][::-1]
+        print(f"  {cname}: top neurons by firing rate difference:")
+        for n in top5:
+            print(f"    neuron {n}: pos_rate={pos_rate[n]:.3f}, neg_rate={neg_rate[n]:.3f}, diff={rate_diff[n]:.3f}")
+    print()
+
+
+def concept_direction_concept_direction_concept_direction_consistency_across_folds(all_acts, concept_names):
+    """Phase 1366: Direction consistency across cross-validation folds."""
+    print("=" * 70)
+    print("PHASE 1366: DIRECTION CONSISTENCY ACROSS FOLDS")
+    print("=" * 70)
+    layer = 10
+    n_folds = 5
+    for cname in concept_names[:4]:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        fold_dirs = []
+        fold_size_p = len(pos) // n_folds
+        fold_size_n = len(neg) // n_folds
+        for f in range(n_folds):
+            # Leave one fold out
+            mask_p = np.ones(len(pos), dtype=bool)
+            mask_n = np.ones(len(neg), dtype=bool)
+            mask_p[f*fold_size_p:(f+1)*fold_size_p] = False
+            mask_n[f*fold_size_n:(f+1)*fold_size_n] = False
+            d = pos[mask_p].mean(axis=0) - neg[mask_n].mean(axis=0)
+            d = d / (np.linalg.norm(d) + 1e-10)
+            fold_dirs.append(d)
+        cosines = []
+        for i in range(len(fold_dirs)):
+            for j in range(i+1, len(fold_dirs)):
+                cosines.append(np.dot(fold_dirs[i], fold_dirs[j]))
+        print(f"  {cname}: mean cosine={np.mean(cosines):.4f}, min={np.min(cosines):.4f}")
+    print()
+
+
+def concept_activation_concept_activation_activation_energy_per_layer(all_acts, concept_names, num_layers):
+    """Phase 1367: Activation energy (L2 norm) per layer for each concept."""
+    print("=" * 70)
+    print("PHASE 1367: ACTIVATION ENERGY PER LAYER")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        energies = []
+        for layer in range(num_layers):
+            pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+            neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+            combined = np.vstack([pos, neg])
+            energy = np.mean(np.linalg.norm(combined, axis=1))
+            energies.append(energy)
+        peak_layer = np.argmax(energies)
+        print(f"  {cname}: peak energy at L{peak_layer} ({energies[peak_layer]:.1f}), L0={energies[0]:.1f}, L23={energies[-1]:.1f}")
+    print()
+
+
+def concept_neuron_concept_neuron_neuron_concept_selectivity_score(all_acts, concept_names):
+    """Phase 1368: Selectivity score — how much each top neuron prefers one concept over others."""
+    print("=" * 70)
+    print("PHASE 1368: NEURON CONCEPT SELECTIVITY SCORE")
+    print("=" * 70)
+    layer = 10
+    all_diffs = {}
+    for cname in concept_names:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        all_diffs[cname] = np.abs(pos.mean(axis=0) - neg.mean(axis=0))
+    for cname in concept_names[:4]:
+        top_neuron = np.argmax(all_diffs[cname])
+        # How much does this neuron respond to other concepts?
+        responses = {c: all_diffs[c][top_neuron] for c in concept_names}
+        max_resp = max(responses.values())
+        selectivity = responses[cname] / (max_resp + 1e-10)
+        other_max = max(v for k, v in responses.items() if k != cname)
+        print(f"  {cname}: top neuron {top_neuron}, self={responses[cname]:.3f}, other_max={other_max:.3f}, selectivity={selectivity:.3f}")
+    print()
+
+
+def concept_direction_concept_direction_concept_direction_gram_condition_per_layer(all_acts, concept_names, num_layers):
+    """Phase 1369: Gram matrix condition number at each layer."""
+    print("=" * 70)
+    print("PHASE 1369: GRAM CONDITION NUMBER PER LAYER")
+    print("=" * 70)
+    conds = []
+    for layer in range(num_layers):
+        dirs = []
+        for cname in concept_names:
+            pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+            neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+            d = pos.mean(axis=0) - neg.mean(axis=0)
+            d = d / (np.linalg.norm(d) + 1e-10)
+            dirs.append(d)
+        D = np.array(dirs)
+        G = D @ D.T
+        cond = np.linalg.cond(G)
+        conds.append(cond)
+    best_layer = np.argmin(conds)
+    worst_layer = np.argmax(conds)
+    print(f"Best orthogonality: L{best_layer} (cond={conds[best_layer]:.2f})")
+    print(f"Worst orthogonality: L{worst_layer} (cond={conds[worst_layer]:.2f})")
+    print(f"Condition numbers: {['L'+str(l)+':'+f'{c:.1f}' for l, c in enumerate(conds)]}")
+    print()
+
+
+def concept_activation_phase_1370_status(all_acts, concept_names):
+    """Phase 1370: Status at 1370 phases."""
+    print("=" * 70)
+    print("PHASE 1370: STATUS AT 1370 PHASES")
+    print("=" * 70)
+    print("1370 analysis phases completed.")
+    print(f"Concepts analyzed: {len(concept_names)}")
+    print("All phases informational — scoring pipeline unchanged.")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -40486,6 +40707,36 @@ def run_analysis():
 
     # Phase 1360: Status at 1360 phases (informational)
     concept_activation_phase_1360_summary(all_acts, concept_names)
+
+    # Phase 1361: Random permutation baseline (informational)
+    concept_direction_concept_direction_random_permutation_baseline(all_acts, concept_names)
+
+    # Phase 1362: Neuron activation percentile spread (informational)
+    concept_neuron_concept_neuron_neuron_activation_percentile_spread(all_acts, concept_names)
+
+    # Phase 1363: Cross-layer direction transfer (informational)
+    concept_direction_concept_direction_concept_direction_cross_layer_transfer(all_acts, concept_names, num_layers)
+
+    # Phase 1364: Activation covariance trace (informational)
+    concept_activation_concept_activation_activation_covariance_trace(all_acts, concept_names)
+
+    # Phase 1365: Neuron firing rate per concept (informational)
+    concept_neuron_concept_neuron_neuron_firing_rate_per_concept(all_acts, concept_names)
+
+    # Phase 1366: Direction consistency across folds (informational)
+    concept_direction_concept_direction_concept_direction_consistency_across_folds(all_acts, concept_names)
+
+    # Phase 1367: Activation energy per layer (informational)
+    concept_activation_concept_activation_activation_energy_per_layer(all_acts, concept_names, num_layers)
+
+    # Phase 1368: Neuron concept selectivity score (informational)
+    concept_neuron_concept_neuron_neuron_concept_selectivity_score(all_acts, concept_names)
+
+    # Phase 1369: Gram condition number per layer (informational)
+    concept_direction_concept_direction_concept_direction_gram_condition_per_layer(all_acts, concept_names, num_layers)
+
+    # Phase 1370: Status at 1370 phases (informational)
+    concept_activation_phase_1370_status(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
