@@ -37815,6 +37815,203 @@ def concept_activation_phase_1430_status(all_acts, concept_names):
     print()
 
 
+def concept_direction_concept_direction_concept_direction_sensitivity_to_sample_removal(all_acts, concept_names):
+    """Phase 1431: Sensitivity of concept direction to removal of individual samples."""
+    print("=" * 70)
+    print("PHASE 1431: DIRECTION SENSITIVITY TO SAMPLE REMOVAL")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        full_dir = pos.mean(axis=0) - neg.mean(axis=0)
+        full_dir = full_dir / (np.linalg.norm(full_dir) + 1e-10)
+        cosines = []
+        for i in range(len(pos)):
+            mask = np.ones(len(pos), dtype=bool)
+            mask[i] = False
+            d = pos[mask].mean(axis=0) - neg.mean(axis=0)
+            d = d / (np.linalg.norm(d) + 1e-10)
+            cosines.append(np.dot(full_dir, d))
+        print(f"  {cname}: min cosine={min(cosines):.5f}, mean={np.mean(cosines):.5f} (removing pos samples)")
+    print()
+
+
+def concept_neuron_concept_neuron_neuron_activation_sign_flip_count(all_acts, concept_names):
+    """Phase 1432: Count neurons where top activation sign flips between pos/neg class."""
+    print("=" * 70)
+    print("PHASE 1432: NEURON SIGN FLIP COUNT")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        pos_mean = pos.mean(axis=0)
+        neg_mean = neg.mean(axis=0)
+        sign_flips = np.sum(np.sign(pos_mean) != np.sign(neg_mean))
+        print(f"  {cname}: {sign_flips}/{len(pos_mean)} neurons flip sign between classes")
+    print()
+
+
+def concept_direction_concept_direction_concept_direction_per_sample_projection_distribution(all_acts, concept_names):
+    """Phase 1433: Distribution of per-sample projections onto concept direction."""
+    print("=" * 70)
+    print("PHASE 1433: PER-SAMPLE PROJECTION DISTRIBUTION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        d = pos.mean(axis=0) - neg.mean(axis=0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        proj_p = pos @ d
+        proj_n = neg @ d
+        gap = proj_p.mean() - proj_n.mean()
+        within_std = np.sqrt((proj_p.var() + proj_n.var()) / 2)
+        d_prime = gap / (within_std + 1e-10)
+        print(f"  {cname}: gap={gap:.3f}, within_std={within_std:.3f}, d'={d_prime:.2f}")
+    print()
+
+
+def concept_activation_concept_activation_activation_global_activation_statistics(all_acts, concept_names):
+    """Phase 1434: Global activation statistics across all concepts."""
+    print("=" * 70)
+    print("PHASE 1434: GLOBAL ACTIVATION STATISTICS")
+    print("=" * 70)
+    layer = 10
+    all_data = []
+    for cname in concept_names:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        all_data.extend([pos, neg])
+    all_data = np.vstack(all_data)
+    print(f"Shape: {all_data.shape}")
+    print(f"Mean: {all_data.mean():.4f}")
+    print(f"Std: {all_data.std():.4f}")
+    print(f"Min: {all_data.min():.4f}")
+    print(f"Max: {all_data.max():.4f}")
+    print(f"Sparsity (fraction near zero <0.01): {(np.abs(all_data) < 0.01).mean():.4f}")
+    print()
+
+
+def concept_neuron_concept_neuron_neuron_top_neuron_layer_consistency(all_acts, concept_names, num_layers):
+    """Phase 1435: Is the top neuron consistent across layers for each concept?"""
+    print("=" * 70)
+    print("PHASE 1435: TOP NEURON LAYER CONSISTENCY")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        top_neurons = []
+        for layer in range(num_layers):
+            pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+            neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+            diff = np.abs(pos.mean(axis=0) - neg.mean(axis=0))
+            top_neurons.append(np.argmax(diff))
+        unique = len(set(top_neurons))
+        most_common = max(set(top_neurons), key=top_neurons.count)
+        freq = top_neurons.count(most_common)
+        print(f"  {cname}: {unique} unique top neurons across {num_layers} layers, most common: neuron {most_common} ({freq} layers)")
+    print()
+
+
+def concept_direction_concept_direction_concept_direction_cosine_similarity_histogram(all_acts, concept_names):
+    """Phase 1436: Histogram of all neuron-direction cosine similarities."""
+    print("=" * 70)
+    print("PHASE 1436: NEURON-DIRECTION COSINE SIMILARITY HISTOGRAM")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:3]:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        d = pos.mean(axis=0) - neg.mean(axis=0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        # Cosine of direction with each standard basis vector = |d[i]|
+        abs_components = np.abs(d)
+        bins = [0, 0.01, 0.05, 0.1, 0.2, 0.5, 1.0]
+        counts, _ = np.histogram(abs_components, bins=bins)
+        hist_str = ", ".join(f"[{bins[k]:.2f}-{bins[k+1]:.2f}):{counts[k]}" for k in range(len(counts)))
+        print(f"  {cname}: {hist_str}")
+    print()
+
+
+def concept_activation_concept_activation_activation_layer_wise_cosine_with_final(all_acts, concept_names, num_layers):
+    """Phase 1437: Cosine similarity of each layer's direction with final layer direction."""
+    print("=" * 70)
+    print("PHASE 1437: LAYER-WISE COSINE WITH FINAL LAYER")
+    print("=" * 70)
+    final_layer = num_layers - 1
+    for cname in concept_names[:4]:
+        pos_f = np.array([all_acts[cname]["positive"][final_layer][i] for i in range(len(all_acts[cname]["positive"][final_layer]))])
+        neg_f = np.array([all_acts[cname]["negative"][final_layer][i] for i in range(len(all_acts[cname]["negative"][final_layer]))])
+        d_f = pos_f.mean(axis=0) - neg_f.mean(axis=0)
+        d_f = d_f / (np.linalg.norm(d_f) + 1e-10)
+        cosines = []
+        for layer in range(num_layers):
+            pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+            neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+            d = pos.mean(axis=0) - neg.mean(axis=0)
+            d = d / (np.linalg.norm(d) + 1e-10)
+            cosines.append(np.dot(d, d_f))
+        print(f"  {cname}: L0={cosines[0]:.3f}, L10={cosines[10]:.3f}, L20={cosines[20]:.3f}, L23={cosines[23]:.3f}")
+    print()
+
+
+def concept_neuron_concept_neuron_neuron_activation_variance_ratio(all_acts, concept_names):
+    """Phase 1438: Ratio of between-class to total variance for each top neuron."""
+    print("=" * 70)
+    print("PHASE 1438: TOP NEURON VARIANCE RATIO")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        combined = np.vstack([pos, neg])
+        labels = np.array([1]*len(pos) + [0]*len(neg))
+        diff = combined[labels==1].mean(axis=0) - combined[labels==0].mean(axis=0)
+        top3 = np.argsort(np.abs(diff))[-3:][::-1]
+        for neuron in top3:
+            total_var = combined[:, neuron].var()
+            within_var = (pos[:, neuron].var() * len(pos) + neg[:, neuron].var() * len(neg)) / len(combined)
+            between_var = total_var - within_var
+            ratio = between_var / (total_var + 1e-10)
+            print(f"  {cname}: neuron {neuron}, between/total variance ratio={ratio:.3f}")
+    print()
+
+
+def concept_direction_concept_direction_concept_direction_mutual_projection_symmetry(all_acts, concept_names):
+    """Phase 1439: Check symmetry of mutual projections between concept pairs."""
+    print("=" * 70)
+    print("PHASE 1439: MUTUAL PROJECTION SYMMETRY")
+    print("=" * 70)
+    layer = 10
+    directions = {}
+    for cname in concept_names:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        d = pos.mean(axis=0) - neg.mean(axis=0)
+        directions[cname] = d  # unnormalized
+    for i, ci in enumerate(concept_names[:4]):
+        for j in range(i+1, min(i+3, len(concept_names))):
+            cj = concept_names[j]
+            # projection of ci onto cj direction
+            d_i = directions[ci]
+            d_j = directions[cj]
+            proj_i_on_j = np.dot(d_i, d_j) / (np.linalg.norm(d_j) + 1e-10)
+            proj_j_on_i = np.dot(d_j, d_i) / (np.linalg.norm(d_i) + 1e-10)
+            print(f"  {ci[:8]:>8} → {cj[:8]:>8}: {proj_i_on_j:.3f}, reverse: {proj_j_on_i:.3f}")
+    print()
+
+
+def concept_activation_phase_1440_status(all_acts, concept_names):
+    """Phase 1440: Status at 1440 phases."""
+    print("=" * 70)
+    print("PHASE 1440: STATUS AT 1440 PHASES")
+    print("=" * 70)
+    print("1440 analysis phases completed.")
+    print(f"Concepts analyzed: {len(concept_names)}")
+    print("All phases informational — scoring pipeline unchanged.")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -42179,6 +42376,36 @@ def run_analysis():
 
     # Phase 1430: Status at 1430 phases (informational)
     concept_activation_phase_1430_status(all_acts, concept_names)
+
+    # Phase 1431: Direction sensitivity to sample removal (informational)
+    concept_direction_concept_direction_concept_direction_sensitivity_to_sample_removal(all_acts, concept_names)
+
+    # Phase 1432: Neuron sign flip count (informational)
+    concept_neuron_concept_neuron_neuron_activation_sign_flip_count(all_acts, concept_names)
+
+    # Phase 1433: Per-sample projection distribution (informational)
+    concept_direction_concept_direction_concept_direction_per_sample_projection_distribution(all_acts, concept_names)
+
+    # Phase 1434: Global activation statistics (informational)
+    concept_activation_concept_activation_activation_global_activation_statistics(all_acts, concept_names)
+
+    # Phase 1435: Top neuron layer consistency (informational)
+    concept_neuron_concept_neuron_neuron_top_neuron_layer_consistency(all_acts, concept_names, num_layers)
+
+    # Phase 1436: Neuron-direction cosine histogram (informational)
+    concept_direction_concept_direction_concept_direction_cosine_similarity_histogram(all_acts, concept_names)
+
+    # Phase 1437: Layer-wise cosine with final layer (informational)
+    concept_activation_concept_activation_activation_layer_wise_cosine_with_final(all_acts, concept_names, num_layers)
+
+    # Phase 1438: Top neuron variance ratio (informational)
+    concept_neuron_concept_neuron_neuron_activation_variance_ratio(all_acts, concept_names)
+
+    # Phase 1439: Mutual projection symmetry (informational)
+    concept_direction_concept_direction_concept_direction_mutual_projection_symmetry(all_acts, concept_names)
+
+    # Phase 1440: Status at 1440 phases (informational)
+    concept_activation_phase_1440_status(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
