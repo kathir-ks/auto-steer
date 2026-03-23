@@ -45333,6 +45333,223 @@ def concept_activation_phase_1810_neuron_contribution_asymmetry(all_acts, concep
     print()
 
 
+def concept_activation_cross_layer_direction_correlation(all_acts, concept_names):
+    """Phase 1811: Correlate concept directions across adjacent layers."""
+    print("=" * 70)
+    print("PHASE 1811: CROSS-LAYER DIRECTION CORRELATION")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        correlations = []
+        for l in range(23):
+            d1 = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+            d2 = np.mean(all_acts[cname]["positive"][l+1], axis=0) - np.mean(all_acts[cname]["negative"][l+1], axis=0)
+            cos = np.dot(d1, d2) / (np.linalg.norm(d1) * np.linalg.norm(d2) + 1e-10)
+            correlations.append(cos)
+        corr_arr = np.array(correlations)
+        min_layer = np.argmin(corr_arr)
+        print(f"  {cname}: mean_adj_cos={np.mean(corr_arr):.4f}, min_cos={corr_arr[min_layer]:.4f} (L{min_layer}->L{min_layer+1})")
+    print()
+
+
+def concept_activation_neuron_response_variance_ratio(all_acts, concept_names):
+    """Phase 1812: Compute between-concept vs within-concept variance ratio per neuron."""
+    print("=" * 70)
+    print("PHASE 1812: NEURON RESPONSE VARIANCE RATIO (BETWEEN/WITHIN)")
+    print("=" * 70)
+    layer = 10
+    n_neurons = all_acts[concept_names[0]]["positive"][layer].shape[1]
+    concept_means = []
+    within_vars = []
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        all_data = np.vstack([pos, neg])
+        concept_means.append(np.mean(all_data, axis=0))
+        within_vars.append(np.var(all_data, axis=0))
+    concept_means = np.array(concept_means)
+    within_vars = np.array(within_vars)
+    between_var = np.var(concept_means, axis=0)
+    mean_within = np.mean(within_vars, axis=0)
+    ratio = between_var / (mean_within + 1e-10)
+    top_neurons = np.argsort(ratio)[-5:][::-1]
+    print(f"  Top discriminative neurons: {top_neurons.tolist()}")
+    print(f"  Their variance ratios: {ratio[top_neurons].tolist()[:3]}")
+    print(f"  Mean ratio across all neurons: {np.mean(ratio):.4f}")
+    print()
+
+
+def concept_activation_direction_stability_bootstrap(all_acts, concept_names):
+    """Phase 1813: Bootstrap stability of concept directions."""
+    print("=" * 70)
+    print("PHASE 1813: CONCEPT DIRECTION BOOTSTRAP STABILITY")
+    print("=" * 70)
+    layer = 10
+    n_bootstrap = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        full_dir = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        full_dir = full_dir / (np.linalg.norm(full_dir) + 1e-10)
+        cosines = []
+        for _ in range(n_bootstrap):
+            idx_p = np.random.choice(len(pos), len(pos), replace=True)
+            idx_n = np.random.choice(len(neg), len(neg), replace=True)
+            boot_dir = np.mean(pos[idx_p], axis=0) - np.mean(neg[idx_n], axis=0)
+            boot_dir = boot_dir / (np.linalg.norm(boot_dir) + 1e-10)
+            cosines.append(np.dot(full_dir, boot_dir))
+        print(f"  {cname}: mean_cos={np.mean(cosines):.4f}, std={np.std(cosines):.4f}, min={np.min(cosines):.4f}")
+    print()
+
+
+def concept_activation_concept_direction_projection_distribution(all_acts, concept_names):
+    """Phase 1814: Distribution of sample projections onto concept directions."""
+    print("=" * 70)
+    print("PHASE 1814: PROJECTION DISTRIBUTION ONTO CONCEPT DIRECTIONS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        direction = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        direction = direction / (np.linalg.norm(direction) + 1e-10)
+        pos_proj = pos @ direction
+        neg_proj = neg @ direction
+        sep = np.mean(pos_proj) - np.mean(neg_proj)
+        overlap = np.sum(pos_proj.min() < neg_proj) + np.sum(neg_proj.max() > pos_proj)
+        print(f"  {cname}: pos_mean={np.mean(pos_proj):.3f}, neg_mean={np.mean(neg_proj):.3f}, separation={sep:.3f}, pos_std={np.std(pos_proj):.3f}, neg_std={np.std(neg_proj):.3f}")
+    print()
+
+
+def concept_activation_neuron_dead_alive_ratio(all_acts, concept_names):
+    """Phase 1815: Count dead (always zero) vs alive neurons per layer."""
+    print("=" * 70)
+    print("PHASE 1815: DEAD VS ALIVE NEURON RATIO PER LAYER")
+    print("=" * 70)
+    for layer in [0, 6, 12, 18, 23]:
+        all_data = []
+        for cname in concept_names:
+            pos = all_acts[cname]["positive"][layer]
+            neg = all_acts[cname]["negative"][layer]
+            all_data.append(pos)
+            all_data.append(neg)
+        all_data = np.vstack(all_data)
+        dead = np.sum(np.all(all_data == 0, axis=0))
+        alive = all_data.shape[1] - dead
+        print(f"  Layer {layer:2d}: alive={alive}, dead={dead}, alive_frac={alive/all_data.shape[1]:.4f}")
+    print()
+
+
+def concept_activation_concept_direction_l1_vs_l2_norm(all_acts, concept_names):
+    """Phase 1816: Compare L1 vs L2 norms of concept directions (sparsity indicator)."""
+    print("=" * 70)
+    print("PHASE 1816: L1 VS L2 NORM OF CONCEPT DIRECTIONS (SPARSITY INDICATOR)")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        direction = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        l1 = np.sum(np.abs(direction))
+        l2 = np.linalg.norm(direction)
+        # L1/L2 ratio: sqrt(n) for uniform, 1 for maximally sparse
+        n = len(direction)
+        ratio = l1 / (l2 * np.sqrt(n) + 1e-10)
+        print(f"  {cname}: L1={l1:.2f}, L2={l2:.4f}, L1/L2_normalized={ratio:.4f}")
+    print()
+
+
+def concept_activation_layer_wise_classification_margin(all_acts, concept_names):
+    """Phase 1817: Compute classification margin at each layer."""
+    print("=" * 70)
+    print("PHASE 1817: LAYER-WISE CLASSIFICATION MARGIN")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        margins = []
+        for l in range(24):
+            pos = all_acts[cname]["positive"][l]
+            neg = all_acts[cname]["negative"][l]
+            direction = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+            direction = direction / (np.linalg.norm(direction) + 1e-10)
+            pos_proj = pos @ direction
+            neg_proj = neg @ direction
+            margin = np.min(pos_proj) - np.max(neg_proj)
+            margins.append(margin)
+        margins = np.array(margins)
+        best_layer = np.argmax(margins)
+        print(f"  {cname}: best_margin_layer={best_layer}, margin={margins[best_layer]:.4f}, layers_with_positive_margin={np.sum(margins > 0)}")
+    print()
+
+
+def concept_activation_concept_direction_pca_variance_explained(all_acts, concept_names):
+    """Phase 1818: PCA variance explained by concept directions in activation space."""
+    print("=" * 70)
+    print("PHASE 1818: PCA VARIANCE EXPLAINED BY CONCEPT DIRECTIONS")
+    print("=" * 70)
+    layer = 10
+    all_data = []
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        all_data.extend([pos, neg])
+    all_data = np.vstack(all_data)
+    all_data = all_data - np.mean(all_data, axis=0)
+    total_var = np.sum(np.var(all_data, axis=0))
+    # Project onto concept direction subspace
+    directions = []
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        directions.append(d)
+    D = np.array(directions)
+    Q, _ = np.linalg.qr(D.T)
+    Q = Q[:, :len(concept_names)]
+    projected = all_data @ Q
+    proj_var = np.sum(np.var(projected, axis=0))
+    print(f"  Total variance: {total_var:.2f}")
+    print(f"  Concept-direction variance: {proj_var:.2f}")
+    print(f"  Fraction explained: {proj_var/total_var:.4f}")
+    print(f"  Residual fraction: {1 - proj_var/total_var:.4f}")
+    print()
+
+
+def concept_activation_neuron_max_activation_per_concept(all_acts, concept_names):
+    """Phase 1819: Find max-activated neuron per concept and its cross-concept response."""
+    print("=" * 70)
+    print("PHASE 1819: MAX-ACTIVATED NEURON PER CONCEPT")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        diff = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        max_neuron = np.argmax(np.abs(diff))
+        # Check this neuron's response for other concepts
+        other_responses = []
+        for other in concept_names:
+            if other == cname:
+                continue
+            op = all_acts[other]["positive"][layer]
+            on = all_acts[other]["negative"][layer]
+            od = np.mean(op, axis=0) - np.mean(on, axis=0)
+            other_responses.append(abs(od[max_neuron]))
+        max_other = max(other_responses)
+        print(f"  {cname}: max_neuron={max_neuron}, response={abs(diff[max_neuron]):.4f}, max_cross_response={max_other:.4f}, selectivity={abs(diff[max_neuron])/(max_other+1e-10):.2f}")
+    print()
+
+
+def concept_activation_phase_1820_checkpoint(all_acts, concept_names):
+    """Phase 1820: Status checkpoint."""
+    print("=" * 70)
+    print("PHASE 1820: STATUS CHECKPOINT")
+    print("=" * 70)
+    print(f"  Completed 1820 analysis phases")
+    print(f"  Concepts analyzed: {len(concept_names)}")
+    print(f"  Layers: 24")
+    print(f"  Hidden size: {all_acts[concept_names[0]]['positive'][0].shape[1]}")
+    print(f"  Autonomous research continues...")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -50837,6 +51054,36 @@ def run_analysis():
 
     # Phase 1810: Neuron contribution asymmetry (informational)
     concept_activation_phase_1810_neuron_contribution_asymmetry(all_acts, concept_names)
+
+    # Phase 1811: Cross-layer direction correlation (informational)
+    concept_activation_cross_layer_direction_correlation(all_acts, concept_names)
+
+    # Phase 1812: Neuron response variance ratio (informational)
+    concept_activation_neuron_response_variance_ratio(all_acts, concept_names)
+
+    # Phase 1813: Direction bootstrap stability (informational)
+    concept_activation_direction_stability_bootstrap(all_acts, concept_names)
+
+    # Phase 1814: Projection distribution (informational)
+    concept_activation_concept_direction_projection_distribution(all_acts, concept_names)
+
+    # Phase 1815: Dead vs alive neuron ratio (informational)
+    concept_activation_neuron_dead_alive_ratio(all_acts, concept_names)
+
+    # Phase 1816: L1 vs L2 norm of concept directions (informational)
+    concept_activation_concept_direction_l1_vs_l2_norm(all_acts, concept_names)
+
+    # Phase 1817: Layer-wise classification margin (informational)
+    concept_activation_layer_wise_classification_margin(all_acts, concept_names)
+
+    # Phase 1818: PCA variance explained (informational)
+    concept_activation_concept_direction_pca_variance_explained(all_acts, concept_names)
+
+    # Phase 1819: Max-activated neuron per concept (informational)
+    concept_activation_neuron_max_activation_per_concept(all_acts, concept_names)
+
+    # Phase 1820: Status checkpoint (informational)
+    concept_activation_phase_1820_checkpoint(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
