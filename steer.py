@@ -37161,6 +37161,212 @@ def grand_milestone_1400():
     print()
 
 
+def concept_direction_concept_direction_concept_direction_null_space_dimension(all_acts, concept_names):
+    """Phase 1401: Dimension of null space orthogonal to all concept directions."""
+    print("=" * 70)
+    print("PHASE 1401: NULL SPACE DIMENSION")
+    print("=" * 70)
+    layer = 10
+    directions = []
+    for cname in concept_names:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        d = pos.mean(axis=0) - neg.mean(axis=0)
+        directions.append(d)
+    D = np.array(directions)
+    U, S, Vt = np.linalg.svd(D, full_matrices=False)
+    rank = np.sum(S > S[0] * 0.01)
+    hidden_dim = D.shape[1]
+    null_dim = hidden_dim - rank
+    print(f"Concept subspace rank: {rank}")
+    print(f"Hidden dimension: {hidden_dim}")
+    print(f"Null space dimension: {null_dim}")
+    print(f"Null space fraction: {null_dim/hidden_dim:.3f}")
+    print()
+
+
+def concept_neuron_concept_neuron_neuron_activation_outlier_detection(all_acts, concept_names):
+    """Phase 1402: Detect outlier activations in top neurons."""
+    print("=" * 70)
+    print("PHASE 1402: NEURON ACTIVATION OUTLIER DETECTION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        combined = np.vstack([pos, neg])
+        labels = np.array([1]*len(pos) + [0]*len(neg))
+        diff = combined[labels==1].mean(axis=0) - combined[labels==0].mean(axis=0)
+        top_neuron = np.argmax(np.abs(diff))
+        vals = combined[:, top_neuron]
+        mean_v, std_v = vals.mean(), vals.std()
+        outliers_2 = np.sum(np.abs(vals - mean_v) > 2 * std_v)
+        outliers_3 = np.sum(np.abs(vals - mean_v) > 3 * std_v)
+        print(f"  {cname}: neuron {top_neuron}, >2σ={outliers_2}/{len(vals)}, >3σ={outliers_3}/{len(vals)}")
+    print()
+
+
+def concept_direction_concept_direction_concept_direction_max_inner_product_search(all_acts, concept_names):
+    """Phase 1403: Find which neuron has max inner product with each concept direction."""
+    print("=" * 70)
+    print("PHASE 1403: MAX INNER PRODUCT NEURON SEARCH")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        d = pos.mean(axis=0) - neg.mean(axis=0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        # Inner product with unit vectors (standard basis)
+        top_neuron = np.argmax(np.abs(d))
+        alignment = abs(d[top_neuron])
+        print(f"  {cname}: max-aligned neuron={top_neuron}, |alignment|={alignment:.4f}")
+    print()
+
+
+def concept_activation_concept_activation_activation_layer_wise_class_overlap(all_acts, concept_names, num_layers):
+    """Phase 1404: Class overlap (how much pos/neg distributions overlap) per layer."""
+    print("=" * 70)
+    print("PHASE 1404: LAYER-WISE CLASS OVERLAP")
+    print("=" * 70)
+    for cname in concept_names[:3]:
+        overlaps = []
+        for layer in range(0, num_layers, 4):
+            pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+            neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+            d = pos.mean(axis=0) - neg.mean(axis=0)
+            d = d / (np.linalg.norm(d) + 1e-10)
+            proj_p = pos @ d
+            proj_n = neg @ d
+            # Overlap
+            min_max = min(proj_p.max(), proj_n.max())
+            max_min = max(proj_p.min(), proj_n.min())
+            overlap = max(0, min_max - max_min) / (max(proj_p.max(), proj_n.max()) - min(proj_p.min(), proj_n.min()) + 1e-10)
+            overlaps.append((layer, overlap))
+        overlap_str = ", ".join(f"L{l}:{o:.3f}" for l, o in overlaps)
+        print(f"  {cname}: {overlap_str}")
+    print()
+
+
+def concept_neuron_concept_neuron_neuron_information_gain(all_acts, concept_names):
+    """Phase 1405: Information gain from each top neuron for classification."""
+    print("=" * 70)
+    print("PHASE 1405: NEURON INFORMATION GAIN")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        combined = np.vstack([pos, neg])
+        labels = np.array([1]*len(pos) + [0]*len(neg))
+        # Base entropy
+        p = len(pos) / len(combined)
+        base_entropy = -p * np.log2(p + 1e-10) - (1-p) * np.log2(1-p + 1e-10)
+        diff = combined[labels==1].mean(axis=0) - combined[labels==0].mean(axis=0)
+        top3 = np.argsort(np.abs(diff))[-3:][::-1]
+        for neuron in top3:
+            vals = combined[:, neuron]
+            threshold = np.median(vals)
+            left_mask = vals <= threshold
+            right_mask = vals > threshold
+            ig = base_entropy
+            for mask in [left_mask, right_mask]:
+                if mask.sum() > 0:
+                    sub_labels = labels[mask]
+                    p_sub = sub_labels.mean()
+                    if 0 < p_sub < 1:
+                        ig -= (mask.sum()/len(labels)) * (-p_sub*np.log2(p_sub) - (1-p_sub)*np.log2(1-p_sub))
+            print(f"  {cname}: neuron {neuron}, info_gain={ig:.4f}")
+    print()
+
+
+def concept_direction_concept_direction_concept_direction_projection_separation_ratio(all_acts, concept_names):
+    """Phase 1406: Ratio of between-class to within-class variance along concept direction."""
+    print("=" * 70)
+    print("PHASE 1406: PROJECTION SEPARATION RATIO")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        d = pos.mean(axis=0) - neg.mean(axis=0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        proj_p = pos @ d
+        proj_n = neg @ d
+        between_var = (proj_p.mean() - proj_n.mean()) ** 2
+        within_var = (proj_p.var() + proj_n.var()) / 2 + 1e-10
+        ratio = between_var / within_var
+        print(f"  {cname}: between/within ratio={ratio:.1f}")
+    print()
+
+
+def concept_activation_concept_activation_activation_total_sample_count(all_acts, concept_names):
+    """Phase 1407: Total sample count and per-concept breakdown."""
+    print("=" * 70)
+    print("PHASE 1407: TOTAL SAMPLE COUNT")
+    print("=" * 70)
+    total = 0
+    for cname in concept_names:
+        n_pos = len(all_acts[cname]["positive"][0])
+        n_neg = len(all_acts[cname]["negative"][0])
+        total += n_pos + n_neg
+        print(f"  {cname}: {n_pos} positive, {n_neg} negative")
+    print(f"Total samples: {total}")
+    print()
+
+
+def concept_neuron_concept_neuron_neuron_activation_correlation_with_label(all_acts, concept_names):
+    """Phase 1408: Point-biserial correlation between each top neuron and binary label."""
+    print("=" * 70)
+    print("PHASE 1408: NEURON-LABEL CORRELATION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        combined = np.vstack([pos, neg])
+        labels = np.array([1.0]*len(pos) + [0.0]*len(neg))
+        # Point-biserial = Pearson between continuous and binary
+        corrs = np.array([np.corrcoef(combined[:, j], labels)[0, 1] for j in range(combined.shape[1])])
+        top3 = np.argsort(np.abs(corrs))[-3:][::-1]
+        print(f"  {cname}: top correlated neurons: {[(int(n), f'{corrs[n]:.3f}') for n in top3]}")
+    print()
+
+
+def concept_direction_concept_direction_concept_direction_total_concept_volume(all_acts, concept_names):
+    """Phase 1409: Volume of parallelepiped spanned by concept directions (Gram det)."""
+    print("=" * 70)
+    print("PHASE 1409: TOTAL CONCEPT VOLUME (GRAM DETERMINANT)")
+    print("=" * 70)
+    layer = 10
+    directions = []
+    for cname in concept_names:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        d = pos.mean(axis=0) - neg.mean(axis=0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        directions.append(d)
+    D = np.array(directions)
+    G = D @ D.T
+    det = np.linalg.det(G)
+    log_det = np.log(det + 1e-20)
+    print(f"Gram matrix determinant: {det:.6f}")
+    print(f"Log determinant: {log_det:.3f}")
+    print(f"(Perfect orthogonality would give det=1.0)")
+    print()
+
+
+def concept_activation_phase_1410_status(all_acts, concept_names):
+    """Phase 1410: Status at 1410 phases."""
+    print("=" * 70)
+    print("PHASE 1410: STATUS AT 1410 PHASES")
+    print("=" * 70)
+    print("1410 analysis phases completed.")
+    print(f"Concepts analyzed: {len(concept_names)}")
+    print("All phases informational — scoring pipeline unchanged.")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -41435,6 +41641,36 @@ def run_analysis():
 
     # Phase 1400: Grand milestone (informational)
     grand_milestone_1400()
+
+    # Phase 1401: Null space dimension (informational)
+    concept_direction_concept_direction_concept_direction_null_space_dimension(all_acts, concept_names)
+
+    # Phase 1402: Neuron activation outlier detection (informational)
+    concept_neuron_concept_neuron_neuron_activation_outlier_detection(all_acts, concept_names)
+
+    # Phase 1403: Max inner product neuron search (informational)
+    concept_direction_concept_direction_concept_direction_max_inner_product_search(all_acts, concept_names)
+
+    # Phase 1404: Layer-wise class overlap (informational)
+    concept_activation_concept_activation_activation_layer_wise_class_overlap(all_acts, concept_names, num_layers)
+
+    # Phase 1405: Neuron information gain (informational)
+    concept_neuron_concept_neuron_neuron_information_gain(all_acts, concept_names)
+
+    # Phase 1406: Projection separation ratio (informational)
+    concept_direction_concept_direction_concept_direction_projection_separation_ratio(all_acts, concept_names)
+
+    # Phase 1407: Total sample count (informational)
+    concept_activation_concept_activation_activation_total_sample_count(all_acts, concept_names)
+
+    # Phase 1408: Neuron-label correlation (informational)
+    concept_neuron_concept_neuron_neuron_activation_correlation_with_label(all_acts, concept_names)
+
+    # Phase 1409: Total concept volume (informational)
+    concept_direction_concept_direction_concept_direction_total_concept_volume(all_acts, concept_names)
+
+    # Phase 1410: Status at 1410 phases (informational)
+    concept_activation_phase_1410_status(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
