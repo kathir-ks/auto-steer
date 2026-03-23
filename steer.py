@@ -47809,6 +47809,195 @@ def concept_activation_phase_1930_checkpoint(all_acts, concept_names):
     print()
 
 
+def concept_activation_neuron_activation_relative_importance(all_acts, concept_names):
+    """Phase 1931: Relative importance of neurons normalized by layer activity."""
+    print("=" * 70)
+    print("PHASE 1931: NEURON RELATIVE IMPORTANCE (LAYER-NORMALIZED)")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        diff = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+        total_activity = np.mean(np.abs(np.vstack([pos, neg])), axis=0)
+        rel_importance = diff / (total_activity + 1e-10)
+        top3 = np.argsort(rel_importance)[-3:][::-1]
+        print(f"  {cname}: top3_rel_neurons={top3.tolist()}, rel_imp={rel_importance[top3].tolist()}")
+    print()
+
+
+def concept_activation_concept_direction_weighted_avg_layer_analysis(all_acts, concept_names):
+    """Phase 1932: Weighted average layer for each concept direction."""
+    print("=" * 70)
+    print("PHASE 1932: WEIGHTED AVERAGE LAYER PER CONCEPT")
+    print("=" * 70)
+    for cname in concept_names:
+        norms = []
+        for l in range(24):
+            d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+            norms.append(np.linalg.norm(d))
+        norms = np.array(norms)
+        weights = norms / (np.sum(norms) + 1e-10)
+        weighted_layer = np.sum(np.arange(24) * weights)
+        print(f"  {cname}: weighted_avg_layer={weighted_layer:.2f}, peak_layer={np.argmax(norms)}")
+    print()
+
+
+def concept_activation_neuron_concept_exclusive_activation(all_acts, concept_names):
+    """Phase 1933: Neurons that activate exclusively for one concept."""
+    print("=" * 70)
+    print("PHASE 1933: CONCEPT-EXCLUSIVE NEURON ACTIVATION")
+    print("=" * 70)
+    layer = 10
+    n_neurons = all_acts[concept_names[0]]["positive"][layer].shape[1]
+    responses = np.zeros((n_neurons, len(concept_names)))
+    for ci, cname in enumerate(concept_names):
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        responses[:, ci] = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+    # Exclusive = top concept response >> second
+    exclusive_count = 0
+    for n in range(n_neurons):
+        sorted_r = np.sort(responses[n])[::-1]
+        if sorted_r[0] > 0.01 and sorted_r[1] > 0:
+            if sorted_r[0] / sorted_r[1] > 10:
+                exclusive_count += 1
+    print(f"  Exclusive neurons (10x ratio): {exclusive_count}/{n_neurons}")
+    print(f"  Fraction: {exclusive_count/n_neurons:.4f}")
+    print()
+
+
+def concept_activation_concept_direction_mahalanobis_distance(all_acts, concept_names):
+    """Phase 1934: Mahalanobis distance between concept class centroids."""
+    print("=" * 70)
+    print("PHASE 1934: MAHALANOBIS DISTANCE BETWEEN CONCEPT CLASSES")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        all_data = np.vstack([pos, neg])
+        cov = np.cov(all_data.T) + 1e-6 * np.eye(all_data.shape[1])
+        diff = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        # Use pseudo-inverse for stability
+        try:
+            cov_inv = np.linalg.pinv(cov)
+            maha = np.sqrt(diff @ cov_inv @ diff)
+        except Exception:
+            maha = 0
+        print(f"  {cname}: mahalanobis_distance={maha:.4f}")
+    print()
+
+
+def concept_activation_neuron_activation_regime_analysis(all_acts, concept_names):
+    """Phase 1935: Identify activation regimes (linear vs saturated) per neuron."""
+    print("=" * 70)
+    print("PHASE 1935: NEURON ACTIVATION REGIME ANALYSIS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:3]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        all_data = np.vstack([pos, neg])
+        # Check for saturation: neurons near constant
+        ranges = np.max(all_data, axis=0) - np.min(all_data, axis=0)
+        means = np.abs(np.mean(all_data, axis=0))
+        cv = ranges / (means + 1e-10)
+        linear = np.sum(cv > 0.1)
+        saturated = np.sum(cv <= 0.1)
+        print(f"  {cname}: linear_regime={linear}, saturated_regime={saturated}")
+    print()
+
+
+def concept_activation_concept_direction_cohens_d_effect_size(all_acts, concept_names):
+    """Phase 1936: Cohen's d effect size of concept direction projections."""
+    print("=" * 70)
+    print("PHASE 1936: COHEN'S D EFFECT SIZE")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        d_unit = d / (np.linalg.norm(d) + 1e-10)
+        pos_proj = pos @ d_unit
+        neg_proj = neg @ d_unit
+        pooled_std = np.sqrt((np.var(pos_proj) * (len(pos_proj)-1) + np.var(neg_proj) * (len(neg_proj)-1)) / (len(pos_proj) + len(neg_proj) - 2 + 1e-10))
+        cohens_d = (np.mean(pos_proj) - np.mean(neg_proj)) / (pooled_std + 1e-10)
+        print(f"  {cname}: Cohen's_d={cohens_d:.4f}")
+    print()
+
+
+def concept_activation_neuron_concept_response_magnitude_profile(all_acts, concept_names):
+    """Phase 1937: Response magnitude profile across all neurons."""
+    print("=" * 70)
+    print("PHASE 1937: NEURON RESPONSE MAGNITUDE PROFILE")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        magnitudes = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+        p50 = np.percentile(magnitudes, 50)
+        p90 = np.percentile(magnitudes, 90)
+        p99 = np.percentile(magnitudes, 99)
+        print(f"  {cname}: p50={p50:.4f}, p90={p90:.4f}, p99={p99:.4f}, max={np.max(magnitudes):.4f}")
+    print()
+
+
+def concept_activation_concept_direction_invariance_to_normalization(all_acts, concept_names):
+    """Phase 1938: Test if concept directions are invariant to activation normalization."""
+    print("=" * 70)
+    print("PHASE 1938: DIRECTION INVARIANCE TO NORMALIZATION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        # Unnormalized direction
+        d_raw = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        d_raw = d_raw / (np.linalg.norm(d_raw) + 1e-10)
+        # Normalized activations direction
+        pos_norm = pos / (np.linalg.norm(pos, axis=1, keepdims=True) + 1e-10)
+        neg_norm = neg / (np.linalg.norm(neg, axis=1, keepdims=True) + 1e-10)
+        d_norm = np.mean(pos_norm, axis=0) - np.mean(neg_norm, axis=0)
+        d_norm = d_norm / (np.linalg.norm(d_norm) + 1e-10)
+        cos = np.dot(d_raw, d_norm)
+        print(f"  {cname}: cos(raw, normalized)={cos:.4f}")
+    print()
+
+
+def concept_activation_neuron_activation_layer_wise_entropy(all_acts, concept_names):
+    """Phase 1939: Entropy of activation distribution across layers."""
+    print("=" * 70)
+    print("PHASE 1939: LAYER-WISE ACTIVATION ENTROPY")
+    print("=" * 70)
+    for cname in concept_names[:3]:
+        entropies = []
+        for l in range(24):
+            pos = all_acts[cname]["positive"][l]
+            neg = all_acts[cname]["negative"][l]
+            all_data = np.vstack([pos, neg])
+            mean_abs = np.abs(np.mean(all_data, axis=0))
+            p = mean_abs / (np.sum(mean_abs) + 1e-10)
+            p = np.clip(p, 1e-10, 1)
+            entropy = -np.sum(p * np.log2(p))
+            entropies.append(entropy)
+        min_layer = np.argmin(entropies)
+        print(f"  {cname}: min_entropy_layer={min_layer}({entropies[min_layer]:.2f}), max_entropy={np.max(entropies):.2f}")
+    print()
+
+
+def concept_activation_phase_1940_checkpoint(all_acts, concept_names):
+    """Phase 1940: Status checkpoint."""
+    print("=" * 70)
+    print("PHASE 1940: STATUS CHECKPOINT")
+    print("=" * 70)
+    print(f"  1940 analysis phases completed")
+    print(f"  60 phases to 2000 milestone!")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -53673,6 +53862,36 @@ def run_analysis():
 
     # Phase 1930: Status checkpoint (informational)
     concept_activation_phase_1930_checkpoint(all_acts, concept_names)
+
+    # Phase 1931: Relative importance (informational)
+    concept_activation_neuron_activation_relative_importance(all_acts, concept_names)
+
+    # Phase 1932: Weighted average layer (informational)
+    concept_activation_concept_direction_weighted_avg_layer_analysis(all_acts, concept_names)
+
+    # Phase 1933: Exclusive activation (informational)
+    concept_activation_neuron_concept_exclusive_activation(all_acts, concept_names)
+
+    # Phase 1934: Mahalanobis distance (informational)
+    concept_activation_concept_direction_mahalanobis_distance(all_acts, concept_names)
+
+    # Phase 1935: Activation regime analysis (informational)
+    concept_activation_neuron_activation_regime_analysis(all_acts, concept_names)
+
+    # Phase 1936: Cohen's d effect size (informational)
+    concept_activation_concept_direction_cohens_d_effect_size(all_acts, concept_names)
+
+    # Phase 1937: Response magnitude profile (informational)
+    concept_activation_neuron_concept_response_magnitude_profile(all_acts, concept_names)
+
+    # Phase 1938: Normalization invariance (informational)
+    concept_activation_concept_direction_invariance_to_normalization(all_acts, concept_names)
+
+    # Phase 1939: Layer-wise entropy (informational)
+    concept_activation_neuron_activation_layer_wise_entropy(all_acts, concept_names)
+
+    # Phase 1940: Status checkpoint (informational)
+    concept_activation_phase_1940_checkpoint(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
