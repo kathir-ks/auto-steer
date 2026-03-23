@@ -45786,6 +45786,207 @@ def concept_activation_phase_1830_status(all_acts, concept_names):
     print()
 
 
+def concept_activation_neuron_concept_mutual_exclusivity(all_acts, concept_names):
+    """Phase 1831: Test if top neurons for different concepts are mutually exclusive."""
+    print("=" * 70)
+    print("PHASE 1831: NEURON CONCEPT MUTUAL EXCLUSIVITY")
+    print("=" * 70)
+    layer = 10
+    top_sets = {}
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        diff = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+        top_sets[cname] = set(np.argsort(diff)[-10:].tolist())
+    total_overlap = 0
+    total_pairs = 0
+    for i in range(len(concept_names)):
+        for j in range(i+1, len(concept_names)):
+            overlap = len(top_sets[concept_names[i]] & top_sets[concept_names[j]])
+            total_overlap += overlap
+            total_pairs += 1
+    avg_overlap = total_overlap / total_pairs
+    print(f"  Mean pairwise overlap in top-10 neurons: {avg_overlap:.2f}")
+    print(f"  Total unique neurons used: {len(set.union(*top_sets.values()))}")
+    print(f"  Perfect exclusivity would use: {10 * len(concept_names)}")
+    print()
+
+
+def concept_activation_concept_direction_outlier_robustness_check(all_acts, concept_names):
+    """Phase 1832: Test robustness of concept directions to outlier removal."""
+    print("=" * 70)
+    print("PHASE 1832: CONCEPT DIRECTION ROBUSTNESS TO OUTLIER REMOVAL")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        full_dir = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        full_dir = full_dir / (np.linalg.norm(full_dir) + 1e-10)
+        # Remove 10% extreme samples
+        all_data = np.vstack([pos, neg])
+        labels = np.array([1]*len(pos) + [0]*len(neg))
+        projs = all_data @ full_dir
+        low, high = np.percentile(projs, 10), np.percentile(projs, 90)
+        mask = (projs >= low) & (projs <= high)
+        trimmed_pos = all_data[mask & (labels == 1)]
+        trimmed_neg = all_data[mask & (labels == 0)]
+        if len(trimmed_pos) > 0 and len(trimmed_neg) > 0:
+            trimmed_dir = np.mean(trimmed_pos, axis=0) - np.mean(trimmed_neg, axis=0)
+            trimmed_dir = trimmed_dir / (np.linalg.norm(trimmed_dir) + 1e-10)
+            cos = np.dot(full_dir, trimmed_dir)
+        else:
+            cos = 1.0
+        print(f"  {cname}: cos(full, trimmed)={cos:.4f}, samples_removed={np.sum(~mask)}")
+    print()
+
+
+def concept_activation_neuron_information_content(all_acts, concept_names):
+    """Phase 1833: Estimate information content per neuron using discretized MI."""
+    print("=" * 70)
+    print("PHASE 1833: NEURON INFORMATION CONTENT ESTIMATION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        X = np.vstack([pos, neg])
+        y = np.array([1]*len(pos) + [0]*len(neg))
+        mi = mutual_info_classif(X, y, n_neighbors=3, random_state=42)
+        top5 = np.argsort(mi)[-5:][::-1]
+        print(f"  {cname}: top5_MI_neurons={top5.tolist()}, top5_MI={mi[top5][:3].tolist()}")
+    print()
+
+
+def concept_activation_layer_concept_signal_ratio(all_acts, concept_names):
+    """Phase 1834: Signal-to-noise ratio of concept directions per layer."""
+    print("=" * 70)
+    print("PHASE 1834: LAYER CONCEPT SIGNAL-TO-NOISE RATIO")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        best_snr = -1
+        best_layer = 0
+        for l in range(24):
+            pos = all_acts[cname]["positive"][l]
+            neg = all_acts[cname]["negative"][l]
+            signal = np.linalg.norm(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+            noise = np.mean([np.std(pos, axis=0).mean(), np.std(neg, axis=0).mean()])
+            snr = signal / (noise + 1e-10)
+            if snr > best_snr:
+                best_snr = snr
+                best_layer = l
+        print(f"  {cname}: best_SNR_layer={best_layer}, SNR={best_snr:.4f}")
+    print()
+
+
+def concept_activation_concept_direction_gram_determinant_per_layer(all_acts, concept_names):
+    """Phase 1835: Gram matrix determinant of concept directions per layer."""
+    print("=" * 70)
+    print("PHASE 1835: GRAM MATRIX DETERMINANT PER LAYER")
+    print("=" * 70)
+    for layer in [0, 4, 8, 12, 16, 20, 23]:
+        directions = []
+        for cname in concept_names:
+            d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+            d = d / (np.linalg.norm(d) + 1e-10)
+            directions.append(d)
+        G = np.array(directions) @ np.array(directions).T
+        det = np.linalg.det(G)
+        cond = np.linalg.cond(G)
+        print(f"  Layer {layer:2d}: det={det:.6f}, cond={cond:.2f}")
+    print()
+
+
+def concept_activation_neuron_response_skewness(all_acts, concept_names):
+    """Phase 1836: Skewness of neuron responses to positive vs negative samples."""
+    print("=" * 70)
+    print("PHASE 1836: NEURON RESPONSE SKEWNESS")
+    print("=" * 70)
+    from scipy.stats import skew
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        pos_skew = skew(pos, axis=0)
+        neg_skew = skew(neg, axis=0)
+        diff_skew = np.mean(pos_skew) - np.mean(neg_skew)
+        print(f"  {cname}: mean_pos_skew={np.mean(pos_skew):.4f}, mean_neg_skew={np.mean(neg_skew):.4f}, diff={diff_skew:.4f}")
+    print()
+
+
+def concept_activation_concept_pair_interference(all_acts, concept_names):
+    """Phase 1837: Measure interference when classifying one concept while another varies."""
+    print("=" * 70)
+    print("PHASE 1837: CONCEPT PAIR INTERFERENCE ANALYSIS")
+    print("=" * 70)
+    layer = 10
+    pairs_shown = 0
+    for i in range(len(concept_names)):
+        for j in range(i+1, len(concept_names)):
+            if pairs_shown >= 4:
+                break
+            c1, c2 = concept_names[i], concept_names[j]
+            d1 = np.mean(all_acts[c1]["positive"][layer], axis=0) - np.mean(all_acts[c1]["negative"][layer], axis=0)
+            d1 = d1 / (np.linalg.norm(d1) + 1e-10)
+            d2 = np.mean(all_acts[c2]["positive"][layer], axis=0) - np.mean(all_acts[c2]["negative"][layer], axis=0)
+            d2 = d2 / (np.linalg.norm(d2) + 1e-10)
+            # How much does projecting onto d1 capture d2 signal?
+            interference = abs(np.dot(d1, d2))
+            print(f"  {c1} -> {c2}: interference={interference:.4f}")
+            pairs_shown += 1
+        if pairs_shown >= 4:
+            break
+    print()
+
+
+def concept_activation_neuron_activation_range_per_concept(all_acts, concept_names):
+    """Phase 1838: Activation range (max-min) per neuron per concept."""
+    print("=" * 70)
+    print("PHASE 1838: NEURON ACTIVATION RANGE PER CONCEPT")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        all_data = np.vstack([pos, neg])
+        ranges = np.max(all_data, axis=0) - np.min(all_data, axis=0)
+        print(f"  {cname}: mean_range={np.mean(ranges):.4f}, max_range={np.max(ranges):.4f}, neurons_with_large_range(>2*mean)={np.sum(ranges > 2*np.mean(ranges))}")
+    print()
+
+
+def concept_activation_concept_encoding_redundancy_check(all_acts, concept_names):
+    """Phase 1839: Measure encoding redundancy by comparing full vs reduced neuron sets."""
+    print("=" * 70)
+    print("PHASE 1839: CONCEPT ENCODING REDUNDANCY ANALYSIS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        direction = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        full_norm = np.linalg.norm(direction)
+        # Keep only top 50% of neurons by absolute contribution
+        sorted_idx = np.argsort(np.abs(direction))
+        half = len(direction) // 2
+        reduced_dir = direction.copy()
+        reduced_dir[sorted_idx[:half]] = 0
+        reduced_norm = np.linalg.norm(reduced_dir)
+        cos = np.dot(direction, reduced_dir) / (full_norm * reduced_norm + 1e-10)
+        print(f"  {cname}: full_norm={full_norm:.4f}, reduced_norm={reduced_norm:.4f}, cos(full,reduced)={cos:.4f}, norm_retained={reduced_norm/full_norm:.4f}")
+    print()
+
+
+def concept_activation_phase_1840_checkpoint(all_acts, concept_names):
+    """Phase 1840: Status checkpoint."""
+    print("=" * 70)
+    print("PHASE 1840: STATUS CHECKPOINT")
+    print("=" * 70)
+    print(f"  1840 analysis phases completed")
+    print(f"  Concepts: {len(concept_names)}")
+    print(f"  Research continues autonomously...")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -51350,6 +51551,36 @@ def run_analysis():
 
     # Phase 1830: Status checkpoint (informational)
     concept_activation_phase_1830_status(all_acts, concept_names)
+
+    # Phase 1831: Neuron concept mutual exclusivity (informational)
+    concept_activation_neuron_concept_mutual_exclusivity(all_acts, concept_names)
+
+    # Phase 1832: Direction robustness to outliers (informational)
+    concept_activation_concept_direction_outlier_robustness_check(all_acts, concept_names)
+
+    # Phase 1833: Neuron information content (informational)
+    concept_activation_neuron_information_content(all_acts, concept_names)
+
+    # Phase 1834: Layer concept signal-to-noise ratio (informational)
+    concept_activation_layer_concept_signal_ratio(all_acts, concept_names)
+
+    # Phase 1835: Gram matrix determinant per layer (informational)
+    concept_activation_concept_direction_gram_determinant_per_layer(all_acts, concept_names)
+
+    # Phase 1836: Neuron response skewness (informational)
+    concept_activation_neuron_response_skewness(all_acts, concept_names)
+
+    # Phase 1837: Concept pair interference (informational)
+    concept_activation_concept_pair_interference(all_acts, concept_names)
+
+    # Phase 1838: Neuron activation range (informational)
+    concept_activation_neuron_activation_range_per_concept(all_acts, concept_names)
+
+    # Phase 1839: Concept encoding redundancy (informational)
+    concept_activation_concept_encoding_redundancy_check(all_acts, concept_names)
+
+    # Phase 1840: Status checkpoint (informational)
+    concept_activation_phase_1840_checkpoint(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
