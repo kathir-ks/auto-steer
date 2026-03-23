@@ -41273,6 +41273,222 @@ def concept_activation_phase_1600_milestone(all_acts, concept_names):
     print()
 
 
+def concept_activation_concept_vector_decomposition_quality(all_acts, concept_names):
+    """Phase 1601: Evaluate quality of concept direction decomposition into neuron contributions."""
+    print("=" * 70)
+    print("PHASE 1601: CONCEPT VECTOR DECOMPOSITION QUALITY")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        # How well do top-k neurons reconstruct the full direction?
+        for k in [1, 5, 10, 50]:
+            top_idx = np.argsort(np.abs(d))[-k:]
+            reconstructed = np.zeros_like(d)
+            reconstructed[top_idx] = d[top_idx]
+            cos = np.dot(d, reconstructed) / (np.linalg.norm(d) * np.linalg.norm(reconstructed) + 1e-10)
+            if k == 1 or k == 50:
+                print(f"  {cname}: top-{k} reconstruction cosine={cos:.4f}")
+    print()
+
+
+def concept_activation_layerwise_activation_correlation(all_acts, concept_names):
+    """Phase 1602: Compute correlation between adjacent layer activations."""
+    print("=" * 70)
+    print("PHASE 1602: ADJACENT LAYER ACTIVATION CORRELATION")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        corrs = []
+        for l in range(23):
+            acts1 = np.vstack([all_acts[cname]["positive"][l], all_acts[cname]["negative"][l]])
+            acts2 = np.vstack([all_acts[cname]["positive"][l+1], all_acts[cname]["negative"][l+1]])
+            # Mean neuron-wise correlation
+            c = np.mean([np.corrcoef(acts1[:, j], acts2[:, j])[0, 1]
+                        for j in range(0, acts1.shape[1], 100)])
+            corrs.append(c)
+        min_corr_l = int(np.argmin(corrs))
+        print(f"  {cname}: mean adj-layer corr={np.mean(corrs):.4f}, "
+              f"min at L{min_corr_l}→L{min_corr_l+1} ({corrs[min_corr_l]:.4f})")
+    print()
+
+
+def concept_activation_concept_interference_measurement(all_acts, concept_names):
+    """Phase 1603: Measure how much concept directions interfere with each other."""
+    print("=" * 70)
+    print("PHASE 1603: CONCEPT DIRECTION INTERFERENCE MEASUREMENT")
+    print("=" * 70)
+    layer = 10
+    dirs = {}
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        dirs[cname] = d / (np.linalg.norm(d) + 1e-10)
+    for cname in concept_names:
+        # Project out all other directions, measure remaining signal
+        other_dirs = np.array([dirs[c] for c in concept_names if c != cname])
+        proj_matrix = other_dirs.T @ np.linalg.pinv(other_dirs.T)
+        original_norm = np.linalg.norm(dirs[cname])
+        residual = dirs[cname] - proj_matrix @ dirs[cname]
+        residual_norm = np.linalg.norm(residual)
+        interference = 1 - (residual_norm / (original_norm + 1e-10))
+        print(f"  {cname}: interference={interference:.4f} "
+              f"(residual {residual_norm:.4f} of {original_norm:.4f})")
+    print()
+
+
+def concept_activation_neuron_activation_temporal_pattern(all_acts, concept_names):
+    """Phase 1604: Analyze patterns in how neuron activations change across layers."""
+    print("=" * 70)
+    print("PHASE 1604: NEURON ACTIVATION TEMPORAL PATTERN")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        # Track mean activation of top neuron across layers
+        layer10_diff = np.abs(np.mean(all_acts[cname]["positive"][10], axis=0) -
+                             np.mean(all_acts[cname]["negative"][10], axis=0))
+        top_neuron = int(np.argmax(layer10_diff))
+        pattern = []
+        for l in range(24):
+            pos_val = np.mean(all_acts[cname]["positive"][l][:, top_neuron])
+            neg_val = np.mean(all_acts[cname]["negative"][l][:, top_neuron])
+            pattern.append(pos_val - neg_val)
+        peak_l = int(np.argmax(np.abs(pattern)))
+        print(f"  {cname}: neuron {top_neuron} peaks at L{peak_l} (diff={pattern[peak_l]:.4f}), "
+              f"L0={pattern[0]:.4f}, L23={pattern[23]:.4f}")
+    print()
+
+
+def concept_activation_concept_purity_per_cluster(all_acts, concept_names):
+    """Phase 1605: Measure concept label purity within activation clusters."""
+    print("=" * 70)
+    print("PHASE 1605: CONCEPT PURITY PER ACTIVATION CLUSTER")
+    print("=" * 70)
+    layer = 10
+    all_data = []
+    all_labels = []
+    for ci, cname in enumerate(concept_names):
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        all_data.extend([pos, neg])
+        all_labels.extend([ci]*len(pos) + [ci]*len(neg))
+    X = np.vstack(all_data)
+    y = np.array(all_labels)
+    from sklearn.cluster import KMeans
+    km = KMeans(n_clusters=len(concept_names), random_state=42, n_init=3)
+    clusters = km.fit_predict(X)
+    purities = []
+    for k in range(len(concept_names)):
+        mask = clusters == k
+        if mask.sum() > 0:
+            counts = np.bincount(y[mask], minlength=len(concept_names))
+            purity = counts.max() / mask.sum()
+            purities.append(purity)
+    print(f"  Mean cluster purity: {np.mean(purities):.4f}")
+    print(f"  Min/max purity: {min(purities):.4f} / {max(purities):.4f}")
+    print()
+
+
+def concept_activation_concept_direction_effective_rank(all_acts, concept_names):
+    """Phase 1606: Compute effective rank of the concept direction matrix."""
+    print("=" * 70)
+    print("PHASE 1606: CONCEPT DIRECTION MATRIX EFFECTIVE RANK")
+    print("=" * 70)
+    for l in [0, 5, 10, 15, 23]:
+        dirs = []
+        for cname in concept_names:
+            d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+            dirs.append(d)
+        D = np.array(dirs)
+        _, S, _ = np.linalg.svd(D, full_matrices=False)
+        S_norm = S / (S.sum() + 1e-10)
+        entropy = -np.sum(S_norm * np.log(S_norm + 1e-10))
+        eff_rank = np.exp(entropy)
+        print(f"  L{l}: effective rank={eff_rank:.2f}, top SV ratio={S[0]/S[-1]:.2f}")
+    print()
+
+
+def concept_activation_neuron_activation_variance_decomposition(all_acts, concept_names):
+    """Phase 1607: Decompose neuron variance into between-concept and within-concept."""
+    print("=" * 70)
+    print("PHASE 1607: NEURON VARIANCE DECOMPOSITION")
+    print("=" * 70)
+    layer = 10
+    all_acts_flat = []
+    concept_ids = []
+    for ci, cname in enumerate(concept_names):
+        acts = np.vstack([all_acts[cname]["positive"][layer], all_acts[cname]["negative"][layer]])
+        all_acts_flat.append(acts)
+        concept_ids.extend([ci] * len(acts))
+    X = np.vstack(all_acts_flat)
+    y = np.array(concept_ids)
+    global_mean = X.mean(0)
+    total_var = np.sum(np.var(X, axis=0))
+    between_var = 0
+    for ci in range(len(concept_names)):
+        mask = y == ci
+        group_mean = X[mask].mean(0)
+        between_var += mask.sum() * np.sum((group_mean - global_mean)**2)
+    between_var /= len(X)
+    within_var = total_var - between_var
+    print(f"  Total variance: {total_var:.2f}")
+    print(f"  Between-concept: {between_var:.2f} ({100*between_var/total_var:.1f}%)")
+    print(f"  Within-concept: {within_var:.2f} ({100*within_var/total_var:.1f}%)")
+    print()
+
+
+def concept_activation_concept_direction_angular_dispersion(all_acts, concept_names):
+    """Phase 1608: Measure angular dispersion of samples around concept directions."""
+    print("=" * 70)
+    print("PHASE 1608: ANGULAR DISPERSION AROUND CONCEPT DIRECTIONS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        d_norm = d / (np.linalg.norm(d) + 1e-10)
+        pos = all_acts[cname]["positive"][layer]
+        pos_norms = np.linalg.norm(pos, axis=1, keepdims=True)
+        pos_unit = pos / (pos_norms + 1e-10)
+        cosines = pos_unit @ d_norm
+        angular_disp = np.std(np.arccos(np.clip(cosines, -1, 1)))
+        print(f"  {cname}: angular dispersion={np.degrees(angular_disp):.2f}°, "
+              f"mean cosine={np.mean(cosines):.4f}")
+    print()
+
+
+def concept_activation_layerwise_concept_rank_stability(all_acts, concept_names):
+    """Phase 1609: Check if concept strength ranking is stable across layers."""
+    print("=" * 70)
+    print("PHASE 1609: LAYERWISE CONCEPT RANK STABILITY")
+    print("=" * 70)
+    rankings = []
+    for l in range(24):
+        strengths = []
+        for cname in concept_names:
+            d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+            strengths.append(np.linalg.norm(d))
+        rank = np.argsort(np.argsort(-np.array(strengths)))
+        rankings.append(rank)
+    rankings = np.array(rankings)
+    # Kendall tau between first and last
+    from scipy.stats import kendalltau
+    tau, p = kendalltau(rankings[0], rankings[23])
+    print(f"  Kendall tau (L0 vs L23 ranking): {tau:.4f} (p={p:.4f})")
+    # Check stability across all layers
+    rank_stds = np.std(rankings, axis=0)
+    for ci, cname in enumerate(concept_names):
+        print(f"  {cname}: rank std across layers={rank_stds[ci]:.2f}")
+    print()
+
+
+def concept_activation_phase_1610_status(all_acts, concept_names):
+    """Phase 1610: Status checkpoint at 1610 phases."""
+    print("=" * 70)
+    print("PHASE 1610: STATUS CHECKPOINT — 1610 ANALYSIS PHASES")
+    print("=" * 70)
+    print("1610 analysis phases completed.")
+    print(f"Concepts analyzed: {len(concept_names)}")
+    print("All phases informational — scoring pipeline unchanged.")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -46147,6 +46363,36 @@ def run_analysis():
 
     # Phase 1600: Milestone at 1600 phases (informational)
     concept_activation_phase_1600_milestone(all_acts, concept_names)
+
+    # Phase 1601: Concept vector decomposition quality (informational)
+    concept_activation_concept_vector_decomposition_quality(all_acts, concept_names)
+
+    # Phase 1602: Adjacent layer activation correlation (informational)
+    concept_activation_layerwise_activation_correlation(all_acts, concept_names)
+
+    # Phase 1603: Concept direction interference (informational)
+    concept_activation_concept_interference_measurement(all_acts, concept_names)
+
+    # Phase 1604: Neuron activation temporal pattern (informational)
+    concept_activation_neuron_activation_temporal_pattern(all_acts, concept_names)
+
+    # Phase 1605: Concept purity per activation cluster (informational)
+    concept_activation_concept_purity_per_cluster(all_acts, concept_names)
+
+    # Phase 1606: Concept direction matrix effective rank (informational)
+    concept_activation_concept_direction_effective_rank(all_acts, concept_names)
+
+    # Phase 1607: Neuron variance decomposition (informational)
+    concept_activation_neuron_activation_variance_decomposition(all_acts, concept_names)
+
+    # Phase 1608: Angular dispersion around concept directions (informational)
+    concept_activation_concept_direction_angular_dispersion(all_acts, concept_names)
+
+    # Phase 1609: Layerwise concept rank stability (informational)
+    concept_activation_layerwise_concept_rank_stability(all_acts, concept_names)
+
+    # Phase 1610: Status checkpoint (informational)
+    concept_activation_phase_1610_status(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
