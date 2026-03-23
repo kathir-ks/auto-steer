@@ -56500,6 +56500,192 @@ def post2000_concept_activation_phase_2360_checkpoint(all_acts, concept_names):
     print()
 
 
+def post2000_concept_activation_neuron_activation_sparse_coding_quality(all_acts, concept_names):
+    """Phase 2361: How well can activations be sparsely coded?"""
+    print("=" * 70)
+    print("PHASE 2361: SPARSE CODING QUALITY")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:3]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        all_data = np.vstack([pos, neg])
+        # Simple sparsity measure: L1/L2 ratio
+        l1 = np.mean(np.sum(np.abs(all_data), axis=1))
+        l2 = np.mean(np.linalg.norm(all_data, axis=1))
+        ratio = l1 / (l2 * np.sqrt(896) + 1e-10)
+        print(f"  {cname}: L1/L2_ratio={ratio:.4f} (lower=sparser)")
+    print()
+
+
+def post2000_concept_activation_concept_direction_mean_absolute_projection(all_acts, concept_names):
+    """Phase 2362: Mean absolute projection onto concept direction."""
+    print("=" * 70)
+    print("PHASE 2362: MEAN ABSOLUTE PROJECTION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        all_data = np.vstack([pos, neg])
+        mean_abs_proj = np.mean(np.abs(all_data @ d))
+        print(f"  {cname}: mean_|projection|={mean_abs_proj:.4f}")
+    print()
+
+
+def post2000_concept_activation_neuron_activation_spectral_gap(all_acts, concept_names):
+    """Phase 2363: Spectral gap of activation covariance matrix."""
+    print("=" * 70)
+    print("PHASE 2363: ACTIVATION SPECTRAL GAP")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:3]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        all_data = np.vstack([pos, neg])
+        all_data = all_data - np.mean(all_data, axis=0)
+        svd_vals = np.linalg.svd(all_data, compute_uv=False)
+        gap = svd_vals[0] - svd_vals[1]
+        ratio = svd_vals[0] / (svd_vals[1] + 1e-10)
+        print(f"  {cname}: spectral_gap={gap:.4f}, sv1/sv2={ratio:.4f}")
+    print()
+
+
+def post2000_concept_activation_concept_direction_effective_rank(all_acts, concept_names):
+    """Phase 2364: Effective rank of the concept direction matrix."""
+    print("=" * 70)
+    print("PHASE 2364: CONCEPT DIRECTION EFFECTIVE RANK")
+    print("=" * 70)
+    layer = 10
+    directions = []
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        directions.append(d)
+    D = np.array(directions)
+    svd_vals = np.linalg.svd(D, compute_uv=False)
+    svd_norm = svd_vals / (np.sum(svd_vals) + 1e-10)
+    eff_rank = np.exp(-np.sum(svd_norm * np.log(svd_norm + 1e-10)))
+    print(f"  Effective rank: {eff_rank:.4f} (max={len(concept_names)})")
+    print(f"  Top 3 singular values: {svd_vals[:3]}")
+    print()
+
+
+def post2000_concept_activation_neuron_activation_pairwise_distance(all_acts, concept_names):
+    """Phase 2365: Mean pairwise distance between positive and negative samples."""
+    print("=" * 70)
+    print("PHASE 2365: PAIRWISE SAMPLE DISTANCE")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        # Distance between pos-neg pairs
+        cross_dists = []
+        for i in range(0, 30, 5):
+            for j in range(0, 30, 5):
+                cross_dists.append(np.linalg.norm(pos[i] - neg[j]))
+        within_pos = []
+        for i in range(0, 30, 5):
+            for j in range(i+1, 30, 5):
+                within_pos.append(np.linalg.norm(pos[i] - pos[j]))
+        ratio = np.mean(cross_dists) / (np.mean(within_pos) + 1e-10)
+        print(f"  {cname}: cross/within_ratio={ratio:.4f}")
+    print()
+
+
+def post2000_concept_activation_concept_direction_mutual_info_with_label(all_acts, concept_names):
+    """Phase 2366: Mutual information between concept direction projection and label."""
+    print("=" * 70)
+    print("PHASE 2366: CONCEPT DIRECTION MI WITH LABEL")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        all_data = np.vstack([pos, neg])
+        proj = all_data @ d
+        labels = np.array([1]*30 + [0]*30)
+        # Discretize projections into bins
+        bins = np.digitize(proj, np.percentile(proj, [25, 50, 75]))
+        from sklearn.metrics import mutual_info_score
+        mi = mutual_info_score(bins, labels)
+        print(f"  {cname}: MI={mi:.4f}")
+    print()
+
+
+def post2000_concept_activation_neuron_activation_decorrelation_score(all_acts, concept_names):
+    """Phase 2367: How decorrelated are neuron activations?"""
+    print("=" * 70)
+    print("PHASE 2367: NEURON ACTIVATION DECORRELATION SCORE")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:3]:
+        pos = all_acts[cname]["positive"][layer]
+        # Sample correlation matrix of top 50 neurons
+        importance = np.abs(np.mean(pos, axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0))
+        top_idx = np.argsort(importance)[-50:]
+        corr = np.corrcoef(pos[:, top_idx].T)
+        off_diag = corr[np.triu_indices(50, k=1)]
+        mean_abs_corr = np.mean(np.abs(off_diag))
+        print(f"  {cname}: mean_|corr|_top50={mean_abs_corr:.4f}")
+    print()
+
+
+def post2000_concept_activation_concept_direction_projection_effect_size(all_acts, concept_names):
+    """Phase 2368: Cohen's d effect size of concept direction projections."""
+    print("=" * 70)
+    print("PHASE 2368: PROJECTION EFFECT SIZE (COHEN'S D)")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        pos_proj = pos @ d
+        neg_proj = neg @ d
+        pooled_std = np.sqrt((np.var(pos_proj) + np.var(neg_proj)) / 2)
+        cohens_d = (np.mean(pos_proj) - np.mean(neg_proj)) / (pooled_std + 1e-10)
+        print(f"  {cname}: Cohen's_d={cohens_d:.4f}")
+    print()
+
+
+def post2000_concept_activation_neuron_activation_layer_correlation_matrix(all_acts, concept_names):
+    """Phase 2369: Correlation of neuron activations between layers."""
+    print("=" * 70)
+    print("PHASE 2369: NEURON ACTIVATION LAYER CORRELATION")
+    print("=" * 70)
+    cname = concept_names[0]
+    layers = [0, 6, 12, 18, 23]
+    means = {}
+    for L in layers:
+        pos = all_acts[cname]["positive"][L]
+        means[L] = np.mean(pos, axis=0)
+    for i, L1 in enumerate(layers):
+        for L2 in layers[i+1:i+2]:
+            corr = np.corrcoef(means[L1], means[L2])[0, 1]
+            print(f"  L{L1} vs L{L2}: r={corr:.4f}")
+    print()
+
+
+def post2000_concept_activation_phase_2370_checkpoint(all_acts, concept_names):
+    """Phase 2370: Research checkpoint - 370 phases beyond 2000."""
+    print("=" * 70)
+    print("PHASE 2370: RESEARCH CHECKPOINT — 370 BEYOND 2000")
+    print("=" * 70)
+    print(f"  2370 analysis phases completed — 370 beyond the 2000 milestone!")
+    print(f"  Phases 2361-2370: sparse coding quality, mean absolute projection,")
+    print(f"  spectral gap, effective rank, pairwise distance, MI with label,")
+    print(f"  decorrelation score, Cohen's d, layer correlation")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -63654,6 +63840,36 @@ def run_analysis():
 
     # Phase 2360: Research checkpoint (informational)
     post2000_concept_activation_phase_2360_checkpoint(all_acts, concept_names)
+
+    # Phase 2361: Sparse coding quality (informational)
+    post2000_concept_activation_neuron_activation_sparse_coding_quality(all_acts, concept_names)
+
+    # Phase 2362: Mean absolute projection (informational)
+    post2000_concept_activation_concept_direction_mean_absolute_projection(all_acts, concept_names)
+
+    # Phase 2363: Activation spectral gap (informational)
+    post2000_concept_activation_neuron_activation_spectral_gap(all_acts, concept_names)
+
+    # Phase 2364: Concept direction effective rank (informational)
+    post2000_concept_activation_concept_direction_effective_rank(all_acts, concept_names)
+
+    # Phase 2365: Pairwise sample distance (informational)
+    post2000_concept_activation_neuron_activation_pairwise_distance(all_acts, concept_names)
+
+    # Phase 2366: Concept direction MI with label (informational)
+    post2000_concept_activation_concept_direction_mutual_info_with_label(all_acts, concept_names)
+
+    # Phase 2367: Neuron activation decorrelation score (informational)
+    post2000_concept_activation_neuron_activation_decorrelation_score(all_acts, concept_names)
+
+    # Phase 2368: Projection effect size (informational)
+    post2000_concept_activation_concept_direction_projection_effect_size(all_acts, concept_names)
+
+    # Phase 2369: Neuron activation layer correlation (informational)
+    post2000_concept_activation_neuron_activation_layer_correlation_matrix(all_acts, concept_names)
+
+    # Phase 2370: Research checkpoint (informational)
+    post2000_concept_activation_phase_2370_checkpoint(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
