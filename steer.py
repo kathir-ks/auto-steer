@@ -33285,6 +33285,216 @@ def concept_activation_global_statistics_1210(all_acts, concept_names):
     print()
 
 
+def concept_direction_bootstrap_confidence_interval(all_acts, concept_names):
+    """Phase 1211: Bootstrap confidence intervals for concept direction angles."""
+    print("=" * 70)
+    print("PHASE 1211: BOOTSTRAP CONFIDENCE INTERVALS FOR ANGLES")
+    print("=" * 70)
+    layer = 10
+    rng = np.random.default_rng(42)
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        norms = []
+        for _ in range(200):
+            bp = pos[rng.integers(len(pos), size=len(pos))]
+            bn = neg[rng.integers(len(neg), size=len(neg))]
+            d = bp.mean(0) - bn.mean(0)
+            norms.append(np.linalg.norm(d))
+        ci_low, ci_high = np.percentile(norms, [2.5, 97.5])
+        print(f"  {cname:20s} | norm 95% CI: [{ci_low:.3f}, {ci_high:.3f}] | width: {ci_high-ci_low:.3f}")
+    print()
+
+
+def concept_neuron_activation_tail_heaviness(all_acts, concept_names):
+    """Phase 1212: Measure tail heaviness of neuron activation distributions."""
+    print("=" * 70)
+    print("PHASE 1212: NEURON ACTIVATION TAIL HEAVINESS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        combined = np.vstack([all_acts[cname]["positive"][layer], all_acts[cname]["negative"][layer]])
+        # Tail ratio: fraction of values beyond 2 std
+        stds = combined.std(0)
+        means = combined.mean(0)
+        tail_fracs = []
+        for j in range(combined.shape[1]):
+            if stds[j] > 1e-10:
+                beyond = np.abs(combined[:, j] - means[j]) > 2 * stds[j]
+                tail_fracs.append(beyond.mean())
+        mean_tail = np.mean(tail_fracs)
+        expected_gaussian = 0.0455  # for 2-sigma
+        print(f"  {cname:20s} | mean tail frac: {mean_tail:.4f} (Gaussian: {expected_gaussian:.4f}) | {'heavier' if mean_tail > expected_gaussian else 'lighter'} tails")
+    print()
+
+
+def concept_direction_projection_separability_index(all_acts, concept_names):
+    """Phase 1213: Separability index based on projection histograms."""
+    print("=" * 70)
+    print("PHASE 1213: PROJECTION SEPARABILITY INDEX")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = pos.mean(0) - neg.mean(0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        pos_proj = pos @ d
+        neg_proj = neg @ d
+        # Bhattacharyya distance
+        m1, s1 = pos_proj.mean(), pos_proj.std() + 1e-10
+        m2, s2 = neg_proj.mean(), neg_proj.std() + 1e-10
+        bhatt = 0.25 * np.log(0.25 * (s1**2/s2**2 + s2**2/s1**2 + 2)) + 0.25 * ((m1-m2)**2 / (s1**2 + s2**2))
+        print(f"  {cname:20s} | Bhattacharyya dist: {bhatt:.4f} (higher=more separable)")
+    print()
+
+
+def concept_activation_layer_wise_variance_decomposition(all_acts, concept_names):
+    """Phase 1214: Decompose variance into between-concept and within-concept at each layer."""
+    print("=" * 70)
+    print("PHASE 1214: LAYER-WISE VARIANCE DECOMPOSITION")
+    print("=" * 70)
+    for l in [0, 6, 12, 18, 23]:
+        all_data = []
+        all_labels = []
+        for ci, cname in enumerate(concept_names):
+            data = np.vstack([all_acts[cname]["positive"][l], all_acts[cname]["negative"][l]])
+            all_data.append(data)
+            all_labels.extend([ci] * len(data))
+        all_data = np.vstack(all_data)
+        all_labels = np.array(all_labels)
+        grand_mean = all_data.mean(0)
+        total_var = np.var(all_data, axis=0).sum()
+        between_var = sum(
+            np.sum((all_data[all_labels == ci].mean(0) - grand_mean) ** 2) * (all_labels == ci).sum()
+            for ci in range(len(concept_names))
+        ) / len(all_data)
+        print(f"  L{l:2d} | between/total: {between_var/total_var*100:.2f}%")
+    print()
+
+
+def concept_neuron_response_within_class_consistency(all_acts, concept_names):
+    """Phase 1215: How consistent are neuron responses across samples of the same concept."""
+    print("=" * 70)
+    print("PHASE 1215: NEURON WITHIN-CLASS CONSISTENCY")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        # ICC-like measure: within-class variance vs total
+        pos_within = np.mean(np.var(pos, axis=0))
+        neg_within = np.mean(np.var(neg, axis=0))
+        combined = np.vstack([pos, neg])
+        total = np.mean(np.var(combined, axis=0))
+        consistency = 1 - (0.5*(pos_within + neg_within)) / (total + 1e-10)
+        print(f"  {cname:20s} | consistency: {consistency:.4f} (1=perfectly consistent by class)")
+    print()
+
+
+def concept_direction_mutual_angle_stability_bootstrap(all_acts, concept_names):
+    """Phase 1216: Bootstrap stability of pairwise concept angles."""
+    print("=" * 70)
+    print("PHASE 1216: PAIRWISE ANGLE BOOTSTRAP STABILITY")
+    print("=" * 70)
+    layer = 10
+    rng = np.random.default_rng(42)
+    pairs = [("sentiment", "emotion_joy_anger"), ("formality", "complexity"), ("certainty", "temporal")]
+    for c1, c2 in pairs:
+        if c1 in concept_names and c2 in concept_names:
+            angles = []
+            for _ in range(200):
+                p1 = all_acts[c1]["positive"][layer]
+                n1 = all_acts[c1]["negative"][layer]
+                p2 = all_acts[c2]["positive"][layer]
+                n2 = all_acts[c2]["negative"][layer]
+                bp1 = p1[rng.integers(len(p1), size=len(p1))]
+                bn1 = n1[rng.integers(len(n1), size=len(n1))]
+                bp2 = p2[rng.integers(len(p2), size=len(p2))]
+                bn2 = n2[rng.integers(len(n2), size=len(n2))]
+                d1 = bp1.mean(0) - bn1.mean(0)
+                d2 = bp2.mean(0) - bn2.mean(0)
+                cos = abs(float(d1 @ d2 / (np.linalg.norm(d1) * np.linalg.norm(d2) + 1e-10)))
+                angles.append(np.degrees(np.arccos(np.clip(cos, 0, 1))))
+            print(f"  {c1:12s} vs {c2:12s} | mean: {np.mean(angles):.1f}° | CI: [{np.percentile(angles, 2.5):.1f}°, {np.percentile(angles, 97.5):.1f}°]")
+    print()
+
+
+def concept_activation_neuron_importance_gini(all_acts, concept_names):
+    """Phase 1217: Gini coefficient of neuron importance distribution."""
+    print("=" * 70)
+    print("PHASE 1217: NEURON IMPORTANCE GINI COEFFICIENT")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        importance = np.abs(pos.mean(0) - neg.mean(0))
+        sorted_imp = np.sort(importance)
+        n = len(sorted_imp)
+        cumsum = np.cumsum(sorted_imp)
+        gini = 1 - 2 * cumsum.sum() / (n * cumsum[-1] + 1e-10) + 1/n
+        print(f"  {cname:20s} | Gini: {gini:.4f} (1=maximally unequal, 0=uniform)")
+    print()
+
+
+def concept_direction_concept_direction_angle_to_identity(all_acts, concept_names):
+    """Phase 1218: Angle between concept direction and principal axes."""
+    print("=" * 70)
+    print("PHASE 1218: DIRECTION ANGLE TO PRINCIPAL AXES")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        d = all_acts[cname]["positive"][layer].mean(0) - all_acts[cname]["negative"][layer].mean(0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        # Angle to nearest principal axis (unit vector along one dimension)
+        max_component = np.abs(d).max()
+        max_idx = int(np.argmax(np.abs(d)))
+        angle = np.degrees(np.arccos(np.clip(max_component, 0, 1)))
+        print(f"  {cname:20s} | closest axis: neuron {max_idx} | angle: {angle:.1f}° | max component: {max_component:.4f}")
+    print()
+
+
+def concept_neuron_concept_neuron_response_range_per_layer(all_acts, concept_names):
+    """Phase 1219: Range of neuron responses across layers."""
+    print("=" * 70)
+    print("PHASE 1219: NEURON RESPONSE RANGE PER LAYER")
+    print("=" * 70)
+    for cname in concept_names[:3]:
+        ranges = []
+        for l in range(24):
+            combined = np.vstack([all_acts[cname]["positive"][l], all_acts[cname]["negative"][l]])
+            r = combined.max() - combined.min()
+            ranges.append(r)
+        print(f"  {cname:20s} | min range: L{int(np.argmin(ranges))} ({min(ranges):.2f}) | max range: L{int(np.argmax(ranges))} ({max(ranges):.2f})")
+    print()
+
+
+def concept_direction_orthogonality_quality_index(all_acts, concept_names):
+    """Phase 1220: Composite quality index for direction orthogonality."""
+    print("=" * 70)
+    print("PHASE 1220: ORTHOGONALITY QUALITY INDEX")
+    print("=" * 70)
+    layer = 10
+    dirs = []
+    for cname in concept_names:
+        d = all_acts[cname]["positive"][layer].mean(0) - all_acts[cname]["negative"][layer].mean(0)
+        dirs.append(d / (np.linalg.norm(d) + 1e-10))
+    dirs = np.array(dirs)
+    gram = dirs @ dirs.T
+    np.fill_diagonal(gram, 0)
+    max_cos = np.abs(gram).max()
+    mean_cos = np.abs(gram).mean()
+    det = np.linalg.det(gram + np.eye(len(dirs)))
+    cond = np.linalg.cond(gram + np.eye(len(dirs)))
+    quality = (1 - max_cos) * (1 - mean_cos) * min(1, det)
+    print(f"  Max |cosine|: {max_cos:.6f}")
+    print(f"  Mean |cosine|: {mean_cos:.6f}")
+    print(f"  Gram det: {det:.6f} | cond: {cond:.2f}")
+    print(f"  Quality index: {quality:.6f}")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -36989,6 +37199,36 @@ def run_analysis():
 
     # Phase 1210: Global activation statistics (informational)
     concept_activation_global_statistics_1210(all_acts, concept_names)
+
+    # Phase 1211: Bootstrap confidence intervals (informational)
+    concept_direction_bootstrap_confidence_interval(all_acts, concept_names)
+
+    # Phase 1212: Neuron activation tail heaviness (informational)
+    concept_neuron_activation_tail_heaviness(all_acts, concept_names)
+
+    # Phase 1213: Projection separability index (informational)
+    concept_direction_projection_separability_index(all_acts, concept_names)
+
+    # Phase 1214: Layer-wise variance decomposition (informational)
+    concept_activation_layer_wise_variance_decomposition(all_acts, concept_names)
+
+    # Phase 1215: Neuron within-class consistency (informational)
+    concept_neuron_response_within_class_consistency(all_acts, concept_names)
+
+    # Phase 1216: Pairwise angle bootstrap stability (informational)
+    concept_direction_mutual_angle_stability_bootstrap(all_acts, concept_names)
+
+    # Phase 1217: Neuron importance Gini coefficient (informational)
+    concept_activation_neuron_importance_gini(all_acts, concept_names)
+
+    # Phase 1218: Direction angle to principal axes (informational)
+    concept_direction_concept_direction_angle_to_identity(all_acts, concept_names)
+
+    # Phase 1219: Neuron response range per layer (informational)
+    concept_neuron_concept_neuron_response_range_per_layer(all_acts, concept_names)
+
+    # Phase 1220: Orthogonality quality index (informational)
+    concept_direction_orthogonality_quality_index(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
