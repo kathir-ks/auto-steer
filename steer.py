@@ -50405,6 +50405,225 @@ def post2000_concept_activation_phase_2060_checkpoint(all_acts, concept_names):
     print()
 
 
+def post2000_concept_activation_concept_encoding_robustness_to_dropout(all_acts, concept_names):
+    """Phase 2061: Test concept classification robustness to neuron dropout."""
+    print("=" * 70)
+    print("PHASE 2061: Concept Encoding Robustness to Dropout")
+    print("=" * 70)
+    layer = 10
+    np.random.seed(42)
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        direction = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        direction_norm = direction / (np.linalg.norm(direction) + 1e-10)
+        # Full accuracy
+        X = np.vstack([pos, neg])
+        y = np.array([1]*len(pos) + [0]*len(neg))
+        full_proj = X @ direction_norm
+        threshold = np.median(full_proj)
+        full_acc = max(np.mean((full_proj > threshold) == y), np.mean((full_proj <= threshold) == y))
+        # 50% dropout accuracy
+        accs = []
+        for _ in range(10):
+            mask = np.random.random(len(direction_norm)) > 0.5
+            masked_dir = direction_norm * mask
+            masked_dir = masked_dir / (np.linalg.norm(masked_dir) + 1e-10)
+            proj = X @ masked_dir
+            t = np.median(proj)
+            acc = max(np.mean((proj > t) == y), np.mean((proj <= t) == y))
+            accs.append(acc)
+        print(f"  {cname} L{layer}: full_acc={full_acc:.4f}, "
+              f"50% dropout mean_acc={np.mean(accs):.4f} (±{np.std(accs):.4f})")
+    print()
+
+
+def post2000_concept_activation_effective_rank_per_concept(all_acts, concept_names):
+    """Phase 2062: Effective rank of activation matrices per concept."""
+    print("=" * 70)
+    print("PHASE 2062: Effective Rank Per Concept")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        combined = np.vstack([all_acts[cname]["positive"][layer],
+                               all_acts[cname]["negative"][layer]])
+        centered = combined - np.mean(combined, axis=0)
+        _, s, _ = np.linalg.svd(centered, full_matrices=False)
+        s = s / (s.sum() + 1e-10)
+        eff_rank = np.exp(-np.sum(s * np.log(s + 1e-10)))
+        print(f"  {cname} L{layer}: effective rank={eff_rank:.2f}/{len(s)}")
+    print()
+
+
+def post2000_concept_activation_neuron_activation_mode_count(all_acts, concept_names):
+    """Phase 2063: Estimate number of activation modes per neuron using histogram peaks."""
+    print("=" * 70)
+    print("PHASE 2063: Neuron Activation Mode Count")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        combined = np.vstack([all_acts[cname]["positive"][layer],
+                               all_acts[cname]["negative"][layer]])
+        multimodal_count = 0
+        for j in range(combined.shape[1]):
+            hist, _ = np.histogram(combined[:, j], bins=10)
+            peaks = 0
+            for i in range(1, len(hist) - 1):
+                if hist[i] > hist[i-1] and hist[i] > hist[i+1]:
+                    peaks += 1
+            if peaks >= 2:
+                multimodal_count += 1
+        print(f"  {cname} L{layer}: {multimodal_count}/{combined.shape[1]} multimodal neurons")
+    print()
+
+
+def post2000_concept_activation_concept_direction_persistence_length(all_acts, concept_names):
+    """Phase 2064: How many layers a concept direction persists before decorrelating."""
+    print("=" * 70)
+    print("PHASE 2064: Concept Direction Persistence Length")
+    print("=" * 70)
+    for cname in concept_names:
+        directions = []
+        for l in range(24):
+            d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+            norm = np.linalg.norm(d)
+            if norm > 0:
+                d = d / norm
+            directions.append(d)
+        # Persistence = layers until cosine drops below 0.5
+        persistence = 0
+        for gap in range(1, 24):
+            cosines = [np.abs(np.dot(directions[l], directions[l+gap]))
+                      for l in range(24 - gap)]
+            if np.mean(cosines) < 0.5:
+                persistence = gap
+                break
+        else:
+            persistence = 23
+        print(f"  {cname}: persistence length={persistence} layers")
+    print()
+
+
+def post2000_concept_activation_concept_linear_separability_margin(all_acts, concept_names):
+    """Phase 2065: Maximum margin of linear separability for each concept."""
+    print("=" * 70)
+    print("PHASE 2065: Linear Separability Margin")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        direction = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        direction = direction / (np.linalg.norm(direction) + 1e-10)
+        pos_proj = pos @ direction
+        neg_proj = neg @ direction
+        margin = np.min(pos_proj) - np.max(neg_proj)
+        normalized_margin = margin / (np.std(np.concatenate([pos_proj, neg_proj])) + 1e-10)
+        print(f"  {cname} L{layer}: raw margin={margin:.4f}, "
+              f"normalized margin={normalized_margin:.4f}")
+    print()
+
+
+def post2000_concept_activation_neuron_redundancy_within_concept(all_acts, concept_names):
+    """Phase 2066: Redundancy among top neurons for each concept."""
+    print("=" * 70)
+    print("PHASE 2066: Top Neuron Redundancy Within Concept")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        combined = np.vstack([all_acts[cname]["positive"][layer],
+                               all_acts[cname]["negative"][layer]])
+        diff = np.abs(np.mean(all_acts[cname]["positive"][layer], axis=0) -
+                      np.mean(all_acts[cname]["negative"][layer], axis=0))
+        top10 = np.argsort(diff)[-10:]
+        top_acts = combined[:, top10]
+        corr = np.corrcoef(top_acts, rowvar=False)
+        mean_corr = np.mean(np.abs(corr[np.triu_indices(10, k=1)]))
+        print(f"  {cname} L{layer}: mean |corr| among top-10 neurons={mean_corr:.4f}")
+    print()
+
+
+def post2000_concept_activation_concept_subspace_overlap_measure(all_acts, concept_names):
+    """Phase 2067: Measure overlap of concept subspaces using principal angles."""
+    print("=" * 70)
+    print("PHASE 2067: Concept Subspace Overlap via Principal Angles")
+    print("=" * 70)
+    layer = 10
+    from itertools import combinations
+    concept_subspaces = {}
+    for cname in concept_names:
+        combined = np.vstack([all_acts[cname]["positive"][layer],
+                               all_acts[cname]["negative"][layer]])
+        centered = combined - np.mean(combined, axis=0)
+        _, _, Vt = np.linalg.svd(centered, full_matrices=False)
+        concept_subspaces[cname] = Vt[:3]  # top 3 directions
+    for c1, c2 in list(combinations(concept_names, 2))[:5]:
+        V1 = concept_subspaces[c1].T
+        V2 = concept_subspaces[c2].T
+        M = V1.T @ V2
+        cosines = np.linalg.svd(M, compute_uv=False)
+        min_angle = np.degrees(np.arccos(np.clip(cosines[0], 0, 1)))
+        print(f"  {c1} vs {c2}: smallest principal angle={min_angle:.1f}°")
+    print()
+
+
+def post2000_concept_activation_activation_norm_ratio_pos_neg(all_acts, concept_names):
+    """Phase 2068: Ratio of activation norms between positive and negative samples."""
+    print("=" * 70)
+    print("PHASE 2068: Positive/Negative Activation Norm Ratio")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos_norms = np.linalg.norm(all_acts[cname]["positive"][layer], axis=1)
+        neg_norms = np.linalg.norm(all_acts[cname]["negative"][layer], axis=1)
+        ratio = np.mean(pos_norms) / (np.mean(neg_norms) + 1e-10)
+        print(f"  {cname} L{layer}: mean pos norm={np.mean(pos_norms):.4f}, "
+              f"neg norm={np.mean(neg_norms):.4f}, ratio={ratio:.4f}")
+    print()
+
+
+def post2000_concept_activation_concept_direction_curvature(all_acts, concept_names):
+    """Phase 2069: Curvature of concept direction trajectory across layers."""
+    print("=" * 70)
+    print("PHASE 2069: Concept Direction Trajectory Curvature")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        directions = []
+        for l in range(24):
+            d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+            norm = np.linalg.norm(d)
+            if norm > 0:
+                d = d / norm
+            directions.append(d)
+        # Curvature ~ angle between consecutive velocity vectors
+        curvatures = []
+        for l in range(1, 23):
+            v1 = directions[l] - directions[l-1]
+            v2 = directions[l+1] - directions[l]
+            n1 = np.linalg.norm(v1)
+            n2 = np.linalg.norm(v2)
+            if n1 > 1e-10 and n2 > 1e-10:
+                cos = np.dot(v1, v2) / (n1 * n2)
+                curvatures.append(np.degrees(np.arccos(np.clip(cos, -1, 1))))
+        mean_curv = np.mean(curvatures) if curvatures else 0
+        max_curv_l = int(np.argmax(curvatures)) + 1 if curvatures else 0
+        print(f"  {cname}: mean curvature={mean_curv:.1f}°, "
+              f"max curvature at L{max_curv_l} ({max(curvatures) if curvatures else 0:.1f}°)")
+    print()
+
+
+def post2000_concept_activation_phase_2070_checkpoint(all_acts, concept_names):
+    """Phase 2070: Research checkpoint at 2070 phases."""
+    print("=" * 70)
+    print("PHASE 2070: RESEARCH CHECKPOINT (2070 PHASES)")
+    print("=" * 70)
+    print(f"  2070 analysis phases completed — 70 beyond the 2000 milestone!")
+    print(f"  Phases 2061-2070: dropout robustness, effective rank, mode count,")
+    print(f"  persistence length, separability margin, neuron redundancy,")
+    print(f"  subspace overlap, norm ratio, direction curvature")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -56659,6 +56878,36 @@ def run_analysis():
 
     # Phase 2060: Research checkpoint (informational)
     post2000_concept_activation_phase_2060_checkpoint(all_acts, concept_names)
+
+    # Phase 2061: Dropout robustness (informational)
+    post2000_concept_activation_concept_encoding_robustness_to_dropout(all_acts, concept_names)
+
+    # Phase 2062: Effective rank (informational)
+    post2000_concept_activation_effective_rank_per_concept(all_acts, concept_names)
+
+    # Phase 2063: Activation mode count (informational)
+    post2000_concept_activation_neuron_activation_mode_count(all_acts, concept_names)
+
+    # Phase 2064: Direction persistence length (informational)
+    post2000_concept_activation_concept_direction_persistence_length(all_acts, concept_names)
+
+    # Phase 2065: Linear separability margin (informational)
+    post2000_concept_activation_concept_linear_separability_margin(all_acts, concept_names)
+
+    # Phase 2066: Top neuron redundancy (informational)
+    post2000_concept_activation_neuron_redundancy_within_concept(all_acts, concept_names)
+
+    # Phase 2067: Subspace overlap (informational)
+    post2000_concept_activation_concept_subspace_overlap_measure(all_acts, concept_names)
+
+    # Phase 2068: Activation norm ratio (informational)
+    post2000_concept_activation_activation_norm_ratio_pos_neg(all_acts, concept_names)
+
+    # Phase 2069: Direction curvature (informational)
+    post2000_concept_activation_concept_direction_curvature(all_acts, concept_names)
+
+    # Phase 2070: Research checkpoint (informational)
+    post2000_concept_activation_phase_2070_checkpoint(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
