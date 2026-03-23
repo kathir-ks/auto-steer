@@ -47388,6 +47388,216 @@ def concept_activation_phase_1910_checkpoint(all_acts, concept_names):
     print()
 
 
+def concept_activation_neuron_pairwise_interaction_strength(all_acts, concept_names):
+    """Phase 1911: Pairwise interaction strength between top neurons."""
+    print("=" * 70)
+    print("PHASE 1911: NEURON PAIRWISE INTERACTION STRENGTH")
+    print("=" * 70)
+    layer = 10
+    cname = concept_names[0]
+    pos = all_acts[cname]["positive"][layer]
+    neg = all_acts[cname]["negative"][layer]
+    diff = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+    top5 = np.argsort(diff)[-5:]
+    all_data = np.vstack([pos, neg])
+    for i in range(len(top5)):
+        for j in range(i+1, len(top5)):
+            n1, n2 = top5[i], top5[j]
+            interaction = np.corrcoef(all_data[:, n1], all_data[:, n2])[0, 1]
+            print(f"  {cname} neurons {n1},{n2}: interaction={interaction:.4f}")
+    print()
+
+
+def concept_activation_concept_direction_projection_kl_divergence(all_acts, concept_names):
+    """Phase 1912: KL divergence approximation between pos/neg projection distributions."""
+    print("=" * 70)
+    print("PHASE 1912: PROJECTION KL DIVERGENCE (POS VS NEG)")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        pos_proj = pos @ d
+        neg_proj = neg @ d
+        # Gaussian approx KL
+        mu1, s1 = np.mean(pos_proj), np.std(pos_proj) + 1e-10
+        mu2, s2 = np.mean(neg_proj), np.std(neg_proj) + 1e-10
+        kl = np.log(s2/s1) + (s1**2 + (mu1-mu2)**2)/(2*s2**2) - 0.5
+        print(f"  {cname}: KL(pos||neg)={kl:.4f}")
+    print()
+
+
+def concept_activation_neuron_activation_covariance_structure(all_acts, concept_names):
+    """Phase 1913: Covariance structure of neuron activations."""
+    print("=" * 70)
+    print("PHASE 1913: NEURON ACTIVATION COVARIANCE STRUCTURE")
+    print("=" * 70)
+    layer = 10
+    cname = concept_names[0]
+    pos = all_acts[cname]["positive"][layer]
+    neg = all_acts[cname]["negative"][layer]
+    all_data = np.vstack([pos, neg])
+    cov = np.cov(all_data.T)
+    eigenvalues = np.linalg.eigvalsh(cov)[::-1]
+    top5_ratio = np.sum(eigenvalues[:5]) / (np.sum(eigenvalues) + 1e-10)
+    effective_dim = np.exp(-np.sum((eigenvalues/(np.sum(eigenvalues)+1e-10)) * np.log(eigenvalues/(np.sum(eigenvalues)+1e-10) + 1e-10)))
+    print(f"  {cname}: top5_eigenvalue_ratio={top5_ratio:.4f}, effective_dim={effective_dim:.1f}")
+    print()
+
+
+def concept_activation_concept_direction_alignment_with_pca(all_acts, concept_names):
+    """Phase 1914: Alignment of concept directions with principal components."""
+    print("=" * 70)
+    print("PHASE 1914: CONCEPT DIRECTION ALIGNMENT WITH PCA")
+    print("=" * 70)
+    layer = 10
+    all_data = []
+    for cname in concept_names:
+        all_data.append(all_acts[cname]["positive"][layer])
+        all_data.append(all_acts[cname]["negative"][layer])
+    all_data = np.vstack(all_data)
+    all_data = all_data - np.mean(all_data, axis=0)
+    U, S, Vt = np.linalg.svd(all_data, full_matrices=False)
+    top_pcs = Vt[:5]
+    for cname in concept_names[:4]:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        pc_alignments = [abs(np.dot(d, pc)) for pc in top_pcs]
+        best_pc = np.argmax(pc_alignments)
+        print(f"  {cname}: best_PC={best_pc}, alignment={pc_alignments[best_pc]:.4f}, total_pc_proj={sum(a**2 for a in pc_alignments):.4f}")
+    print()
+
+
+def concept_activation_neuron_concept_response_profile_per_layer(all_acts, concept_names):
+    """Phase 1915: Neuron response profile stability across layers."""
+    print("=" * 70)
+    print("PHASE 1915: NEURON RESPONSE PROFILE ACROSS LAYERS")
+    print("=" * 70)
+    neuron = 506  # known important for sentiment
+    for cname in concept_names[:3]:
+        responses = []
+        for l in range(24):
+            pos = all_acts[cname]["positive"][l]
+            neg = all_acts[cname]["negative"][l]
+            resp = np.mean(pos[:, neuron]) - np.mean(neg[:, neuron])
+            responses.append(resp)
+        peak = np.argmax(np.abs(responses))
+        print(f"  Neuron {neuron}, {cname}: peak_layer={peak}, peak_resp={responses[peak]:.4f}")
+    print()
+
+
+def concept_activation_concept_direction_orthogonality_after_projection(all_acts, concept_names):
+    """Phase 1916: Orthogonality after projecting out dominant principal components."""
+    print("=" * 70)
+    print("PHASE 1916: ORTHOGONALITY AFTER PC PROJECTION")
+    print("=" * 70)
+    layer = 10
+    all_data = []
+    for cname in concept_names:
+        all_data.append(all_acts[cname]["positive"][layer])
+        all_data.append(all_acts[cname]["negative"][layer])
+    all_data = np.vstack(all_data)
+    mean = np.mean(all_data, axis=0)
+    U, S, Vt = np.linalg.svd(all_data - mean, full_matrices=False)
+    # Project out top 3 PCs
+    proj_out = Vt[:3].T @ Vt[:3]
+    I_proj = np.eye(proj_out.shape[0]) - proj_out
+    directions = []
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        d_proj = I_proj @ d
+        d_proj = d_proj / (np.linalg.norm(d_proj) + 1e-10)
+        directions.append(d_proj)
+    G = np.array(directions) @ np.array(directions).T
+    off_diag = G - np.eye(len(concept_names))
+    print(f"  After removing top 3 PCs:")
+    print(f"  Max off-diagonal: {np.max(np.abs(off_diag)):.6f}")
+    print(f"  Mean off-diagonal: {np.mean(np.abs(off_diag[np.triu_indices_from(off_diag, k=1)])):.6f}")
+    print()
+
+
+def concept_activation_neuron_activation_cluster_analysis(all_acts, concept_names):
+    """Phase 1917: Cluster analysis of neuron activation patterns."""
+    print("=" * 70)
+    print("PHASE 1917: NEURON ACTIVATION CLUSTER ANALYSIS")
+    print("=" * 70)
+    layer = 10
+    all_data = []
+    all_labels = []
+    for ci, cname in enumerate(concept_names):
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        all_data.extend([pos, neg])
+        all_labels.extend([ci]*len(pos) + [ci+len(concept_names)]*len(neg))
+    all_data = np.vstack(all_data)
+    all_labels = np.array(all_labels)
+    from sklearn.cluster import KMeans
+    km = KMeans(n_clusters=len(concept_names), random_state=42, n_init=3).fit(all_data)
+    # Purity
+    purity = 0
+    for k in range(len(concept_names)):
+        mask = km.labels_ == k
+        if np.sum(mask) > 0:
+            label_counts = np.bincount(all_labels[mask], minlength=2*len(concept_names))
+            purity += np.max(label_counts)
+    purity /= len(all_labels)
+    print(f"  K-means purity (k={len(concept_names)}): {purity:.4f}")
+    print(f"  Inertia: {km.inertia_:.2f}")
+    print()
+
+
+def concept_activation_concept_direction_projection_ci_analysis(all_acts, concept_names):
+    """Phase 1918: Confidence intervals on concept direction projections."""
+    print("=" * 70)
+    print("PHASE 1918: PROJECTION CONFIDENCE INTERVALS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        pos_proj = pos @ d
+        neg_proj = neg @ d
+        pos_ci = (np.mean(pos_proj) - 1.96*np.std(pos_proj)/np.sqrt(len(pos_proj)),
+                  np.mean(pos_proj) + 1.96*np.std(pos_proj)/np.sqrt(len(pos_proj)))
+        neg_ci = (np.mean(neg_proj) - 1.96*np.std(neg_proj)/np.sqrt(len(neg_proj)),
+                  np.mean(neg_proj) + 1.96*np.std(neg_proj)/np.sqrt(len(neg_proj)))
+        separated = pos_ci[0] > neg_ci[1]
+        print(f"  {cname}: pos_CI=({pos_ci[0]:.3f},{pos_ci[1]:.3f}), neg_CI=({neg_ci[0]:.3f},{neg_ci[1]:.3f}), separated={separated}")
+    print()
+
+
+def concept_activation_neuron_concept_contribution_decomposition(all_acts, concept_names):
+    """Phase 1919: Decompose neuron contributions into positive and negative."""
+    print("=" * 70)
+    print("PHASE 1919: NEURON CONTRIBUTION DECOMPOSITION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        pos_contrib = np.sum(d[d > 0])
+        neg_contrib = np.sum(d[d < 0])
+        n_pos = np.sum(d > 0)
+        n_neg = np.sum(d < 0)
+        print(f"  {cname}: pos_neurons={n_pos}(sum={pos_contrib:.2f}), neg_neurons={n_neg}(sum={neg_contrib:.2f}), net={pos_contrib+neg_contrib:.2f}")
+    print()
+
+
+def concept_activation_phase_1920_checkpoint(all_acts, concept_names):
+    """Phase 1920: Status checkpoint."""
+    print("=" * 70)
+    print("PHASE 1920: STATUS CHECKPOINT")
+    print("=" * 70)
+    print(f"  1920 analysis phases completed")
+    print(f"  Autonomous research continues...")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -53192,6 +53402,36 @@ def run_analysis():
 
     # Phase 1910: Status checkpoint (informational)
     concept_activation_phase_1910_checkpoint(all_acts, concept_names)
+
+    # Phase 1911: Neuron pairwise interaction (informational)
+    concept_activation_neuron_pairwise_interaction_strength(all_acts, concept_names)
+
+    # Phase 1912: Projection KL divergence (informational)
+    concept_activation_concept_direction_projection_kl_divergence(all_acts, concept_names)
+
+    # Phase 1913: Covariance structure (informational)
+    concept_activation_neuron_activation_covariance_structure(all_acts, concept_names)
+
+    # Phase 1914: PCA alignment (informational)
+    concept_activation_concept_direction_alignment_with_pca(all_acts, concept_names)
+
+    # Phase 1915: Neuron response profile per layer (informational)
+    concept_activation_neuron_concept_response_profile_per_layer(all_acts, concept_names)
+
+    # Phase 1916: Orthogonality after PC projection (informational)
+    concept_activation_concept_direction_orthogonality_after_projection(all_acts, concept_names)
+
+    # Phase 1917: Cluster analysis (informational)
+    concept_activation_neuron_activation_cluster_analysis(all_acts, concept_names)
+
+    # Phase 1918: Projection confidence intervals (informational)
+    concept_activation_concept_direction_projection_ci_analysis(all_acts, concept_names)
+
+    # Phase 1919: Contribution decomposition (informational)
+    concept_activation_neuron_concept_contribution_decomposition(all_acts, concept_names)
+
+    # Phase 1920: Status checkpoint (informational)
+    concept_activation_phase_1920_checkpoint(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
