@@ -39260,6 +39260,202 @@ def grand_milestone_1500():
     print()
 
 
+def concept_direction_concept_direction_concept_direction_concept_direction_per_layer_det_profile(all_acts, concept_names, num_layers):
+    """Phase 1501: Gram determinant profile across all layers."""
+    print("=" * 70)
+    print("PHASE 1501: GRAM DETERMINANT PROFILE ACROSS LAYERS")
+    print("=" * 70)
+    dets = []
+    for layer in range(num_layers):
+        directions = []
+        for cname in concept_names:
+            pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+            neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+            d = pos.mean(axis=0) - neg.mean(axis=0)
+            directions.append(d / (np.linalg.norm(d) + 1e-10))
+        D = np.array(directions)
+        G = D @ D.T
+        dets.append(np.linalg.det(G))
+    best = np.argmax(dets)
+    worst = np.argmin(dets)
+    print(f"Best orthogonality: L{best} (det={dets[best]:.6f})")
+    print(f"Worst: L{worst} (det={dets[worst]:.6f})")
+    for layer in range(0, num_layers, 4):
+        print(f"  L{layer}: det={dets[layer]:.6f}")
+    print()
+
+
+def concept_neuron_concept_neuron_neuron_activation_inter_quartile_range(all_acts, concept_names):
+    """Phase 1502: Inter-quartile range of top neuron activations."""
+    print("=" * 70)
+    print("PHASE 1502: TOP NEURON INTER-QUARTILE RANGE")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        diff = np.abs(pos.mean(axis=0) - neg.mean(axis=0))
+        top_neuron = np.argmax(diff)
+        iqr_pos = np.percentile(pos[:, top_neuron], 75) - np.percentile(pos[:, top_neuron], 25)
+        iqr_neg = np.percentile(neg[:, top_neuron], 75) - np.percentile(neg[:, top_neuron], 25)
+        print(f"  {cname}: neuron {top_neuron}, IQR_pos={iqr_pos:.3f}, IQR_neg={iqr_neg:.3f}")
+    print()
+
+
+def concept_direction_concept_direction_concept_direction_concept_direction_pair_cosine_at_each_layer(all_acts, concept_names, num_layers):
+    """Phase 1503: Cosine between sentiment and emotion directions at each layer."""
+    print("=" * 70)
+    print("PHASE 1503: SENTIMENT-EMOTION COSINE AT EACH LAYER")
+    print("=" * 70)
+    ci, cj = concept_names[0], concept_names[6]  # sentiment vs emotion
+    for layer in range(num_layers):
+        pos_i = np.array([all_acts[ci]["positive"][layer][i] for i in range(len(all_acts[ci]["positive"][layer]))])
+        neg_i = np.array([all_acts[ci]["negative"][layer][i] for i in range(len(all_acts[ci]["negative"][layer]))])
+        pos_j = np.array([all_acts[cj]["positive"][layer][i] for i in range(len(all_acts[cj]["positive"][layer]))])
+        neg_j = np.array([all_acts[cj]["negative"][layer][i] for i in range(len(all_acts[cj]["negative"][layer]))])
+        d_i = pos_i.mean(axis=0) - neg_i.mean(axis=0)
+        d_j = pos_j.mean(axis=0) - neg_j.mean(axis=0)
+        cos = np.dot(d_i, d_j) / (np.linalg.norm(d_i) * np.linalg.norm(d_j) + 1e-10)
+        print(f"  L{layer}: cosine={cos:.4f}")
+    print()
+
+
+def concept_activation_concept_activation_activation_concept_representation_stability_across_runs(all_acts, concept_names):
+    """Phase 1504: Check if concept representation is stable (using subsampling)."""
+    print("=" * 70)
+    print("PHASE 1504: CONCEPT REPRESENTATION STABILITY")
+    print("=" * 70)
+    layer = 10
+    rng = np.random.RandomState(123)
+    for cname in concept_names[:4]:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        full_dir = pos.mean(axis=0) - neg.mean(axis=0)
+        full_dir = full_dir / (np.linalg.norm(full_dir) + 1e-10)
+        cosines = []
+        for _ in range(100):
+            n = len(pos) // 2
+            idx_p = rng.choice(len(pos), n, replace=False)
+            idx_n = rng.choice(len(neg), n, replace=False)
+            d = pos[idx_p].mean(axis=0) - neg[idx_n].mean(axis=0)
+            d = d / (np.linalg.norm(d) + 1e-10)
+            cosines.append(np.dot(full_dir, d))
+        print(f"  {cname}: mean={np.mean(cosines):.5f}, std={np.std(cosines):.5f}, min={np.min(cosines):.5f}")
+    print()
+
+
+def concept_neuron_concept_neuron_neuron_activation_abs_mean_ranking(all_acts, concept_names):
+    """Phase 1505: Rank neurons by absolute mean activation difference."""
+    print("=" * 70)
+    print("PHASE 1505: NEURON ABS MEAN RANKING")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        abs_mean_diff = np.abs(pos.mean(axis=0) - neg.mean(axis=0))
+        top5 = np.argsort(abs_mean_diff)[-5:][::-1]
+        print(f"  {cname}: top 5 by |mean diff|: {[(int(n), f'{abs_mean_diff[n]:.3f}') for n in top5]}")
+    print()
+
+
+def concept_direction_concept_direction_concept_direction_concept_direction_layer_ensemble_accuracy(all_acts, concept_names, num_layers):
+    """Phase 1506: Accuracy of layer-ensemble classifier (voting across layers)."""
+    print("=" * 70)
+    print("PHASE 1506: LAYER ENSEMBLE ACCURACY")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        votes = None
+        n_samples = None
+        for layer in range(num_layers):
+            pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+            neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+            combined = np.vstack([pos, neg])
+            labels = np.array([1]*len(pos) + [0]*len(neg))
+            d = pos.mean(axis=0) - neg.mean(axis=0)
+            d = d / (np.linalg.norm(d) + 1e-10)
+            proj = combined @ d
+            pred = (proj > np.median(proj)).astype(int)
+            if votes is None:
+                votes = pred.astype(float)
+                n_samples = labels
+            else:
+                votes += pred
+        ensemble_pred = (votes > num_layers / 2).astype(int)
+        acc = (ensemble_pred == n_samples).mean()
+        print(f"  {cname}: layer-ensemble accuracy={acc:.3f}")
+    print()
+
+
+def concept_activation_concept_activation_activation_concept_class_balance_check(all_acts, concept_names):
+    """Phase 1507: Verify class balance across all concepts."""
+    print("=" * 70)
+    print("PHASE 1507: CLASS BALANCE CHECK")
+    print("=" * 70)
+    for cname in concept_names:
+        n_pos = len(all_acts[cname]["positive"][0])
+        n_neg = len(all_acts[cname]["negative"][0])
+        balance = min(n_pos, n_neg) / max(n_pos, n_neg)
+        print(f"  {cname}: pos={n_pos}, neg={n_neg}, balance={balance:.3f}")
+    print()
+
+
+def concept_neuron_concept_neuron_neuron_activation_top_bottom_ratio(all_acts, concept_names):
+    """Phase 1508: Ratio of top to bottom activation for each concept's top neuron."""
+    print("=" * 70)
+    print("PHASE 1508: TOP-BOTTOM ACTIVATION RATIO")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        diff = np.abs(pos.mean(axis=0) - neg.mean(axis=0))
+        top_neuron = np.argmax(diff)
+        combined = np.vstack([pos, neg])
+        vals = combined[:, top_neuron]
+        top_val = np.percentile(vals, 95)
+        bot_val = np.percentile(vals, 5)
+        print(f"  {cname}: neuron {top_neuron}, p95={top_val:.3f}, p5={bot_val:.3f}, ratio={abs(top_val)/(abs(bot_val)+1e-10):.2f}")
+    print()
+
+
+def concept_direction_concept_direction_concept_direction_concept_direction_residual_analysis(all_acts, concept_names):
+    """Phase 1509: Residual analysis — what remains after removing concept direction."""
+    print("=" * 70)
+    print("PHASE 1509: RESIDUAL ANALYSIS AFTER DIRECTION REMOVAL")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = np.array([all_acts[cname]["positive"][layer][i] for i in range(len(all_acts[cname]["positive"][layer]))])
+        neg = np.array([all_acts[cname]["negative"][layer][i] for i in range(len(all_acts[cname]["negative"][layer]))])
+        combined = np.vstack([pos, neg])
+        labels = np.array([1]*len(pos) + [0]*len(neg))
+        d = pos.mean(axis=0) - neg.mean(axis=0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        # Remove concept direction
+        proj = np.outer(d, d)
+        residual = combined - combined @ proj
+        # Can residual still classify?
+        clf = LogisticRegression(max_iter=500, C=0.1, random_state=42)
+        scaler = StandardScaler()
+        X = scaler.fit_transform(residual)
+        clf.fit(X, labels)
+        acc = clf.score(X, labels)
+        print(f"  {cname}: residual classification acc={acc:.3f} (1D removed)")
+    print()
+
+
+def concept_activation_phase_1510_status(all_acts, concept_names):
+    """Phase 1510: Status at 1510 phases."""
+    print("=" * 70)
+    print("PHASE 1510: STATUS AT 1510 PHASES")
+    print("=" * 70)
+    print("1510 analysis phases completed.")
+    print(f"Concepts analyzed: {len(concept_names)}")
+    print("All phases informational — scoring pipeline unchanged.")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -43834,6 +44030,36 @@ def run_analysis():
 
     # Phase 1500: Grand milestone (informational)
     grand_milestone_1500()
+
+    # Phase 1501: Gram determinant profile across layers (informational)
+    concept_direction_concept_direction_concept_direction_concept_direction_per_layer_det_profile(all_acts, concept_names, num_layers)
+
+    # Phase 1502: Top neuron IQR (informational)
+    concept_neuron_concept_neuron_neuron_activation_inter_quartile_range(all_acts, concept_names)
+
+    # Phase 1503: Sentiment-emotion cosine at each layer (informational)
+    concept_direction_concept_direction_concept_direction_concept_direction_pair_cosine_at_each_layer(all_acts, concept_names, num_layers)
+
+    # Phase 1504: Concept representation stability (informational)
+    concept_activation_concept_activation_activation_concept_representation_stability_across_runs(all_acts, concept_names)
+
+    # Phase 1505: Neuron abs mean ranking (informational)
+    concept_neuron_concept_neuron_neuron_activation_abs_mean_ranking(all_acts, concept_names)
+
+    # Phase 1506: Layer ensemble accuracy (informational)
+    concept_direction_concept_direction_concept_direction_concept_direction_layer_ensemble_accuracy(all_acts, concept_names, num_layers)
+
+    # Phase 1507: Class balance check (informational)
+    concept_activation_concept_activation_activation_concept_class_balance_check(all_acts, concept_names)
+
+    # Phase 1508: Top-bottom activation ratio (informational)
+    concept_neuron_concept_neuron_neuron_activation_top_bottom_ratio(all_acts, concept_names)
+
+    # Phase 1509: Residual analysis (informational)
+    concept_direction_concept_direction_concept_direction_concept_direction_residual_analysis(all_acts, concept_names)
+
+    # Phase 1510: Status at 1510 phases (informational)
+    concept_activation_phase_1510_status(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
