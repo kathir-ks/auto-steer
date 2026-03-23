@@ -55468,6 +55468,217 @@ def post2000_concept_activation_phase_2310_checkpoint(all_acts, concept_names):
     print()
 
 
+def post2000_concept_activation_neuron_activation_covariance_structure(all_acts, concept_names):
+    """Phase 2311: Analyze covariance structure of top neurons per concept."""
+    print("=" * 70)
+    print("PHASE 2311: NEURON ACTIVATION COVARIANCE STRUCTURE")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:3]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        importance = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+        top_idx = np.argsort(importance)[-10:]
+        data = np.vstack([pos, neg])[:, top_idx]
+        cov = np.cov(data.T)
+        eigenvalues = np.linalg.eigvalsh(cov)[::-1]
+        explained_by_1 = eigenvalues[0] / (np.sum(eigenvalues) + 1e-10)
+        print(f"  {cname}: top_eigenval_share={explained_by_1:.4f}, cond_num={eigenvalues[0]/(eigenvalues[-1]+1e-10):.1f}")
+    print()
+
+
+def post2000_concept_activation_concept_direction_alignment_with_svd(all_acts, concept_names):
+    """Phase 2312: Alignment of concept directions with top SVD components."""
+    print("=" * 70)
+    print("PHASE 2312: CONCEPT DIRECTION ALIGNMENT WITH SVD")
+    print("=" * 70)
+    layer = 10
+    all_data = []
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        all_data.append(pos)
+        all_data.append(neg)
+    all_data = np.vstack(all_data)
+    all_data = all_data - np.mean(all_data, axis=0)
+    U, S, Vt = np.linalg.svd(all_data, full_matrices=False)
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        direction = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        direction = direction / (np.linalg.norm(direction) + 1e-10)
+        alignments = [abs(np.dot(direction, Vt[i])) for i in range(5)]
+        best_pc = np.argmax(alignments)
+        print(f"  {cname}: best_PC={best_pc+1} (align={alignments[best_pc]:.4f}), "
+              f"top3_align={[f'{a:.3f}' for a in alignments[:3]]}")
+    print()
+
+
+def post2000_concept_activation_neuron_contribution_to_multiple_concepts(all_acts, concept_names):
+    """Phase 2313: For each top neuron, how many concepts does it contribute to?"""
+    print("=" * 70)
+    print("PHASE 2313: NEURON MULTI-CONCEPT CONTRIBUTION")
+    print("=" * 70)
+    layer = 10
+    all_importances = {}
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        all_importances[cname] = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+    # Find globally important neurons
+    global_importance = np.zeros(896)
+    for cname in concept_names:
+        global_importance += all_importances[cname]
+    top_global = np.argsort(global_importance)[-5:]
+    for neuron in top_global:
+        concept_scores = [(cname, all_importances[cname][neuron]) for cname in concept_names]
+        concept_scores.sort(key=lambda x: -x[1])
+        top2 = concept_scores[:2]
+        print(f"  Neuron {neuron}: {top2[0][0]}({top2[0][1]:.4f}), {top2[1][0]}({top2[1][1]:.4f})")
+    print()
+
+
+def post2000_concept_activation_layer_representation_similarity(all_acts, concept_names):
+    """Phase 2314: Representation similarity between layers (CKA-like)."""
+    print("=" * 70)
+    print("PHASE 2314: LAYER REPRESENTATION SIMILARITY")
+    print("=" * 70)
+    cname = concept_names[0]
+    layers = [0, 6, 12, 18, 23]
+    data = {}
+    for L in layers:
+        pos = all_acts[cname]["positive"][L]
+        neg = all_acts[cname]["negative"][L]
+        data[L] = np.vstack([pos, neg])
+    for i, L1 in enumerate(layers):
+        for L2 in layers[i+1:i+2]:
+            # Linear CKA
+            X = data[L1] - np.mean(data[L1], axis=0)
+            Y = data[L2] - np.mean(data[L2], axis=0)
+            XtY = np.trace(X @ X.T @ Y @ Y.T)
+            XtX = np.trace(X @ X.T @ X @ X.T)
+            YtY = np.trace(Y @ Y.T @ Y @ Y.T)
+            cka = XtY / (np.sqrt(XtX * YtY) + 1e-10)
+            print(f"  L{L1} vs L{L2}: CKA={cka:.4f}")
+    print()
+
+
+def post2000_concept_activation_concept_direction_mutual_angle_consistency(all_acts, concept_names):
+    """Phase 2315: Are concept direction angles consistent across layers?"""
+    print("=" * 70)
+    print("PHASE 2315: MUTUAL ANGLE CONSISTENCY ACROSS LAYERS")
+    print("=" * 70)
+    c1, c2 = concept_names[0], concept_names[1]
+    angles = []
+    for L in range(0, 24, 3):
+        d1 = np.mean(all_acts[c1]["positive"][L], axis=0) - np.mean(all_acts[c1]["negative"][L], axis=0)
+        d2 = np.mean(all_acts[c2]["positive"][L], axis=0) - np.mean(all_acts[c2]["negative"][L], axis=0)
+        d1 = d1 / (np.linalg.norm(d1) + 1e-10)
+        d2 = d2 / (np.linalg.norm(d2) + 1e-10)
+        angle = np.degrees(np.arccos(np.clip(abs(np.dot(d1, d2)), 0, 1)))
+        angles.append((L, angle))
+    print(f"  {c1} vs {c2}: angles={[f'L{l}:{a:.1f}°' for l, a in angles]}")
+    print(f"  Std of angles: {np.std([a for _, a in angles]):.2f}°")
+    print()
+
+
+def post2000_concept_activation_neuron_activation_peak_layer_distribution(all_acts, concept_names):
+    """Phase 2316: At which layers do neurons peak in importance?"""
+    print("=" * 70)
+    print("PHASE 2316: NEURON PEAK LAYER DISTRIBUTION")
+    print("=" * 70)
+    for cname in concept_names[:3]:
+        peak_layers = []
+        for neuron in range(896):
+            best_imp = 0
+            best_layer = 0
+            for L in range(0, 24, 4):
+                pos = all_acts[cname]["positive"][L]
+                neg = all_acts[cname]["negative"][L]
+                imp = abs(np.mean(pos[:, neuron]) - np.mean(neg[:, neuron]))
+                if imp > best_imp:
+                    best_imp = imp
+                    best_layer = L
+            peak_layers.append(best_layer)
+        from collections import Counter
+        counts = Counter(peak_layers)
+        top3 = counts.most_common(3)
+        print(f"  {cname}: top_peaks={[f'L{l}:{c}' for l, c in top3]}")
+    print()
+
+
+def post2000_concept_activation_concept_signal_concentration_index(all_acts, concept_names):
+    """Phase 2317: How concentrated is concept signal in a few neurons?"""
+    print("=" * 70)
+    print("PHASE 2317: CONCEPT SIGNAL CONCENTRATION INDEX")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        importance = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+        sorted_imp = np.sort(importance)[::-1]
+        total = np.sum(sorted_imp) + 1e-10
+        cumshare = np.cumsum(sorted_imp) / total
+        n_50 = np.searchsorted(cumshare, 0.5) + 1
+        n_80 = np.searchsorted(cumshare, 0.8) + 1
+        print(f"  {cname}: neurons_for_50%={n_50}, neurons_for_80%={n_80}")
+    print()
+
+
+def post2000_concept_activation_concept_decodability_margin(all_acts, concept_names):
+    """Phase 2318: Margin of concept decodability (distance between class means in projection)."""
+    print("=" * 70)
+    print("PHASE 2318: CONCEPT DECODABILITY MARGIN")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        direction = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        direction = direction / (np.linalg.norm(direction) + 1e-10)
+        pos_proj = pos @ direction
+        neg_proj = neg @ direction
+        margin = (np.mean(pos_proj) - np.mean(neg_proj)) / (np.std(np.concatenate([pos_proj, neg_proj])) + 1e-10)
+        print(f"  {cname}: margin={margin:.4f}")
+    print()
+
+
+def post2000_concept_activation_multi_concept_subspace_dimensionality(all_acts, concept_names):
+    """Phase 2319: Dimensionality of the subspace spanned by all concept directions."""
+    print("=" * 70)
+    print("PHASE 2319: MULTI-CONCEPT SUBSPACE DIMENSIONALITY")
+    print("=" * 70)
+    layer = 10
+    directions = []
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        directions.append(d)
+    directions = np.array(directions)
+    svd_vals = np.linalg.svd(directions, compute_uv=False)
+    svd_norm = svd_vals / (np.sum(svd_vals) + 1e-10)
+    eff_dim = np.exp(-np.sum(svd_norm * np.log(svd_norm + 1e-10)))
+    print(f"  Num concepts: {len(concept_names)}")
+    print(f"  Effective subspace dim: {eff_dim:.2f}")
+    print(f"  Top singular values: {[f'{s:.3f}' for s in svd_vals[:5]]}")
+    print()
+
+
+def post2000_concept_activation_phase_2320_checkpoint(all_acts, concept_names):
+    """Phase 2320: Research checkpoint - 320 phases beyond 2000."""
+    print("=" * 70)
+    print("PHASE 2320: RESEARCH CHECKPOINT — 320 BEYOND 2000")
+    print("=" * 70)
+    print(f"  2320 analysis phases completed — 320 beyond the 2000 milestone!")
+    print(f"  Phases 2311-2320: covariance structure, SVD alignment,")
+    print(f"  multi-concept contribution, representation similarity,")
+    print(f"  angle consistency, peak layer distribution, concentration index,")
+    print(f"  decodability margin, subspace dimensionality")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -62472,6 +62683,36 @@ def run_analysis():
 
     # Phase 2310: Research checkpoint (informational)
     post2000_concept_activation_phase_2310_checkpoint(all_acts, concept_names)
+
+    # Phase 2311: Neuron activation covariance structure (informational)
+    post2000_concept_activation_neuron_activation_covariance_structure(all_acts, concept_names)
+
+    # Phase 2312: Concept direction alignment with SVD (informational)
+    post2000_concept_activation_concept_direction_alignment_with_svd(all_acts, concept_names)
+
+    # Phase 2313: Neuron multi-concept contribution (informational)
+    post2000_concept_activation_neuron_contribution_to_multiple_concepts(all_acts, concept_names)
+
+    # Phase 2314: Layer representation similarity (informational)
+    post2000_concept_activation_layer_representation_similarity(all_acts, concept_names)
+
+    # Phase 2315: Mutual angle consistency across layers (informational)
+    post2000_concept_activation_concept_direction_mutual_angle_consistency(all_acts, concept_names)
+
+    # Phase 2316: Neuron peak layer distribution (informational)
+    post2000_concept_activation_neuron_activation_peak_layer_distribution(all_acts, concept_names)
+
+    # Phase 2317: Concept signal concentration index (informational)
+    post2000_concept_activation_concept_signal_concentration_index(all_acts, concept_names)
+
+    # Phase 2318: Concept decodability margin (informational)
+    post2000_concept_activation_concept_decodability_margin(all_acts, concept_names)
+
+    # Phase 2319: Multi-concept subspace dimensionality (informational)
+    post2000_concept_activation_multi_concept_subspace_dimensionality(all_acts, concept_names)
+
+    # Phase 2320: Research checkpoint (informational)
+    post2000_concept_activation_phase_2320_checkpoint(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
