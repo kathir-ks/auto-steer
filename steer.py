@@ -33088,6 +33088,203 @@ def grand_milestone_1200():
     print()
 
 
+def concept_direction_angular_velocity_profile(all_acts, concept_names):
+    """Phase 1201: Angular velocity of concept directions across layers."""
+    print("=" * 70)
+    print("PHASE 1201: DIRECTION ANGULAR VELOCITY PROFILE")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        angular_vels = []
+        for l in range(23):
+            d1 = all_acts[cname]["positive"][l].mean(0) - all_acts[cname]["negative"][l].mean(0)
+            d2 = all_acts[cname]["positive"][l+1].mean(0) - all_acts[cname]["negative"][l+1].mean(0)
+            d1 = d1 / (np.linalg.norm(d1) + 1e-10)
+            d2 = d2 / (np.linalg.norm(d2) + 1e-10)
+            angle = np.degrees(np.arccos(np.clip(float(d1 @ d2), -1, 1)))
+            angular_vels.append(angle)
+        max_vel_l = int(np.argmax(angular_vels))
+        print(f"  {cname:20s} | max angular vel: {angular_vels[max_vel_l]:.1f}°/layer at L{max_vel_l} | mean: {np.mean(angular_vels):.1f}°/layer")
+    print()
+
+
+def concept_neuron_activation_distribution_moments(all_acts, concept_names):
+    """Phase 1202: Higher-order moments of neuron activation distributions."""
+    print("=" * 70)
+    print("PHASE 1202: ACTIVATION DISTRIBUTION MOMENTS")
+    print("=" * 70)
+    from scipy.stats import kurtosis, skew
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        combined = np.vstack([pos, neg])
+        mean_kurt = np.mean(kurtosis(combined, axis=0, fisher=True))
+        mean_skew = np.mean(np.abs(skew(combined, axis=0)))
+        print(f"  {cname:20s} | mean kurtosis: {mean_kurt:.3f} | mean |skew|: {mean_skew:.3f}")
+    print()
+
+
+def concept_direction_pairwise_angle_layer_evolution(all_acts, concept_names):
+    """Phase 1203: Track pairwise angles between specific concept pairs across layers."""
+    print("=" * 70)
+    print("PHASE 1203: PAIRWISE ANGLE EVOLUTION ACROSS LAYERS")
+    print("=" * 70)
+    pairs = [("sentiment", "emotion_joy_anger"), ("formality", "complexity"), ("certainty", "subjectivity")]
+    for c1, c2 in pairs:
+        if c1 in concept_names and c2 in concept_names:
+            angles = []
+            for l in range(24):
+                d1 = all_acts[c1]["positive"][l].mean(0) - all_acts[c1]["negative"][l].mean(0)
+                d2 = all_acts[c2]["positive"][l].mean(0) - all_acts[c2]["negative"][l].mean(0)
+                cos = float(d1 @ d2 / (np.linalg.norm(d1) * np.linalg.norm(d2) + 1e-10))
+                angles.append(np.degrees(np.arccos(np.clip(abs(cos), 0, 1))))
+            print(f"  {c1:12s} vs {c2:12s} | L0: {angles[0]:.1f}° | L12: {angles[12]:.1f}° | L23: {angles[23]:.1f}° | range: [{min(angles):.1f}°, {max(angles):.1f}°]")
+    print()
+
+
+def concept_activation_effective_dimensionality_per_layer(all_acts, concept_names):
+    """Phase 1204: Effective dimensionality at each layer."""
+    print("=" * 70)
+    print("PHASE 1204: EFFECTIVE DIMENSIONALITY PER LAYER")
+    print("=" * 70)
+    for cname in concept_names[:3]:
+        eff_dims = []
+        for l in range(24):
+            combined = np.vstack([all_acts[cname]["positive"][l], all_acts[cname]["negative"][l]])
+            cov = np.cov(combined.T)
+            eigvals = np.maximum(np.linalg.eigvalsh(cov), 0)
+            total = eigvals.sum() + 1e-10
+            eff_dim = total ** 2 / (np.sum(eigvals ** 2) + 1e-10)
+            eff_dims.append(eff_dim)
+        print(f"  {cname:20s} | min eff_dim: L{int(np.argmin(eff_dims))} ({min(eff_dims):.1f}) | max: L{int(np.argmax(eff_dims))} ({max(eff_dims):.1f})")
+    print()
+
+
+def concept_neuron_top_bottom_magnitude_asymmetry(all_acts, concept_names):
+    """Phase 1205: Compare top activating vs bottom activating neurons."""
+    print("=" * 70)
+    print("PHASE 1205: TOP vs BOTTOM NEURON MAGNITUDE ASYMMETRY")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        diff = pos.mean(0) - neg.mean(0)
+        top10 = np.argsort(diff)[-10:]
+        bot10 = np.argsort(diff)[:10]
+        top_magnitude = np.mean(np.abs(diff[top10]))
+        bot_magnitude = np.mean(np.abs(diff[bot10]))
+        print(f"  {cname:20s} | top10 mag: {top_magnitude:.4f} | bot10 mag: {bot_magnitude:.4f} | ratio: {top_magnitude/(bot_magnitude+1e-10):.3f}")
+    print()
+
+
+def concept_direction_information_gain_per_layer(all_acts, concept_names):
+    """Phase 1206: Information gain at each layer for concept discrimination."""
+    print("=" * 70)
+    print("PHASE 1206: INFORMATION GAIN PER LAYER")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        gains = []
+        for l in range(24):
+            pos = all_acts[cname]["positive"][l]
+            neg = all_acts[cname]["negative"][l]
+            d = pos.mean(0) - neg.mean(0)
+            # Fisher discriminant ratio as proxy for info gain
+            pooled_var = 0.5 * (np.var(pos, axis=0) + np.var(neg, axis=0))
+            fdr = np.sum(d ** 2 / (pooled_var + 1e-10))
+            gains.append(fdr)
+        best_l = int(np.argmax(gains))
+        print(f"  {cname:20s} | best layer: L{best_l} (FDR={gains[best_l]:.0f}) | worst: L{int(np.argmin(gains))} (FDR={min(gains):.0f})")
+    print()
+
+
+def concept_activation_inter_concept_distance_matrix(all_acts, concept_names):
+    """Phase 1207: Distance matrix between concept centroids."""
+    print("=" * 70)
+    print("PHASE 1207: INTER-CONCEPT CENTROID DISTANCE")
+    print("=" * 70)
+    layer = 10
+    centroids = {}
+    for cname in concept_names:
+        centroids[cname] = np.vstack([all_acts[cname]["positive"][layer], all_acts[cname]["negative"][layer]]).mean(0)
+    dists = []
+    for i in range(len(concept_names)):
+        for j in range(i+1, len(concept_names)):
+            d = np.linalg.norm(centroids[concept_names[i]] - centroids[concept_names[j]])
+            dists.append((concept_names[i], concept_names[j], d))
+    dists.sort(key=lambda x: x[2])
+    print("  Closest pairs:")
+    for c1, c2, d in dists[:3]:
+        print(f"    {c1:12s} - {c2:12s}: {d:.3f}")
+    print("  Farthest pairs:")
+    for c1, c2, d in dists[-3:]:
+        print(f"    {c1:12s} - {c2:12s}: {d:.3f}")
+    print()
+
+
+def concept_neuron_concept_neuron_activation_correlation_with_labels(all_acts, concept_names):
+    """Phase 1208: Point-biserial correlation between neuron activations and labels."""
+    print("=" * 70)
+    print("PHASE 1208: NEURON-LABEL POINT-BISERIAL CORRELATION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        combined = np.vstack([pos, neg])
+        labels = np.array([1]*len(pos) + [0]*len(neg))
+        corrs = np.array([np.corrcoef(combined[:, j], labels)[0, 1] for j in range(combined.shape[1])])
+        top5 = np.argsort(np.abs(corrs))[-5:][::-1]
+        print(f"  {cname:20s} | max |corr|: {np.abs(corrs).max():.4f} | top neurons: {top5.tolist()} | mean |corr|: {np.abs(corrs).mean():.4f}")
+    print()
+
+
+def concept_direction_concept_direction_projection_overlap_area(all_acts, concept_names):
+    """Phase 1209: Area of overlap between projection distributions of different concepts."""
+    print("=" * 70)
+    print("PHASE 1209: CROSS-CONCEPT PROJECTION OVERLAP")
+    print("=" * 70)
+    layer = 10
+    # For each pair, project both concept's data onto each other's directions
+    pairs = [("sentiment", "emotion_joy_anger"), ("formality", "certainty"), ("temporal", "complexity")]
+    for c1, c2 in pairs:
+        if c1 in concept_names and c2 in concept_names:
+            d1 = all_acts[c1]["positive"][layer].mean(0) - all_acts[c1]["negative"][layer].mean(0)
+            d1 = d1 / (np.linalg.norm(d1) + 1e-10)
+            # Project c2 data onto c1 direction
+            c2_pos_proj = all_acts[c2]["positive"][layer] @ d1
+            c2_neg_proj = all_acts[c2]["negative"][layer] @ d1
+            sep = abs(c2_pos_proj.mean() - c2_neg_proj.mean())
+            spread = np.std(np.concatenate([c2_pos_proj, c2_neg_proj]))
+            print(f"  {c2:12s} on {c1:12s} dir | sep: {sep:.4f} | spread: {spread:.4f} | ratio: {sep/(spread+1e-10):.4f}")
+    print()
+
+
+def concept_activation_global_statistics_1210(all_acts, concept_names):
+    """Phase 1210: Global activation statistics across all concepts and layers."""
+    print("=" * 70)
+    print("PHASE 1210: GLOBAL ACTIVATION STATISTICS")
+    print("=" * 70)
+    total_samples = 0
+    total_norm = 0
+    total_var = 0
+    for cname in concept_names:
+        for l in range(24):
+            pos = all_acts[cname]["positive"][l]
+            neg = all_acts[cname]["negative"][l]
+            combined = np.vstack([pos, neg])
+            total_samples += len(combined)
+            total_norm += np.sum(np.linalg.norm(combined, axis=1))
+            total_var += np.var(combined)
+    mean_norm = total_norm / total_samples
+    mean_var = total_var / (len(concept_names) * 24)
+    print(f"  Total samples across all concepts/layers: {total_samples}")
+    print(f"  Mean activation norm: {mean_norm:.3f}")
+    print(f"  Mean per-cell variance: {mean_var:.6f}")
+    print(f"  Concepts: {len(concept_names)} | Layers: 24 | Hidden dim: {all_acts[concept_names[0]]['positive'][0].shape[1]}")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -36762,6 +36959,36 @@ def run_analysis():
 
     # Phase 1200: 1200-phase milestone (informational)
     grand_milestone_1200()
+
+    # Phase 1201: Direction angular velocity profile (informational)
+    concept_direction_angular_velocity_profile(all_acts, concept_names)
+
+    # Phase 1202: Activation distribution moments (informational)
+    concept_neuron_activation_distribution_moments(all_acts, concept_names)
+
+    # Phase 1203: Pairwise angle evolution across layers (informational)
+    concept_direction_pairwise_angle_layer_evolution(all_acts, concept_names)
+
+    # Phase 1204: Effective dimensionality per layer (informational)
+    concept_activation_effective_dimensionality_per_layer(all_acts, concept_names)
+
+    # Phase 1205: Top vs bottom neuron magnitude asymmetry (informational)
+    concept_neuron_top_bottom_magnitude_asymmetry(all_acts, concept_names)
+
+    # Phase 1206: Information gain per layer (informational)
+    concept_direction_information_gain_per_layer(all_acts, concept_names)
+
+    # Phase 1207: Inter-concept centroid distance (informational)
+    concept_activation_inter_concept_distance_matrix(all_acts, concept_names)
+
+    # Phase 1208: Neuron-label point-biserial correlation (informational)
+    concept_neuron_concept_neuron_activation_correlation_with_labels(all_acts, concept_names)
+
+    # Phase 1209: Cross-concept projection overlap (informational)
+    concept_direction_concept_direction_projection_overlap_area(all_acts, concept_names)
+
+    # Phase 1210: Global activation statistics (informational)
+    concept_activation_global_statistics_1210(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
