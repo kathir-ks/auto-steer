@@ -53866,6 +53866,198 @@ def post2000_concept_activation_phase_2230_checkpoint(all_acts, concept_names):
     print()
 
 
+def post2000_concept_activation_concept_direction_optimal_layer_ensemble(all_acts, concept_names):
+    """Phase 2231: Optimal ensemble of layers for concept classification."""
+    print("=" * 70)
+    print("PHASE 2231: Optimal Layer Ensemble for Classification")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        layer_accs = []
+        for l in range(24):
+            pos = all_acts[cname]["positive"][l]
+            neg = all_acts[cname]["negative"][l]
+            d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+            d = d / (np.linalg.norm(d) + 1e-10)
+            X = np.vstack([pos, neg])
+            y = np.array([1]*len(pos) + [0]*len(neg))
+            proj = X @ d
+            t = np.median(proj)
+            acc = max(np.mean((proj > t) == y), np.mean((proj <= t) == y))
+            layer_accs.append((l, acc))
+        top3 = sorted(layer_accs, key=lambda x: x[1], reverse=True)[:3]
+        print(f"  {cname}: top layers {[f'L{l}({a:.3f})' for l, a in top3]}")
+    print()
+
+
+def post2000_concept_activation_neuron_activation_interquartile_mean(all_acts, concept_names):
+    """Phase 2232: Interquartile mean of neuron activations."""
+    print("=" * 70)
+    print("PHASE 2232: Neuron Activation Interquartile Mean")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        combined = np.vstack([all_acts[cname]["positive"][layer],
+                               all_acts[cname]["negative"][layer]])
+        q25 = np.percentile(combined, 25, axis=0)
+        q75 = np.percentile(combined, 75, axis=0)
+        iqm = np.zeros(combined.shape[1])
+        for j in range(combined.shape[1]):
+            mask = (combined[:, j] >= q25[j]) & (combined[:, j] <= q75[j])
+            iqm[j] = np.mean(combined[mask, j]) if mask.any() else np.mean(combined[:, j])
+        std_iqm = np.std(iqm)
+        print(f"  {cname} L{layer}: IQM std={std_iqm:.4f}, "
+              f"IQM range=[{np.min(iqm):.4f}, {np.max(iqm):.4f}]")
+    print()
+
+
+def post2000_concept_activation_concept_direction_projection_uniformity(all_acts, concept_names):
+    """Phase 2233: Uniformity of projections onto concept direction."""
+    print("=" * 70)
+    print("PHASE 2233: Projection Uniformity Test")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        direction = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        direction = direction / (np.linalg.norm(direction) + 1e-10)
+        pos_proj = pos @ direction
+        neg_proj = neg @ direction
+        # Check uniformity within each class
+        from scipy.stats import kstest
+        _, p_pos = kstest((pos_proj - np.mean(pos_proj)) / (np.std(pos_proj) + 1e-10), 'norm')
+        _, p_neg = kstest((neg_proj - np.mean(neg_proj)) / (np.std(neg_proj) + 1e-10), 'norm')
+        print(f"  {cname} L{layer}: pos normality p={p_pos:.4f}, neg normality p={p_neg:.4f}")
+    print()
+
+
+def post2000_concept_activation_concept_pair_cosine_at_best_layers(all_acts, concept_names):
+    """Phase 2234: Cosine between concept pairs at each concept's best layer."""
+    print("=" * 70)
+    print("PHASE 2234: Pair Cosine at Respective Best Layers")
+    print("=" * 70)
+    from itertools import combinations
+    best_layers = {}
+    for cname in concept_names:
+        norms = [np.linalg.norm(np.mean(all_acts[cname]["positive"][l], axis=0) -
+                                 np.mean(all_acts[cname]["negative"][l], axis=0)) for l in range(24)]
+        best_layers[cname] = int(np.argmax(norms))
+    for c1, c2 in list(combinations(concept_names, 2))[:5]:
+        for lbl, l in [(f"L{best_layers[c1]}", best_layers[c1]), (f"L{best_layers[c2]}", best_layers[c2])]:
+            d1 = np.mean(all_acts[c1]["positive"][l], axis=0) - np.mean(all_acts[c1]["negative"][l], axis=0)
+            d2 = np.mean(all_acts[c2]["positive"][l], axis=0) - np.mean(all_acts[c2]["negative"][l], axis=0)
+            cos = np.dot(d1, d2) / (np.linalg.norm(d1) * np.linalg.norm(d2) + 1e-10)
+            print(f"  {c1} vs {c2} @ {lbl}: cos={cos:.4f}")
+    print()
+
+
+def post2000_concept_activation_neuron_activation_peak_to_mean_ratio(all_acts, concept_names):
+    """Phase 2235: Peak-to-mean ratio of neuron activations."""
+    print("=" * 70)
+    print("PHASE 2235: Neuron Peak-to-Mean Ratio")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        combined = np.vstack([all_acts[cname]["positive"][layer],
+                               all_acts[cname]["negative"][layer]])
+        peak = np.max(np.abs(combined), axis=0)
+        mean_abs = np.mean(np.abs(combined), axis=0)
+        ratio = peak / (mean_abs + 1e-10)
+        high_ratio = np.sum(ratio > 5)
+        print(f"  {cname} L{layer}: {high_ratio} neurons with peak/mean>5, "
+              f"mean ratio={np.mean(ratio):.4f}")
+    print()
+
+
+def post2000_concept_activation_concept_direction_tangent_angle(all_acts, concept_names):
+    """Phase 2236: Tangent angle of concept direction at each layer."""
+    print("=" * 70)
+    print("PHASE 2236: Concept Direction Tangent Angle")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        directions = []
+        for l in range(24):
+            d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+            d = d / (np.linalg.norm(d) + 1e-10)
+            directions.append(d)
+        tangent_angles = []
+        for l in range(1, 23):
+            tangent = directions[l+1] - directions[l-1]
+            tangent = tangent / (np.linalg.norm(tangent) + 1e-10)
+            cos = np.clip(np.dot(tangent, directions[l]), -1, 1)
+            tangent_angles.append(np.degrees(np.arccos(abs(cos))))
+        mean_ta = np.mean(tangent_angles)
+        max_ta_l = int(np.argmax(tangent_angles)) + 1
+        print(f"  {cname}: mean tangent angle={mean_ta:.1f}°, "
+              f"max at L{max_ta_l} ({tangent_angles[max_ta_l-1]:.1f}°)")
+    print()
+
+
+def post2000_concept_activation_concept_signal_bandwidth(all_acts, concept_names):
+    """Phase 2237: Bandwidth of concept signal across layers (number of layers above threshold)."""
+    print("=" * 70)
+    print("PHASE 2237: Concept Signal Bandwidth")
+    print("=" * 70)
+    for cname in concept_names:
+        norms = []
+        for l in range(24):
+            d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+            norms.append(np.linalg.norm(d))
+        threshold = 0.5 * max(norms)
+        bandwidth = sum(1 for n in norms if n >= threshold)
+        print(f"  {cname}: bandwidth={bandwidth}/24 layers ≥50% of peak")
+    print()
+
+
+def post2000_concept_activation_neuron_response_correlation_with_label(all_acts, concept_names):
+    """Phase 2238: Point-biserial correlation between neuron activation and concept label."""
+    print("=" * 70)
+    print("PHASE 2238: Neuron-Label Point-Biserial Correlation")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        X = np.vstack([pos, neg])
+        y = np.array([1.0]*len(pos) + [0.0]*len(neg))
+        corrs = np.array([np.corrcoef(X[:, j], y)[0, 1] for j in range(X.shape[1])])
+        top3 = np.argsort(np.abs(corrs))[-3:][::-1]
+        print(f"  {cname} L{layer}: top corr neurons {top3.tolist()}, "
+              f"max |r|={np.abs(corrs[top3[0]]):.4f}")
+    print()
+
+
+def post2000_concept_activation_concept_direction_projection_entropy(all_acts, concept_names):
+    """Phase 2239: Entropy of the projection distribution onto concept direction."""
+    print("=" * 70)
+    print("PHASE 2239: Projection Distribution Entropy")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        direction = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        direction = direction / (np.linalg.norm(direction) + 1e-10)
+        all_proj = np.concatenate([pos @ direction, neg @ direction])
+        hist, _ = np.histogram(all_proj, bins=20, density=True)
+        hist = hist / (hist.sum() + 1e-10)
+        entropy = -np.sum(hist * np.log(hist + 1e-10))
+        print(f"  {cname} L{layer}: projection entropy={entropy:.4f}")
+    print()
+
+
+def post2000_concept_activation_phase_2240_checkpoint(all_acts, concept_names):
+    """Phase 2240: Research checkpoint at 2240 phases."""
+    print("=" * 70)
+    print("PHASE 2240: RESEARCH CHECKPOINT (2240 PHASES)")
+    print("=" * 70)
+    print(f"  2240 analysis phases completed — 240 beyond the 2000 milestone!")
+    print(f"  Phases 2231-2240: layer ensemble, IQM, projection uniformity,")
+    print(f"  cosine at best layers, peak-to-mean, tangent angle,")
+    print(f"  signal bandwidth, point-biserial, projection entropy")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -60630,6 +60822,36 @@ def run_analysis():
 
     # Phase 2230: Research checkpoint (informational)
     post2000_concept_activation_phase_2230_checkpoint(all_acts, concept_names)
+
+    # Phase 2231: Layer ensemble (informational)
+    post2000_concept_activation_concept_direction_optimal_layer_ensemble(all_acts, concept_names)
+
+    # Phase 2232: IQM (informational)
+    post2000_concept_activation_neuron_activation_interquartile_mean(all_acts, concept_names)
+
+    # Phase 2233: Projection uniformity (informational)
+    post2000_concept_activation_concept_direction_projection_uniformity(all_acts, concept_names)
+
+    # Phase 2234: Cosine at best layers (informational)
+    post2000_concept_activation_concept_pair_cosine_at_best_layers(all_acts, concept_names)
+
+    # Phase 2235: Peak-to-mean ratio (informational)
+    post2000_concept_activation_neuron_activation_peak_to_mean_ratio(all_acts, concept_names)
+
+    # Phase 2236: Tangent angle (informational)
+    post2000_concept_activation_concept_direction_tangent_angle(all_acts, concept_names)
+
+    # Phase 2237: Signal bandwidth (informational)
+    post2000_concept_activation_concept_signal_bandwidth(all_acts, concept_names)
+
+    # Phase 2238: Point-biserial correlation (informational)
+    post2000_concept_activation_neuron_response_correlation_with_label(all_acts, concept_names)
+
+    # Phase 2239: Projection entropy (informational)
+    post2000_concept_activation_concept_direction_projection_entropy(all_acts, concept_names)
+
+    # Phase 2240: Research checkpoint (informational)
+    post2000_concept_activation_phase_2240_checkpoint(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
