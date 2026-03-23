@@ -44538,6 +44538,208 @@ def concept_activation_phase_1770_status(all_acts, concept_names):
     print()
 
 
+def concept_activation_concept_direction_cosine_to_layer_mean(all_acts, concept_names):
+    """Phase 1771: Measure cosine between concept direction and layer activation mean."""
+    print("=" * 70)
+    print("PHASE 1771: CONCEPT DIRECTION COSINE TO LAYER MEAN")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        acts = np.vstack([all_acts[cname]["positive"][layer], all_acts[cname]["negative"][layer]])
+        layer_mean = acts.mean(0)
+        layer_mean_norm = layer_mean / (np.linalg.norm(layer_mean) + 1e-10)
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        d_norm = d / (np.linalg.norm(d) + 1e-10)
+        cos = np.dot(d_norm, layer_mean_norm)
+        print(f"  {cname}: cos(direction, layer_mean)={cos:.4f}")
+    print()
+
+
+def concept_activation_neuron_activation_sparsity_l1_l2_ratio(all_acts, concept_names):
+    """Phase 1772: Compute L1/L2 sparsity ratio for activations."""
+    print("=" * 70)
+    print("PHASE 1772: L1/L2 ACTIVATION SPARSITY RATIO")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        acts = np.vstack([all_acts[cname]["positive"][layer], all_acts[cname]["negative"][layer]])
+        l1_norms = np.linalg.norm(acts, ord=1, axis=1)
+        l2_norms = np.linalg.norm(acts, ord=2, axis=1)
+        ratios = l1_norms / (l2_norms * np.sqrt(896) + 1e-10)
+        print(f"  {cname}: mean L1/(L2*sqrt(d))={np.mean(ratios):.4f} "
+              f"(1=uniform, 0=sparse)")
+    print()
+
+
+def concept_activation_concept_direction_best_layer_for_orthogonality(all_acts, concept_names):
+    """Phase 1773: Find which layer gives best orthogonality between concept directions."""
+    print("=" * 70)
+    print("PHASE 1773: BEST LAYER FOR CONCEPT ORTHOGONALITY")
+    print("=" * 70)
+    best_l = 0
+    best_score = 1e10
+    for l in range(24):
+        dirs = []
+        for cname in concept_names:
+            d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+            dirs.append(d / (np.linalg.norm(d) + 1e-10))
+        G = np.array(dirs) @ np.array(dirs).T
+        np.fill_diagonal(G, 0)
+        score = np.sum(G**2)
+        if score < best_score:
+            best_score = score
+            best_l = l
+    print(f"  Best layer for orthogonality: L{best_l} (penalty={best_score:.6f})")
+    # Also show worst
+    worst_l = 0
+    worst_score = -1
+    for l in range(24):
+        dirs = []
+        for cname in concept_names:
+            d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+            dirs.append(d / (np.linalg.norm(d) + 1e-10))
+        G = np.array(dirs) @ np.array(dirs).T
+        np.fill_diagonal(G, 0)
+        score = np.sum(G**2)
+        if score > worst_score:
+            worst_score = score
+            worst_l = l
+    print(f"  Worst layer: L{worst_l} (penalty={worst_score:.6f})")
+    print()
+
+
+def concept_activation_concept_direction_sample_weighted_estimation(all_acts, concept_names):
+    """Phase 1774: Compare uniform vs norm-weighted direction estimation."""
+    print("=" * 70)
+    print("PHASE 1774: UNIFORM VS WEIGHTED DIRECTION ESTIMATION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        # Uniform
+        d_uniform = pos.mean(0) - neg.mean(0)
+        d_uniform = d_uniform / (np.linalg.norm(d_uniform) + 1e-10)
+        # Norm-weighted (weight by inverse norm — emphasize direction over magnitude)
+        pos_norms = np.linalg.norm(pos, axis=1, keepdims=True)
+        neg_norms = np.linalg.norm(neg, axis=1, keepdims=True)
+        d_weighted = (pos / (pos_norms + 1e-10)).mean(0) - (neg / (neg_norms + 1e-10)).mean(0)
+        d_weighted = d_weighted / (np.linalg.norm(d_weighted) + 1e-10)
+        cos = np.dot(d_uniform, d_weighted)
+        print(f"  {cname}: cos(uniform, weighted)={cos:.6f}")
+    print()
+
+
+def concept_activation_concept_direction_projection_overlap_area(all_acts, concept_names):
+    """Phase 1775: Compute overlap area between pos/neg projection distributions."""
+    print("=" * 70)
+    print("PHASE 1775: PROJECTION DISTRIBUTION OVERLAP AREA")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        d_norm = d / (np.linalg.norm(d) + 1e-10)
+        pos_proj = all_acts[cname]["positive"][layer] @ d_norm
+        neg_proj = all_acts[cname]["negative"][layer] @ d_norm
+        # Gaussian overlap approximation
+        mu1, s1 = np.mean(pos_proj), np.std(pos_proj)
+        mu2, s2 = np.mean(neg_proj), np.std(neg_proj)
+        # Coefficient of overlap (simplified)
+        d_prime = abs(mu1 - mu2) / np.sqrt((s1**2 + s2**2) / 2 + 1e-10)
+        from scipy.stats import norm
+        overlap = 2 * norm.cdf(-d_prime / 2)
+        print(f"  {cname}: overlap area={overlap:.4f}, d'={d_prime:.4f}")
+    print()
+
+
+def concept_activation_concept_representation_centroid_norm_per_layer(all_acts, concept_names):
+    """Phase 1776: Track centroid norm evolution across layers."""
+    print("=" * 70)
+    print("PHASE 1776: CENTROID NORM EVOLUTION ACROSS LAYERS")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        norms = []
+        for l in range(24):
+            acts = np.vstack([all_acts[cname]["positive"][l], all_acts[cname]["negative"][l]])
+            norms.append(np.linalg.norm(acts.mean(0)))
+        print(f"  {cname}: L0={norms[0]:.2f}, L12={norms[12]:.2f}, L23={norms[23]:.2f}, "
+              f"growth={norms[23]/(norms[0]+1e-10):.2f}x")
+    print()
+
+
+def concept_activation_concept_direction_cross_concept_projection_spread(all_acts, concept_names):
+    """Phase 1777: Measure spread of each concept's data on other concept directions."""
+    print("=" * 70)
+    print("PHASE 1777: CROSS-CONCEPT PROJECTION SPREAD")
+    print("=" * 70)
+    layer = 10
+    dirs = {}
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        dirs[cname] = d / (np.linalg.norm(d) + 1e-10)
+    for cname in concept_names[:4]:
+        own_spread = np.std(np.vstack([all_acts[cname]["positive"][layer],
+                                        all_acts[cname]["negative"][layer]]) @ dirs[cname])
+        cross_spreads = []
+        for other in concept_names:
+            if other != cname:
+                cross_spreads.append(np.std(np.vstack([all_acts[cname]["positive"][layer],
+                                                        all_acts[cname]["negative"][layer]]) @ dirs[other]))
+        print(f"  {cname}: own spread={own_spread:.4f}, cross spread={np.mean(cross_spreads):.4f}, "
+              f"ratio={own_spread/(np.mean(cross_spreads)+1e-10):.4f}")
+    print()
+
+
+def concept_activation_concept_direction_top_neuron_overlap_across_layers(all_acts, concept_names):
+    """Phase 1778: Track how top neurons for a concept change across layers."""
+    print("=" * 70)
+    print("PHASE 1778: TOP NEURON OVERLAP ACROSS LAYERS")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        top_sets = {}
+        for l in range(24):
+            d = np.abs(np.mean(all_acts[cname]["positive"][l], axis=0) -
+                      np.mean(all_acts[cname]["negative"][l], axis=0))
+            top_sets[l] = set(np.argsort(d)[-20:])
+        overlaps = []
+        for l in range(23):
+            overlap = len(top_sets[l] & top_sets[l+1]) / 20
+            overlaps.append(overlap)
+        print(f"  {cname}: mean adjacent overlap={np.mean(overlaps):.3f}, "
+              f"L0∩L23={len(top_sets[0] & top_sets[23])/20:.3f}")
+    print()
+
+
+def concept_activation_concept_direction_projection_discriminability_ratio(all_acts, concept_names):
+    """Phase 1779: Compute discriminability ratio for concept projections."""
+    print("=" * 70)
+    print("PHASE 1779: PROJECTION DISCRIMINABILITY RATIO")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        d_norm = d / (np.linalg.norm(d) + 1e-10)
+        pos_proj = all_acts[cname]["positive"][layer] @ d_norm
+        neg_proj = all_acts[cname]["negative"][layer] @ d_norm
+        # Discriminability: gap / combined spread
+        gap = abs(np.mean(pos_proj) - np.mean(neg_proj))
+        spread = np.std(pos_proj) + np.std(neg_proj)
+        disc_ratio = gap / (spread + 1e-10)
+        print(f"  {cname}: discriminability ratio={disc_ratio:.4f}")
+    print()
+
+
+def concept_activation_phase_1780_status(all_acts, concept_names):
+    """Phase 1780: Status checkpoint at 1780 phases."""
+    print("=" * 70)
+    print("PHASE 1780: STATUS CHECKPOINT — 1780 ANALYSIS PHASES")
+    print("=" * 70)
+    print("1780 analysis phases completed.")
+    print(f"Concepts analyzed: {len(concept_names)}")
+    print("All phases informational — scoring pipeline unchanged.")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -49922,6 +50124,36 @@ def run_analysis():
 
     # Phase 1770: Status checkpoint (informational)
     concept_activation_phase_1770_status(all_acts, concept_names)
+
+    # Phase 1771: Direction cosine to layer mean (informational)
+    concept_activation_concept_direction_cosine_to_layer_mean(all_acts, concept_names)
+
+    # Phase 1772: L1/L2 activation sparsity ratio (informational)
+    concept_activation_neuron_activation_sparsity_l1_l2_ratio(all_acts, concept_names)
+
+    # Phase 1773: Best layer for orthogonality (informational)
+    concept_activation_concept_direction_best_layer_for_orthogonality(all_acts, concept_names)
+
+    # Phase 1774: Uniform vs weighted direction estimation (informational)
+    concept_activation_concept_direction_sample_weighted_estimation(all_acts, concept_names)
+
+    # Phase 1775: Projection distribution overlap area (informational)
+    concept_activation_concept_direction_projection_overlap_area(all_acts, concept_names)
+
+    # Phase 1776: Centroid norm evolution (informational)
+    concept_activation_concept_representation_centroid_norm_per_layer(all_acts, concept_names)
+
+    # Phase 1777: Cross-concept projection spread (informational)
+    concept_activation_concept_direction_cross_concept_projection_spread(all_acts, concept_names)
+
+    # Phase 1778: Top neuron overlap across layers (informational)
+    concept_activation_concept_direction_top_neuron_overlap_across_layers(all_acts, concept_names)
+
+    # Phase 1779: Projection discriminability ratio (informational)
+    concept_activation_concept_direction_projection_discriminability_ratio(all_acts, concept_names)
+
+    # Phase 1780: Status checkpoint (informational)
+    concept_activation_phase_1780_status(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
