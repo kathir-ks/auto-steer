@@ -33723,6 +33723,217 @@ def concept_activation_final_layer_summary_1230(all_acts, concept_names):
     print()
 
 
+def concept_direction_cosine_decay_from_optimal_layer(all_acts, concept_names):
+    """Phase 1231: How fast does direction quality decay from optimal layer."""
+    print("=" * 70)
+    print("PHASE 1231: DIRECTION COSINE DECAY FROM OPTIMAL LAYER")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        norms = [np.linalg.norm(all_acts[cname]["positive"][l].mean(0) - all_acts[cname]["negative"][l].mean(0)) for l in range(24)]
+        best_l = int(np.argmax(norms))
+        best_dir = all_acts[cname]["positive"][best_l].mean(0) - all_acts[cname]["negative"][best_l].mean(0)
+        best_dir = best_dir / (np.linalg.norm(best_dir) + 1e-10)
+        decay = []
+        for l in range(24):
+            d = all_acts[cname]["positive"][l].mean(0) - all_acts[cname]["negative"][l].mean(0)
+            d = d / (np.linalg.norm(d) + 1e-10)
+            decay.append(abs(float(best_dir @ d)))
+        print(f"  {cname:20s} | best: L{best_l} | L0: {decay[0]:.3f} | L12: {decay[12]:.3f} | L23: {decay[23]:.3f}")
+    print()
+
+
+def concept_neuron_top_pair_joint_synergy(all_acts, concept_names):
+    """Phase 1232: Joint information content of top neuron pairs."""
+    print("=" * 70)
+    print("PHASE 1232: TOP NEURON PAIR JOINT SYNERGY")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:3]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        diff = np.abs(pos.mean(0) - neg.mean(0))
+        top3 = np.argsort(diff)[-3:][::-1]
+        combined = np.vstack([pos, neg])
+        labels = np.array([1]*len(pos) + [0]*len(neg))
+        for i in range(len(top3)):
+            for j in range(i+1, len(top3)):
+                joint = combined[:, [top3[i], top3[j]]]
+                joint_mi = mutual_info_classif(joint, labels, n_neighbors=3, random_state=42).sum()
+                ind_mi = mutual_info_classif(combined[:, [top3[i]]], labels, n_neighbors=3, random_state=42)[0]
+                ind_mi += mutual_info_classif(combined[:, [top3[j]]], labels, n_neighbors=3, random_state=42)[0]
+                synergy = joint_mi - ind_mi
+                print(f"  {cname:15s} | n{top3[i]:3d}+n{top3[j]:3d} | joint MI: {joint_mi:.4f} | sum ind: {ind_mi:.4f} | synergy: {synergy:+.4f}")
+    print()
+
+
+def concept_direction_concept_direction_volume_spanned(all_acts, concept_names):
+    """Phase 1233: Volume of parallelepiped spanned by concept directions."""
+    print("=" * 70)
+    print("PHASE 1233: VOLUME SPANNED BY CONCEPT DIRECTIONS")
+    print("=" * 70)
+    layer = 10
+    dirs = []
+    for cname in concept_names:
+        d = all_acts[cname]["positive"][layer].mean(0) - all_acts[cname]["negative"][layer].mean(0)
+        dirs.append(d)
+    dir_matrix = np.array(dirs)
+    gram = dir_matrix @ dir_matrix.T
+    det = np.linalg.det(gram)
+    volume = np.sqrt(max(det, 0))
+    # Compare to maximum possible (if all orthogonal with same norms)
+    norms = np.array([np.linalg.norm(d) for d in dirs])
+    max_volume = np.prod(norms)
+    print(f"  Gram determinant: {det:.4f}")
+    print(f"  Volume: {volume:.4f}")
+    print(f"  Max possible volume: {max_volume:.4f}")
+    print(f"  Volume ratio: {volume/(max_volume+1e-10):.6f}")
+    print()
+
+
+def concept_activation_layer_wise_norm_statistics(all_acts, concept_names):
+    """Phase 1234: Norm statistics at each layer for all concepts combined."""
+    print("=" * 70)
+    print("PHASE 1234: LAYER-WISE NORM STATISTICS")
+    print("=" * 70)
+    for l in [0, 4, 8, 12, 16, 20, 23]:
+        all_norms = []
+        for cname in concept_names:
+            combined = np.vstack([all_acts[cname]["positive"][l], all_acts[cname]["negative"][l]])
+            all_norms.extend(np.linalg.norm(combined, axis=1).tolist())
+        all_norms = np.array(all_norms)
+        print(f"  L{l:2d} | mean: {all_norms.mean():.1f} | std: {all_norms.std():.1f} | min: {all_norms.min():.1f} | max: {all_norms.max():.1f}")
+    print()
+
+
+def concept_neuron_concept_exclusive_neurons(all_acts, concept_names):
+    """Phase 1235: Find neurons exclusive to single concepts."""
+    print("=" * 70)
+    print("PHASE 1235: CONCEPT-EXCLUSIVE NEURONS")
+    print("=" * 70)
+    layer = 10
+    n_neurons = all_acts[concept_names[0]]["positive"][layer].shape[1]
+    exclusive = {c: [] for c in concept_names}
+    for j in range(n_neurons):
+        responses = {}
+        for cname in concept_names:
+            diff = abs(all_acts[cname]["positive"][layer][:, j].mean() - all_acts[cname]["negative"][layer][:, j].mean())
+            responses[cname] = diff
+        sorted_resp = sorted(responses.values(), reverse=True)
+        if sorted_resp[0] > 0.1 and sorted_resp[0] > 3 * sorted_resp[1]:
+            best_c = max(responses, key=responses.get)
+            exclusive[best_c].append(j)
+    for cname in concept_names:
+        print(f"  {cname:20s} | exclusive neurons: {len(exclusive[cname])}")
+    print()
+
+
+def concept_direction_concept_direction_effective_rank(all_acts, concept_names):
+    """Phase 1236: Effective rank of the concept direction matrix."""
+    print("=" * 70)
+    print("PHASE 1236: EFFECTIVE RANK OF DIRECTION MATRIX")
+    print("=" * 70)
+    for l in [0, 6, 12, 18, 23]:
+        dirs = []
+        for cname in concept_names:
+            d = all_acts[cname]["positive"][l].mean(0) - all_acts[cname]["negative"][l].mean(0)
+            dirs.append(d)
+        dir_matrix = np.array(dirs)
+        svals = np.linalg.svd(dir_matrix, compute_uv=False)
+        # Effective rank via entropy
+        p = svals / (svals.sum() + 1e-10)
+        eff_rank = np.exp(-np.sum(p * np.log(p + 1e-10)))
+        print(f"  L{l:2d} | eff rank: {eff_rank:.2f} | max/min sval: {svals[0]/(svals[-1]+1e-10):.1f}")
+    print()
+
+
+def concept_activation_concept_activation_cross_layer_projection(all_acts, concept_names):
+    """Phase 1237: Project activations from one layer onto another's direction."""
+    print("=" * 70)
+    print("PHASE 1237: CROSS-LAYER DIRECTION PROJECTION")
+    print("=" * 70)
+    for cname in concept_names[:3]:
+        # Direction at layer 10
+        d10 = all_acts[cname]["positive"][10].mean(0) - all_acts[cname]["negative"][10].mean(0)
+        d10 = d10 / (np.linalg.norm(d10) + 1e-10)
+        # Project layers 0, 5, 15, 23 onto this direction
+        for l in [0, 5, 15, 23]:
+            pos_proj = all_acts[cname]["positive"][l] @ d10
+            neg_proj = all_acts[cname]["negative"][l] @ d10
+            sep = abs(pos_proj.mean() - neg_proj.mean())
+            print(f"  {cname:15s} | L{l:2d}->L10 dir | sep: {sep:.3f}")
+    print()
+
+
+def concept_neuron_concept_neuron_activation_histogram_overlap(all_acts, concept_names):
+    """Phase 1238: Histogram overlap between pos/neg per neuron."""
+    print("=" * 70)
+    print("PHASE 1238: NEURON ACTIVATION HISTOGRAM OVERLAP")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:3]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        diff = np.abs(pos.mean(0) - neg.mean(0))
+        top3 = np.argsort(diff)[-3:][::-1]
+        for n in top3:
+            bins = np.linspace(min(pos[:, n].min(), neg[:, n].min()), max(pos[:, n].max(), neg[:, n].max()), 21)
+            h_pos, _ = np.histogram(pos[:, n], bins=bins, density=True)
+            h_neg, _ = np.histogram(neg[:, n], bins=bins, density=True)
+            overlap = np.sum(np.minimum(h_pos, h_neg)) * (bins[1] - bins[0])
+            print(f"  {cname:15s} | neuron {n:4d} | histogram overlap: {overlap:.4f}")
+    print()
+
+
+def concept_direction_concept_direction_angle_rank_correlation(all_acts, concept_names):
+    """Phase 1239: Rank correlation of pairwise angles across layers."""
+    print("=" * 70)
+    print("PHASE 1239: ANGLE RANK CORRELATION ACROSS LAYERS")
+    print("=" * 70)
+    from scipy.stats import spearmanr
+    pairs = [(concept_names[i], concept_names[j]) for i in range(len(concept_names)) for j in range(i+1, len(concept_names))]
+    layer_a, layer_b = 5, 15
+    angles_a = []
+    angles_b = []
+    for c1, c2 in pairs:
+        for l, angles_list in [(layer_a, angles_a), (layer_b, angles_b)]:
+            d1 = all_acts[c1]["positive"][l].mean(0) - all_acts[c1]["negative"][l].mean(0)
+            d2 = all_acts[c2]["positive"][l].mean(0) - all_acts[c2]["negative"][l].mean(0)
+            cos = abs(float(d1 @ d2 / (np.linalg.norm(d1) * np.linalg.norm(d2) + 1e-10)))
+            angles_list.append(np.degrees(np.arccos(np.clip(cos, 0, 1))))
+    rho, pval = spearmanr(angles_a, angles_b)
+    print(f"  L{layer_a} vs L{layer_b} angle rank correlation: rho={rho:.4f} p={pval:.4f}")
+    print(f"  (High rho = concept geometry is preserved across layers)")
+    print()
+
+
+def concept_activation_summary_1240(all_acts, concept_names):
+    """Phase 1240: Comprehensive analysis summary at 1240 phases."""
+    print("=" * 70)
+    print("PHASE 1240: COMPREHENSIVE ANALYSIS SUMMARY (1240 PHASES)")
+    print("=" * 70)
+    layer = 10
+    print(f"  Model: Qwen2.5-0.5B | 24 layers | hidden_size=896")
+    print(f"  Concepts analyzed: {len(concept_names)}")
+    print(f"  Analysis phases completed: 1240")
+    # Direction norms
+    norms = []
+    for cname in concept_names:
+        d = all_acts[cname]["positive"][layer].mean(0) - all_acts[cname]["negative"][layer].mean(0)
+        norms.append(np.linalg.norm(d))
+    print(f"  Mean direction norm (L{layer}): {np.mean(norms):.3f} (range: {min(norms):.3f}-{max(norms):.3f})")
+    # Pairwise angles
+    dirs = []
+    for cname in concept_names:
+        d = all_acts[cname]["positive"][layer].mean(0) - all_acts[cname]["negative"][layer].mean(0)
+        dirs.append(d / (np.linalg.norm(d) + 1e-10))
+    angles = []
+    for i in range(len(dirs)):
+        for j in range(i+1, len(dirs)):
+            angles.append(np.degrees(np.arccos(np.clip(abs(float(dirs[i] @ dirs[j])), 0, 1))))
+    print(f"  Mean pairwise angle: {np.mean(angles):.1f}° (min: {min(angles):.1f}°, max: {max(angles):.1f}°)")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -37487,6 +37698,36 @@ def run_analysis():
 
     # Phase 1230: Final layer activation summary (informational)
     concept_activation_final_layer_summary_1230(all_acts, concept_names)
+
+    # Phase 1231: Direction cosine decay from optimal layer (informational)
+    concept_direction_cosine_decay_from_optimal_layer(all_acts, concept_names)
+
+    # Phase 1232: Top neuron pair joint synergy (informational)
+    concept_neuron_top_pair_joint_synergy(all_acts, concept_names)
+
+    # Phase 1233: Volume spanned by concept directions (informational)
+    concept_direction_concept_direction_volume_spanned(all_acts, concept_names)
+
+    # Phase 1234: Layer-wise norm statistics (informational)
+    concept_activation_layer_wise_norm_statistics(all_acts, concept_names)
+
+    # Phase 1235: Concept-exclusive neurons (informational)
+    concept_neuron_concept_exclusive_neurons(all_acts, concept_names)
+
+    # Phase 1236: Effective rank of direction matrix (informational)
+    concept_direction_concept_direction_effective_rank(all_acts, concept_names)
+
+    # Phase 1237: Cross-layer direction projection (informational)
+    concept_activation_concept_activation_cross_layer_projection(all_acts, concept_names)
+
+    # Phase 1238: Neuron activation histogram overlap (informational)
+    concept_neuron_concept_neuron_activation_histogram_overlap(all_acts, concept_names)
+
+    # Phase 1239: Angle rank correlation across layers (informational)
+    concept_direction_concept_direction_angle_rank_correlation(all_acts, concept_names)
+
+    # Phase 1240: Comprehensive analysis summary (informational)
+    concept_activation_summary_1240(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
