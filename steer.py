@@ -45111,6 +45111,228 @@ def concept_activation_phase_1800_milestone(all_acts, concept_names):
     print()
 
 
+def concept_activation_neuron_firing_rate_distribution(all_acts, concept_names):
+    """Phase 1801: Analyze the distribution of neuron firing rates across concepts."""
+    print("=" * 70)
+    print("PHASE 1801: NEURON FIRING RATE DISTRIBUTION ANALYSIS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        all_data = np.vstack([pos, neg])
+        mean_act = np.mean(all_data, axis=0)
+        firing_rate = np.mean(mean_act > 0)
+        high_fire = np.mean(mean_act > np.percentile(mean_act, 90))
+        low_fire = np.mean(mean_act < np.percentile(mean_act, 10))
+        print(f"  {cname}: firing_rate={firing_rate:.4f}, high_fire_frac={high_fire:.4f}, low_fire_frac={low_fire:.4f}")
+    print()
+
+
+def concept_activation_layer_gradient_magnitude(all_acts, concept_names):
+    """Phase 1802: Measure gradient of concept direction magnitude across layers."""
+    print("=" * 70)
+    print("PHASE 1802: LAYER GRADIENT MAGNITUDE OF CONCEPT DIRECTIONS")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        magnitudes = []
+        for l in range(24):
+            pos = all_acts[cname]["positive"][l]
+            neg = all_acts[cname]["negative"][l]
+            direction = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+            magnitudes.append(np.linalg.norm(direction))
+        magnitudes = np.array(magnitudes)
+        gradients = np.diff(magnitudes)
+        max_grad_layer = np.argmax(np.abs(gradients))
+        print(f"  {cname}: max_gradient_layer={max_grad_layer}, max_grad={gradients[max_grad_layer]:.4f}, mean_grad={np.mean(np.abs(gradients)):.4f}")
+    print()
+
+
+def concept_activation_concept_pair_mutual_information(all_acts, concept_names):
+    """Phase 1803: Estimate mutual information between concept pair activations."""
+    print("=" * 70)
+    print("PHASE 1803: CONCEPT PAIR MUTUAL INFORMATION ESTIMATION")
+    print("=" * 70)
+    layer = 10
+    from sklearn.feature_selection import mutual_info_classif
+    pairs_done = 0
+    for i in range(len(concept_names)):
+        for j in range(i+1, len(concept_names)):
+            if pairs_done >= 6:
+                break
+            c1, c2 = concept_names[i], concept_names[j]
+            pos1 = all_acts[c1]["positive"][layer]
+            neg1 = all_acts[c1]["negative"][layer]
+            all_data = np.vstack([pos1, neg1])
+            labels_c2 = []
+            for k in range(len(pos1)):
+                proj = np.dot(all_data[k], np.mean(all_acts[c2]["positive"][layer], axis=0) - np.mean(all_acts[c2]["negative"][layer], axis=0))
+                labels_c2.append(1 if proj > 0 else 0)
+            for k in range(len(neg1)):
+                proj = np.dot(all_data[len(pos1)+k], np.mean(all_acts[c2]["positive"][layer], axis=0) - np.mean(all_acts[c2]["negative"][layer], axis=0))
+                labels_c2.append(1 if proj > 0 else 0)
+            labels_c1 = np.array([1]*len(pos1) + [0]*len(neg1))
+            labels_c2 = np.array(labels_c2)
+            agreement = np.mean(labels_c1 == labels_c2)
+            print(f"  {c1} vs {c2}: label_agreement={agreement:.4f}")
+            pairs_done += 1
+        if pairs_done >= 6:
+            break
+    print()
+
+
+def concept_activation_neuron_concept_selectivity_entropy(all_acts, concept_names):
+    """Phase 1804: Compute entropy of neuron selectivity across concepts."""
+    print("=" * 70)
+    print("PHASE 1804: NEURON CONCEPT SELECTIVITY ENTROPY")
+    print("=" * 70)
+    layer = 10
+    n_neurons = all_acts[concept_names[0]]["positive"][layer].shape[1]
+    selectivity_scores = np.zeros((n_neurons, len(concept_names)))
+    for ci, cname in enumerate(concept_names):
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        diff = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        selectivity_scores[:, ci] = np.abs(diff)
+    # Normalize per neuron
+    row_sums = selectivity_scores.sum(axis=1, keepdims=True)
+    row_sums[row_sums == 0] = 1
+    probs = selectivity_scores / row_sums
+    probs = np.clip(probs, 1e-10, 1)
+    entropy = -np.sum(probs * np.log2(probs), axis=1)
+    max_entropy = np.log2(len(concept_names))
+    print(f"  Mean neuron selectivity entropy: {np.mean(entropy):.4f} / {max_entropy:.4f}")
+    print(f"  Highly selective neurons (entropy < 1.0): {np.sum(entropy < 1.0)}")
+    print(f"  Generalist neurons (entropy > {max_entropy-0.5:.1f}): {np.sum(entropy > max_entropy - 0.5)}")
+    print()
+
+
+def concept_activation_concept_direction_rank_analysis(all_acts, concept_names):
+    """Phase 1805: Analyze the effective rank of concept direction matrix."""
+    print("=" * 70)
+    print("PHASE 1805: CONCEPT DIRECTION MATRIX RANK ANALYSIS")
+    print("=" * 70)
+    for layer in [0, 6, 12, 18, 23]:
+        directions = []
+        for cname in concept_names:
+            pos = all_acts[cname]["positive"][layer]
+            neg = all_acts[cname]["negative"][layer]
+            d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+            d = d / (np.linalg.norm(d) + 1e-10)
+            directions.append(d)
+        D = np.array(directions)
+        svs = np.linalg.svd(D, compute_uv=False)
+        svs = svs / (svs[0] + 1e-10)
+        effective_rank = np.exp(-np.sum(svs * np.log(svs + 1e-10)))
+        print(f"  Layer {layer:2d}: effective_rank={effective_rank:.3f}, top3_sv_ratio={svs[0]:.3f},{svs[1]:.3f},{svs[2]:.3f}")
+    print()
+
+
+def concept_activation_activation_norm_statistics(all_acts, concept_names):
+    """Phase 1806: Compute activation norm statistics per concept per layer."""
+    print("=" * 70)
+    print("PHASE 1806: ACTIVATION NORM STATISTICS PER CONCEPT")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        norms_by_layer = []
+        for l in range(24):
+            pos = all_acts[cname]["positive"][l]
+            neg = all_acts[cname]["negative"][l]
+            all_data = np.vstack([pos, neg])
+            norms = np.linalg.norm(all_data, axis=1)
+            norms_by_layer.append(np.mean(norms))
+        norms_arr = np.array(norms_by_layer)
+        peak_layer = np.argmax(norms_arr)
+        print(f"  {cname}: peak_norm_layer={peak_layer}, peak_norm={norms_arr[peak_layer]:.2f}, mean_norm={np.mean(norms_arr):.2f}")
+    print()
+
+
+def concept_activation_concept_direction_cosine_vs_euclidean(all_acts, concept_names):
+    """Phase 1807: Compare cosine vs euclidean distance for concept separation."""
+    print("=" * 70)
+    print("PHASE 1807: COSINE VS EUCLIDEAN DISTANCE FOR CONCEPT SEPARATION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        pos_mean = np.mean(pos, axis=0)
+        neg_mean = np.mean(neg, axis=0)
+        eucl = np.linalg.norm(pos_mean - neg_mean)
+        cos_sim = np.dot(pos_mean, neg_mean) / (np.linalg.norm(pos_mean) * np.linalg.norm(neg_mean) + 1e-10)
+        cos_dist = 1 - cos_sim
+        print(f"  {cname}: euclidean={eucl:.4f}, cosine_dist={cos_dist:.4f}, ratio={eucl/(cos_dist+1e-10):.2f}")
+    print()
+
+
+def concept_activation_neuron_activation_kurtosis(all_acts, concept_names):
+    """Phase 1808: Compute kurtosis of neuron activations (heavy-tailed distributions)."""
+    print("=" * 70)
+    print("PHASE 1808: NEURON ACTIVATION KURTOSIS ANALYSIS")
+    print("=" * 70)
+    layer = 10
+    from scipy.stats import kurtosis as scipy_kurtosis
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        all_data = np.vstack([pos, neg])
+        kurt_vals = scipy_kurtosis(all_data, axis=0, fisher=True)
+        print(f"  {cname}: mean_kurtosis={np.mean(kurt_vals):.3f}, max_kurtosis={np.max(kurt_vals):.3f}, high_kurt_neurons={np.sum(kurt_vals > 5)}")
+    print()
+
+
+def concept_activation_concept_subspace_overlap(all_acts, concept_names):
+    """Phase 1809: Measure subspace overlap using principal angles between concept subspaces."""
+    print("=" * 70)
+    print("PHASE 1809: CONCEPT SUBSPACE OVERLAP VIA PRINCIPAL ANGLES")
+    print("=" * 70)
+    layer = 10
+    # Build 2D subspace per concept using PCA
+    subspaces = {}
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        all_data = np.vstack([pos, neg])
+        all_data = all_data - np.mean(all_data, axis=0)
+        U, S, Vt = np.linalg.svd(all_data, full_matrices=False)
+        subspaces[cname] = Vt[:2].T  # top 2 PCs
+    pairs_shown = 0
+    for i in range(len(concept_names)):
+        for j in range(i+1, len(concept_names)):
+            if pairs_shown >= 6:
+                break
+            c1, c2 = concept_names[i], concept_names[j]
+            Q1, _ = np.linalg.qr(subspaces[c1])
+            Q2, _ = np.linalg.qr(subspaces[c2])
+            M = Q1.T @ Q2
+            svs = np.linalg.svd(M, compute_uv=False)
+            angles = np.arccos(np.clip(svs, -1, 1))
+            print(f"  {c1} vs {c2}: principal_angles={np.degrees(angles[0]):.1f}°, {np.degrees(angles[1]):.1f}°")
+            pairs_shown += 1
+        if pairs_shown >= 6:
+            break
+    print()
+
+
+def concept_activation_phase_1810_neuron_contribution_asymmetry(all_acts, concept_names):
+    """Phase 1810: Measure asymmetry of neuron contributions (positive vs negative direction)."""
+    print("=" * 70)
+    print("PHASE 1810: NEURON CONTRIBUTION ASYMMETRY ANALYSIS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        direction = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        pos_contrib = np.sum(direction[direction > 0])
+        neg_contrib = np.sum(direction[direction < 0])
+        asymmetry = (pos_contrib + neg_contrib) / (pos_contrib - neg_contrib + 1e-10)
+        n_pos = np.sum(direction > 0)
+        n_neg = np.sum(direction < 0)
+        print(f"  {cname}: pos_neurons={n_pos}, neg_neurons={n_neg}, asymmetry={asymmetry:.4f}, pos_total={pos_contrib:.2f}, neg_total={neg_contrib:.2f}")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -50585,6 +50807,36 @@ def run_analysis():
 
     # Phase 1800: Milestone checkpoint (informational)
     concept_activation_phase_1800_milestone(all_acts, concept_names)
+
+    # Phase 1801: Neuron firing rate distribution (informational)
+    concept_activation_neuron_firing_rate_distribution(all_acts, concept_names)
+
+    # Phase 1802: Layer gradient magnitude (informational)
+    concept_activation_layer_gradient_magnitude(all_acts, concept_names)
+
+    # Phase 1803: Concept pair mutual information (informational)
+    concept_activation_concept_pair_mutual_information(all_acts, concept_names)
+
+    # Phase 1804: Neuron concept selectivity entropy (informational)
+    concept_activation_neuron_concept_selectivity_entropy(all_acts, concept_names)
+
+    # Phase 1805: Concept direction matrix rank (informational)
+    concept_activation_concept_direction_rank_analysis(all_acts, concept_names)
+
+    # Phase 1806: Activation norm statistics (informational)
+    concept_activation_activation_norm_statistics(all_acts, concept_names)
+
+    # Phase 1807: Cosine vs euclidean distance (informational)
+    concept_activation_concept_direction_cosine_vs_euclidean(all_acts, concept_names)
+
+    # Phase 1808: Neuron activation kurtosis (informational)
+    concept_activation_neuron_activation_kurtosis(all_acts, concept_names)
+
+    # Phase 1809: Concept subspace overlap (informational)
+    concept_activation_concept_subspace_overlap(all_acts, concept_names)
+
+    # Phase 1810: Neuron contribution asymmetry (informational)
+    concept_activation_phase_1810_neuron_contribution_asymmetry(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
