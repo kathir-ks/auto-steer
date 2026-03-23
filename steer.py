@@ -40883,6 +40883,207 @@ def concept_activation_phase_1580_status(all_acts, concept_names):
     print()
 
 
+def concept_activation_layer_concept_selectivity_map(all_acts, concept_names):
+    """Phase 1581: Build a selectivity map showing which layers are most selective for each concept."""
+    print("=" * 70)
+    print("PHASE 1581: LAYER-CONCEPT SELECTIVITY MAP")
+    print("=" * 70)
+    selectivity = np.zeros((len(concept_names), 24))
+    for ci, cname in enumerate(concept_names):
+        for l in range(24):
+            pos = all_acts[cname]["positive"][l]
+            neg = all_acts[cname]["negative"][l]
+            d = pos.mean(0) - neg.mean(0)
+            selectivity[ci, l] = np.linalg.norm(d)
+    # Normalize per concept
+    for ci in range(len(concept_names)):
+        selectivity[ci] /= (selectivity[ci].max() + 1e-10)
+    for ci, cname in enumerate(concept_names):
+        top3 = np.argsort(selectivity[ci])[-3:][::-1]
+        print(f"  {cname}: top layers = " + ", ".join(f"L{l}({selectivity[ci,l]:.3f})" for l in top3))
+    print()
+
+
+def concept_activation_concept_confusion_pairs(all_acts, concept_names):
+    """Phase 1582: Find concept pairs most likely to be confused by a linear classifier."""
+    print("=" * 70)
+    print("PHASE 1582: CONCEPT CONFUSION PAIR ANALYSIS")
+    print("=" * 70)
+    layer = 10
+    confusion_scores = []
+    for i in range(len(concept_names)):
+        for j in range(i+1, len(concept_names)):
+            c1, c2 = concept_names[i], concept_names[j]
+            d1 = np.mean(all_acts[c1]["positive"][layer], axis=0) - np.mean(all_acts[c1]["negative"][layer], axis=0)
+            d2 = np.mean(all_acts[c2]["positive"][layer], axis=0) - np.mean(all_acts[c2]["negative"][layer], axis=0)
+            cos = abs(np.dot(d1, d2) / (np.linalg.norm(d1) * np.linalg.norm(d2) + 1e-10))
+            confusion_scores.append((cos, c1, c2))
+    confusion_scores.sort(reverse=True)
+    print("  Most confused pairs:")
+    for cos, c1, c2 in confusion_scores[:5]:
+        print(f"    {c1} vs {c2}: cosine={cos:.4f}")
+    print()
+
+
+def concept_activation_neuron_polarity_analysis(all_acts, concept_names):
+    """Phase 1583: Determine neuron polarity (positive vs negative contributors per concept)."""
+    print("=" * 70)
+    print("PHASE 1583: NEURON POLARITY ANALYSIS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        diff = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        n_positive = np.sum(diff > 0)
+        n_negative = np.sum(diff < 0)
+        balance = min(n_positive, n_negative) / (max(n_positive, n_negative) + 1e-10)
+        strong_pos = np.sum(diff > np.std(diff))
+        strong_neg = np.sum(diff < -np.std(diff))
+        print(f"  {cname}: {n_positive} pos, {n_negative} neg (balance={balance:.3f}), "
+              f"strong pos={strong_pos}, strong neg={strong_neg}")
+    print()
+
+
+def concept_activation_cross_concept_neuron_exclusivity(all_acts, concept_names):
+    """Phase 1584: Measure how exclusively neurons serve individual concepts."""
+    print("=" * 70)
+    print("PHASE 1584: CROSS-CONCEPT NEURON EXCLUSIVITY")
+    print("=" * 70)
+    layer = 10
+    # For each neuron, track which concepts it's important for
+    n_neurons = all_acts[concept_names[0]]["positive"][layer].shape[1]
+    importance = np.zeros((len(concept_names), n_neurons))
+    for ci, cname in enumerate(concept_names):
+        diff = np.abs(np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0))
+        importance[ci] = diff / (diff.max() + 1e-10)
+    # Exclusivity: max importance / sum of importances
+    exclusivity = np.max(importance, axis=0) / (np.sum(importance, axis=0) + 1e-10)
+    print(f"  Mean exclusivity: {np.mean(exclusivity):.4f}")
+    print(f"  Highly exclusive (>0.5): {np.sum(exclusivity > 0.5)} neurons")
+    print(f"  Shared (<0.2): {np.sum(exclusivity < 0.2)} neurons")
+    print(f"  Top-5 most exclusive neuron indices: {np.argsort(exclusivity)[-5:][::-1].tolist()}")
+    print()
+
+
+def concept_activation_layer_incremental_info_gain(all_acts, concept_names):
+    """Phase 1585: Compute information gain from each layer transition."""
+    print("=" * 70)
+    print("PHASE 1585: LAYER-TO-LAYER INFORMATION GAIN")
+    print("=" * 70)
+    for cname in concept_names:
+        accs = []
+        for l in range(24):
+            pos = all_acts[cname]["positive"][l]
+            neg = all_acts[cname]["negative"][l]
+            d = pos.mean(0) - neg.mean(0)
+            d_norm = d / (np.linalg.norm(d) + 1e-10)
+            pos_p = pos @ d_norm
+            neg_p = neg @ d_norm
+            thresh = (np.mean(pos_p) + np.mean(neg_p)) / 2
+            acc = (np.sum(pos_p > thresh) + np.sum(neg_p <= thresh)) / (len(pos_p) + len(neg_p))
+            accs.append(acc)
+        gains = np.diff(accs)
+        total_gain = accs[-1] - accs[0]
+        biggest_gain_layer = int(np.argmax(gains))
+        print(f"  {cname}: total gain L0→L23={total_gain:.4f}, "
+              f"biggest jump at L{biggest_gain_layer} (+{gains[biggest_gain_layer]:.4f})")
+    print()
+
+
+def concept_activation_neuron_activation_clustering(all_acts, concept_names):
+    """Phase 1586: Cluster neurons by their activation patterns across all concepts."""
+    print("=" * 70)
+    print("PHASE 1586: NEURON ACTIVATION PATTERN CLUSTERING")
+    print("=" * 70)
+    layer = 10
+    # Build neuron profile: mean activation for each concept's pos and neg
+    n_neurons = all_acts[concept_names[0]]["positive"][layer].shape[1]
+    profiles = np.zeros((n_neurons, len(concept_names) * 2))
+    for ci, cname in enumerate(concept_names):
+        profiles[:, ci*2] = np.mean(all_acts[cname]["positive"][layer], axis=0)
+        profiles[:, ci*2+1] = np.mean(all_acts[cname]["negative"][layer], axis=0)
+    # K-means with k=8
+    from sklearn.cluster import KMeans
+    km = KMeans(n_clusters=8, random_state=42, n_init=3)
+    labels = km.fit_predict(profiles)
+    for k in range(8):
+        count = np.sum(labels == k)
+        print(f"  Cluster {k}: {count} neurons")
+    print()
+
+
+def concept_activation_concept_direction_angle_matrix(all_acts, concept_names):
+    """Phase 1587: Compute full angle matrix between all concept directions."""
+    print("=" * 70)
+    print("PHASE 1587: CONCEPT DIRECTION ANGLE MATRIX")
+    print("=" * 70)
+    layer = 10
+    dirs = []
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        dirs.append(d / (np.linalg.norm(d) + 1e-10))
+    dirs = np.array(dirs)
+    cos_matrix = dirs @ dirs.T
+    angles = np.degrees(np.arccos(np.clip(cos_matrix, -1, 1)))
+    print("  Pairwise angles (degrees):")
+    for i in range(len(concept_names)):
+        for j in range(i+1, len(concept_names)):
+            print(f"    {concept_names[i]:>20s} vs {concept_names[j]:<20s}: {angles[i,j]:.1f}°")
+    print()
+
+
+def concept_activation_sample_efficiency_analysis(all_acts, concept_names):
+    """Phase 1588: Measure how many samples are needed for stable direction estimation."""
+    print("=" * 70)
+    print("PHASE 1588: SAMPLE EFFICIENCY FOR DIRECTION ESTIMATION")
+    print("=" * 70)
+    layer = 10
+    rng = np.random.RandomState(42)
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        full_dir = pos.mean(0) - neg.mean(0)
+        full_dir = full_dir / (np.linalg.norm(full_dir) + 1e-10)
+        for n_samples in [5, 10, 15, 20, 25]:
+            cosines = []
+            for _ in range(10):
+                idx_p = rng.choice(len(pos), min(n_samples, len(pos)), replace=False)
+                idx_n = rng.choice(len(neg), min(n_samples, len(neg)), replace=False)
+                d = pos[idx_p].mean(0) - neg[idx_n].mean(0)
+                d = d / (np.linalg.norm(d) + 1e-10)
+                cosines.append(np.dot(d, full_dir))
+            if n_samples == 5 or n_samples == 25:
+                print(f"  {cname} n={n_samples}: cosine={np.mean(cosines):.4f} ± {np.std(cosines):.4f}")
+    print()
+
+
+def concept_activation_activation_dimensionality_per_layer(all_acts, concept_names):
+    """Phase 1589: Measure effective dimensionality of activations at each layer."""
+    print("=" * 70)
+    print("PHASE 1589: EFFECTIVE DIMENSIONALITY PER LAYER")
+    print("=" * 70)
+    cname = concept_names[0]
+    for l in [0, 4, 8, 12, 16, 20, 23]:
+        acts = np.vstack([all_acts[cname]["positive"][l], all_acts[cname]["negative"][l]])
+        centered = acts - acts.mean(0)
+        _, S, _ = np.linalg.svd(centered, full_matrices=False)
+        S2 = S**2
+        eff_dim = np.sum(S2)**2 / (np.sum(S2**2) + 1e-10)
+        top1_ratio = S2[0] / (np.sum(S2) + 1e-10)
+        print(f"  L{l}: effective dim={eff_dim:.1f}, top-1 variance ratio={top1_ratio:.4f}")
+    print()
+
+
+def concept_activation_phase_1590_status(all_acts, concept_names):
+    """Phase 1590: Status checkpoint at 1590 phases."""
+    print("=" * 70)
+    print("PHASE 1590: STATUS CHECKPOINT — 1590 ANALYSIS PHASES")
+    print("=" * 70)
+    print("1590 analysis phases completed.")
+    print(f"Concepts analyzed: {len(concept_names)}")
+    print("All phases informational — scoring pipeline unchanged.")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -45697,6 +45898,36 @@ def run_analysis():
 
     # Phase 1580: Status checkpoint (informational)
     concept_activation_phase_1580_status(all_acts, concept_names)
+
+    # Phase 1581: Layer-concept selectivity map (informational)
+    concept_activation_layer_concept_selectivity_map(all_acts, concept_names)
+
+    # Phase 1582: Concept confusion pair analysis (informational)
+    concept_activation_concept_confusion_pairs(all_acts, concept_names)
+
+    # Phase 1583: Neuron polarity analysis (informational)
+    concept_activation_neuron_polarity_analysis(all_acts, concept_names)
+
+    # Phase 1584: Cross-concept neuron exclusivity (informational)
+    concept_activation_cross_concept_neuron_exclusivity(all_acts, concept_names)
+
+    # Phase 1585: Layer-to-layer incremental info gain (informational)
+    concept_activation_layer_incremental_info_gain(all_acts, concept_names)
+
+    # Phase 1586: Neuron activation pattern clustering (informational)
+    concept_activation_neuron_activation_clustering(all_acts, concept_names)
+
+    # Phase 1587: Concept direction angle matrix (informational)
+    concept_activation_concept_direction_angle_matrix(all_acts, concept_names)
+
+    # Phase 1588: Sample efficiency for direction estimation (informational)
+    concept_activation_sample_efficiency_analysis(all_acts, concept_names)
+
+    # Phase 1589: Effective dimensionality per layer (informational)
+    concept_activation_activation_dimensionality_per_layer(all_acts, concept_names)
+
+    # Phase 1590: Status checkpoint (informational)
+    concept_activation_phase_1590_status(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
