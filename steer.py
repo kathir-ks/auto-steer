@@ -43417,6 +43417,195 @@ def concept_activation_phase_1710_status(all_acts, concept_names):
     print()
 
 
+def concept_activation_concept_direction_projection_bimodality_index(all_acts, concept_names):
+    """Phase 1711: Compute bimodality index for concept direction projections."""
+    print("=" * 70)
+    print("PHASE 1711: PROJECTION BIMODALITY INDEX")
+    print("=" * 70)
+    from scipy.stats import skew, kurtosis
+    layer = 10
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        d_norm = d / (np.linalg.norm(d) + 1e-10)
+        all_proj = np.concatenate([
+            all_acts[cname]["positive"][layer] @ d_norm,
+            all_acts[cname]["negative"][layer] @ d_norm
+        ])
+        n = len(all_proj)
+        s = skew(all_proj)
+        k = kurtosis(all_proj)
+        bc = (s**2 + 1) / (k + 3 * (n-1)**2 / ((n-2)*(n-3)))
+        print(f"  {cname}: bimodality coefficient={bc:.4f} (>0.555 suggests bimodal)")
+    print()
+
+
+def concept_activation_concept_direction_mutual_predictability(all_acts, concept_names):
+    """Phase 1712: Test if knowing one concept direction helps predict another."""
+    print("=" * 70)
+    print("PHASE 1712: CONCEPT DIRECTION MUTUAL PREDICTABILITY")
+    print("=" * 70)
+    layer = 10
+    for i in range(min(3, len(concept_names))):
+        for j in range(i+1, min(4, len(concept_names))):
+            c1, c2 = concept_names[i], concept_names[j]
+            d1 = np.mean(all_acts[c1]["positive"][layer], axis=0) - np.mean(all_acts[c1]["negative"][layer], axis=0)
+            d1 = d1 / (np.linalg.norm(d1) + 1e-10)
+            # Use c1 direction to classify c2
+            pp = all_acts[c2]["positive"][layer] @ d1
+            np_ = all_acts[c2]["negative"][layer] @ d1
+            t = (np.mean(pp) + np.mean(np_)) / 2
+            acc = (np.sum(pp > t) + np.sum(np_ <= t)) / (len(pp) + len(np_))
+            print(f"  {c1}→{c2}: cross-classification acc={acc:.4f}")
+    print()
+
+
+def concept_activation_neuron_activation_zero_crossing_rate(all_acts, concept_names):
+    """Phase 1713: Measure zero-crossing rate of neuron activations across samples."""
+    print("=" * 70)
+    print("PHASE 1713: NEURON ZERO-CROSSING RATE")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        acts = np.vstack([all_acts[cname]["positive"][layer], all_acts[cname]["negative"][layer]])
+        zero_crossings = np.mean(np.sum(np.diff(np.sign(acts), axis=0) != 0, axis=0) / (len(acts) - 1))
+        frac_negative = np.mean(acts < 0)
+        print(f"  {cname}: zero-crossing rate={zero_crossings:.4f}, "
+              f"fraction negative={frac_negative:.4f}")
+    print()
+
+
+def concept_activation_concept_direction_layer_alignment_matrix(all_acts, concept_names):
+    """Phase 1714: Build alignment matrix of concept directions across layer pairs."""
+    print("=" * 70)
+    print("PHASE 1714: CONCEPT DIRECTION LAYER ALIGNMENT MATRIX")
+    print("=" * 70)
+    cname = concept_names[0]
+    layers = [0, 6, 12, 18, 23]
+    dirs = {}
+    for l in layers:
+        d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+        dirs[l] = d / (np.linalg.norm(d) + 1e-10)
+    print(f"  {cname} direction alignment (cosine):")
+    for l1 in layers:
+        row = []
+        for l2 in layers:
+            row.append(f"{np.dot(dirs[l1], dirs[l2]):.3f}")
+        print(f"    L{l1:2d}: " + " ".join(row))
+    print()
+
+
+def concept_activation_concept_encoding_sparsity_per_layer(all_acts, concept_names):
+    """Phase 1715: Measure sparsity of concept encoding at each layer."""
+    print("=" * 70)
+    print("PHASE 1715: CONCEPT ENCODING SPARSITY PER LAYER")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        sparsities = []
+        for l in range(24):
+            d = np.abs(np.mean(all_acts[cname]["positive"][l], axis=0) -
+                      np.mean(all_acts[cname]["negative"][l], axis=0))
+            # Gini of importance
+            sorted_d = np.sort(d)
+            n = len(sorted_d)
+            idx = np.arange(1, n+1)
+            gini = (2 * np.sum(idx * sorted_d) / (n * np.sum(sorted_d) + 1e-10)) - (n+1)/n
+            sparsities.append(gini)
+        peak_l = int(np.argmax(sparsities))
+        print(f"  {cname}: sparsest at L{peak_l} (Gini={sparsities[peak_l]:.4f}), "
+              f"mean Gini={np.mean(sparsities):.4f}")
+    print()
+
+
+def concept_activation_concept_direction_relative_projection_strength(all_acts, concept_names):
+    """Phase 1716: Compare projection strength on own vs other concept directions."""
+    print("=" * 70)
+    print("PHASE 1716: RELATIVE PROJECTION STRENGTH (OWN VS OTHER)")
+    print("=" * 70)
+    layer = 10
+    dirs = {}
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        dirs[cname] = d / (np.linalg.norm(d) + 1e-10)
+    for cname in concept_names[:4]:
+        own_std = np.std(np.vstack([all_acts[cname]["positive"][layer],
+                                     all_acts[cname]["negative"][layer]]) @ dirs[cname])
+        other_stds = []
+        for other in concept_names:
+            if other != cname:
+                other_stds.append(np.std(np.vstack([all_acts[cname]["positive"][layer],
+                                                     all_acts[cname]["negative"][layer]]) @ dirs[other]))
+        ratio = own_std / (np.mean(other_stds) + 1e-10)
+        print(f"  {cname}: own/other projection std ratio={ratio:.4f}")
+    print()
+
+
+def concept_activation_concept_direction_explained_variance_per_layer(all_acts, concept_names):
+    """Phase 1717: Compute variance explained by concept direction at each layer."""
+    print("=" * 70)
+    print("PHASE 1717: CONCEPT DIRECTION EXPLAINED VARIANCE PER LAYER")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        explained = []
+        for l in range(24):
+            acts = np.vstack([all_acts[cname]["positive"][l], all_acts[cname]["negative"][l]])
+            total_var = np.sum(np.var(acts, axis=0))
+            d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+            d_norm = d / (np.linalg.norm(d) + 1e-10)
+            proj_var = np.var(acts @ d_norm)
+            explained.append(proj_var / (total_var + 1e-10))
+        peak_l = int(np.argmax(explained))
+        print(f"  {cname}: peak at L{peak_l} ({explained[peak_l]*100:.2f}%), "
+              f"L0={explained[0]*100:.2f}%, L23={explained[23]*100:.2f}%")
+    print()
+
+
+def concept_activation_concept_direction_cosine_with_random_subspace(all_acts, concept_names):
+    """Phase 1718: Compare concept direction cosines with random subspace directions."""
+    print("=" * 70)
+    print("PHASE 1718: CONCEPT DIRECTION VS RANDOM SUBSPACE")
+    print("=" * 70)
+    layer = 10
+    rng = np.random.RandomState(42)
+    for cname in concept_names[:4]:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        d_norm = d / (np.linalg.norm(d) + 1e-10)
+        random_cosines = []
+        for _ in range(100):
+            r = rng.randn(896)
+            r = r / np.linalg.norm(r)
+            random_cosines.append(abs(np.dot(d_norm, r)))
+        print(f"  {cname}: mean |cos| with random={np.mean(random_cosines):.4f}, "
+              f"max={np.max(random_cosines):.4f} (expected ~{1/np.sqrt(896):.4f})")
+    print()
+
+
+def concept_activation_concept_representation_spread_per_layer(all_acts, concept_names):
+    """Phase 1719: Compute total activation spread per concept per layer."""
+    print("=" * 70)
+    print("PHASE 1719: CONCEPT REPRESENTATION SPREAD PER LAYER")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        spreads = []
+        for l in range(24):
+            acts = np.vstack([all_acts[cname]["positive"][l], all_acts[cname]["negative"][l]])
+            spread = np.mean(np.linalg.norm(acts - acts.mean(0), axis=1))
+            spreads.append(spread)
+        print(f"  {cname}: L0={spreads[0]:.2f}, L12={spreads[12]:.2f}, L23={spreads[23]:.2f}, "
+              f"peak at L{np.argmax(spreads)}")
+    print()
+
+
+def concept_activation_phase_1720_status(all_acts, concept_names):
+    """Phase 1720: Status checkpoint at 1720 phases."""
+    print("=" * 70)
+    print("PHASE 1720: STATUS CHECKPOINT — 1720 ANALYSIS PHASES")
+    print("=" * 70)
+    print("1720 analysis phases completed.")
+    print(f"Concepts analyzed: {len(concept_names)}")
+    print("All phases informational — scoring pipeline unchanged.")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -48621,6 +48810,36 @@ def run_analysis():
 
     # Phase 1710: Status checkpoint (informational)
     concept_activation_phase_1710_status(all_acts, concept_names)
+
+    # Phase 1711: Projection bimodality index (informational)
+    concept_activation_concept_direction_projection_bimodality_index(all_acts, concept_names)
+
+    # Phase 1712: Concept direction mutual predictability (informational)
+    concept_activation_concept_direction_mutual_predictability(all_acts, concept_names)
+
+    # Phase 1713: Neuron zero-crossing rate (informational)
+    concept_activation_neuron_activation_zero_crossing_rate(all_acts, concept_names)
+
+    # Phase 1714: Direction layer alignment matrix (informational)
+    concept_activation_concept_direction_layer_alignment_matrix(all_acts, concept_names)
+
+    # Phase 1715: Encoding sparsity per layer (informational)
+    concept_activation_concept_encoding_sparsity_per_layer(all_acts, concept_names)
+
+    # Phase 1716: Relative projection strength (informational)
+    concept_activation_concept_direction_relative_projection_strength(all_acts, concept_names)
+
+    # Phase 1717: Explained variance per layer (informational)
+    concept_activation_concept_direction_explained_variance_per_layer(all_acts, concept_names)
+
+    # Phase 1718: Direction vs random subspace (informational)
+    concept_activation_concept_direction_cosine_with_random_subspace(all_acts, concept_names)
+
+    # Phase 1719: Representation spread per layer (informational)
+    concept_activation_concept_representation_spread_per_layer(all_acts, concept_names)
+
+    # Phase 1720: Status checkpoint (informational)
+    concept_activation_phase_1720_status(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
