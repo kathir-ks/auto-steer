@@ -57087,6 +57087,209 @@ def post2000_concept_activation_phase_2390_checkpoint(all_acts, concept_names):
     print()
 
 
+def post2000_concept_activation_neuron_activation_relative_importance(all_acts, concept_names):
+    """Phase 2391: Relative importance of each neuron compared to median."""
+    print("=" * 70)
+    print("PHASE 2391: NEURON RELATIVE IMPORTANCE")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        importance = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+        median_imp = np.median(importance)
+        above_median_ratio = np.mean(importance > 2 * median_imp)
+        top_neuron_relative = np.max(importance) / (median_imp + 1e-10)
+        print(f"  {cname}: >2x_median={above_median_ratio:.4f}, top/median={top_neuron_relative:.2f}")
+    print()
+
+
+def post2000_concept_activation_concept_direction_projection_skewness_v2(all_acts, concept_names):
+    """Phase 2392: Skewness of concept direction projections."""
+    print("=" * 70)
+    print("PHASE 2392: PROJECTION SKEWNESS")
+    print("=" * 70)
+    from scipy.stats import skew
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        all_data = np.vstack([pos, neg])
+        projections = all_data @ d
+        s = skew(projections)
+        print(f"  {cname}: projection_skewness={s:.4f}")
+    print()
+
+
+def post2000_concept_activation_neuron_activation_information_content(all_acts, concept_names):
+    """Phase 2393: Information content of neuron activations (entropy)."""
+    print("=" * 70)
+    print("PHASE 2393: NEURON ACTIVATION INFORMATION CONTENT")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:3]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        all_data = np.vstack([pos, neg])
+        # Entropy of discretized activations for each neuron
+        entropies = []
+        for n in range(0, 896, 50):
+            vals = all_data[:, n]
+            hist, _ = np.histogram(vals, bins=10, density=True)
+            hist = hist / (np.sum(hist) + 1e-10)
+            h = -np.sum(hist * np.log(hist + 1e-10))
+            entropies.append(h)
+        print(f"  {cname}: mean_entropy={np.mean(entropies):.4f} (sampled)")
+    print()
+
+
+def post2000_concept_activation_concept_direction_mutual_coherence_v2(all_acts, concept_names):
+    """Phase 2394: Mutual coherence of concept direction matrix."""
+    print("=" * 70)
+    print("PHASE 2394: CONCEPT DIRECTION MUTUAL COHERENCE")
+    print("=" * 70)
+    layer = 10
+    directions = []
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        directions.append(d / (np.linalg.norm(d) + 1e-10))
+    D = np.array(directions)
+    gram = D @ D.T
+    np.fill_diagonal(gram, 0)
+    mutual_coherence = np.max(np.abs(gram))
+    mean_coherence = np.mean(np.abs(gram[np.triu_indices(len(concept_names), k=1)]))
+    print(f"  Mutual coherence (max |cos|): {mutual_coherence:.6f}")
+    print(f"  Mean coherence: {mean_coherence:.6f}")
+    print()
+
+
+def post2000_concept_activation_neuron_activation_layer_transition_smoothness(all_acts, concept_names):
+    """Phase 2395: How smooth are activation transitions between layers?"""
+    print("=" * 70)
+    print("PHASE 2395: LAYER TRANSITION SMOOTHNESS")
+    print("=" * 70)
+    for cname in concept_names[:3]:
+        second_diffs = []
+        prev_mean = None
+        prev_diff = None
+        for L in range(24):
+            curr_mean = np.mean(all_acts[cname]["positive"][L], axis=0)
+            if prev_mean is not None:
+                curr_diff = curr_mean - prev_mean
+                if prev_diff is not None:
+                    second_diff = np.linalg.norm(curr_diff - prev_diff)
+                    second_diffs.append(second_diff)
+                prev_diff = curr_diff
+            prev_mean = curr_mean
+        smoothness = 1.0 / (np.mean(second_diffs) + 1e-10)
+        print(f"  {cname}: smoothness={smoothness:.4f}, mean_2nd_diff={np.mean(second_diffs):.4f}")
+    print()
+
+
+def post2000_concept_activation_concept_direction_projection_kurtosis_v2(all_acts, concept_names):
+    """Phase 2396: Kurtosis of concept direction projections."""
+    print("=" * 70)
+    print("PHASE 2396: PROJECTION KURTOSIS")
+    print("=" * 70)
+    from scipy.stats import kurtosis
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        all_data = np.vstack([pos, neg])
+        projections = all_data @ d
+        k = kurtosis(projections, fisher=True)
+        print(f"  {cname}: projection_kurtosis={k:.4f}")
+    print()
+
+
+def post2000_concept_activation_neuron_activation_global_mean_subtraction_effect(all_acts, concept_names):
+    """Phase 2397: Effect of subtracting global mean activation."""
+    print("=" * 70)
+    print("PHASE 2397: GLOBAL MEAN SUBTRACTION EFFECT")
+    print("=" * 70)
+    layer = 10
+    # Compute global mean
+    all_data_list = []
+    for cname in concept_names:
+        all_data_list.append(all_acts[cname]["positive"][layer])
+        all_data_list.append(all_acts[cname]["negative"][layer])
+    global_mean = np.mean(np.vstack(all_data_list), axis=0)
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d_orig = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        d_sub = np.mean(pos - global_mean, axis=0) - np.mean(neg - global_mean, axis=0)
+        cos = np.dot(d_orig, d_sub) / (np.linalg.norm(d_orig) * np.linalg.norm(d_sub) + 1e-10)
+        norm_change = np.linalg.norm(d_sub) / (np.linalg.norm(d_orig) + 1e-10)
+        print(f"  {cname}: cos_change={cos:.6f}, norm_ratio={norm_change:.6f}")
+    print()
+
+
+def post2000_concept_activation_concept_direction_total_variance_captured(all_acts, concept_names):
+    """Phase 2398: Total variance captured by all concept directions."""
+    print("=" * 70)
+    print("PHASE 2398: TOTAL VARIANCE CAPTURED BY CONCEPT DIRECTIONS")
+    print("=" * 70)
+    layer = 10
+    all_data = []
+    for cname in concept_names:
+        all_data.append(all_acts[cname]["positive"][layer])
+        all_data.append(all_acts[cname]["negative"][layer])
+    all_data = np.vstack(all_data)
+    total_var = np.var(all_data, axis=0).sum()
+    # Project out all concept directions
+    directions = []
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        directions.append(d)
+    directions = np.array(directions)
+    projected = all_data @ directions.T  # (N, C)
+    reconstructed = projected @ directions  # (N, D)
+    residual = all_data - reconstructed
+    residual_var = np.var(residual, axis=0).sum()
+    captured = 1.0 - residual_var / (total_var + 1e-10)
+    print(f"  Total variance: {total_var:.2f}")
+    print(f"  Captured by {len(concept_names)} concept directions: {captured:.4f}")
+    print()
+
+
+def post2000_concept_activation_neuron_activation_dynamic_range_per_layer(all_acts, concept_names):
+    """Phase 2399: Dynamic range of activations per layer."""
+    print("=" * 70)
+    print("PHASE 2399: DYNAMIC RANGE PER LAYER")
+    print("=" * 70)
+    cname = concept_names[0]
+    for L in [0, 6, 12, 18, 23]:
+        pos = all_acts[cname]["positive"][L]
+        dynamic_range = np.max(pos) - np.min(pos)
+        print(f"  {cname} L{L}: dynamic_range={dynamic_range:.4f}")
+    print()
+
+
+def post2000_concept_activation_phase_2400_milestone(all_acts, concept_names):
+    """Phase 2400: MILESTONE — 400 phases beyond 2000!"""
+    print("=" * 70)
+    print("PHASE 2400: *** MILESTONE — 400 BEYOND 2000 ***")
+    print("=" * 70)
+    print(f"  2400 analysis phases completed — FOUR HUNDRED beyond the 2000 milestone!")
+    print(f"  Phases 2391-2400: relative importance, projection skewness,")
+    print(f"  information content, mutual coherence, transition smoothness,")
+    print(f"  projection kurtosis, global mean subtraction, total variance,")
+    print(f"  dynamic range per layer")
+    print(f"  Approaching 2500 — half a thousand beyond 2000!")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -64331,6 +64534,36 @@ def run_analysis():
 
     # Phase 2390: Research checkpoint (informational)
     post2000_concept_activation_phase_2390_checkpoint(all_acts, concept_names)
+
+    # Phase 2391: Neuron relative importance (informational)
+    post2000_concept_activation_neuron_activation_relative_importance(all_acts, concept_names)
+
+    # Phase 2392: Projection skewness (informational)
+    post2000_concept_activation_concept_direction_projection_skewness_v2(all_acts, concept_names)
+
+    # Phase 2393: Neuron activation information content (informational)
+    post2000_concept_activation_neuron_activation_information_content(all_acts, concept_names)
+
+    # Phase 2394: Concept direction mutual coherence (informational)
+    post2000_concept_activation_concept_direction_mutual_coherence_v2(all_acts, concept_names)
+
+    # Phase 2395: Layer transition smoothness (informational)
+    post2000_concept_activation_neuron_activation_layer_transition_smoothness(all_acts, concept_names)
+
+    # Phase 2396: Projection kurtosis (informational)
+    post2000_concept_activation_concept_direction_projection_kurtosis_v2(all_acts, concept_names)
+
+    # Phase 2397: Global mean subtraction effect (informational)
+    post2000_concept_activation_neuron_activation_global_mean_subtraction_effect(all_acts, concept_names)
+
+    # Phase 2398: Total variance captured by concept directions (informational)
+    post2000_concept_activation_concept_direction_total_variance_captured(all_acts, concept_names)
+
+    # Phase 2399: Dynamic range per layer (informational)
+    post2000_concept_activation_neuron_activation_dynamic_range_per_layer(all_acts, concept_names)
+
+    # Phase 2400: Milestone checkpoint (informational)
+    post2000_concept_activation_phase_2400_milestone(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
