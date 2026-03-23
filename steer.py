@@ -55265,6 +55265,209 @@ def post2000_concept_activation_phase_2300_milestone(all_acts, concept_names):
     print()
 
 
+def post2000_concept_activation_cross_concept_transfer_score(all_acts, concept_names):
+    """Phase 2301: Can a concept direction trained on one concept classify another?"""
+    print("=" * 70)
+    print("PHASE 2301: CROSS-CONCEPT TRANSFER SCORE")
+    print("=" * 70)
+    layer = 10
+    directions = {}
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        directions[cname] = d / (np.linalg.norm(d) + 1e-10)
+    for ci in range(min(3, len(concept_names))):
+        c1 = concept_names[ci]
+        transfers = []
+        for cj in range(len(concept_names)):
+            if ci == cj:
+                continue
+            c2 = concept_names[cj]
+            # Use c1's direction to classify c2's data
+            pos = all_acts[c2]["positive"][layer]
+            neg = all_acts[c2]["negative"][layer]
+            all_data = np.vstack([pos, neg])
+            projections = all_data @ directions[c1]
+            labels = np.array([1]*30 + [0]*30)
+            pred = (projections > np.median(projections)).astype(int)
+            acc = np.mean(pred == labels)
+            transfers.append((c2, max(acc, 1-acc)))
+        transfers.sort(key=lambda x: -x[1])
+        print(f"  {c1} dir -> best_transfer: {transfers[0][0]} ({transfers[0][1]:.4f})")
+    print()
+
+
+def post2000_concept_activation_neuron_activation_histogram_stats(all_acts, concept_names):
+    """Phase 2302: Histogram statistics of neuron activations."""
+    print("=" * 70)
+    print("PHASE 2302: NEURON ACTIVATION HISTOGRAM STATS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        mean_acts = np.mean(pos, axis=0)
+        median_acts = np.median(pos, axis=0)
+        skew_indicator = np.mean(mean_acts - median_acts)
+        zero_frac = np.mean(np.abs(mean_acts) < 0.01)
+        print(f"  {cname}: mean-median_skew={skew_indicator:.4f}, near_zero={zero_frac:.4f}")
+    print()
+
+
+def post2000_concept_activation_concept_direction_temperature(all_acts, concept_names):
+    """Phase 2303: Temperature (softmax sharpness) of concept direction components."""
+    print("=" * 70)
+    print("PHASE 2303: CONCEPT DIRECTION TEMPERATURE")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        direction = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        abs_dir = np.abs(direction)
+        # Temperature ~ how concentrated the direction is
+        sorted_dir = np.sort(abs_dir)[::-1]
+        top1_share = sorted_dir[0] / (np.sum(abs_dir) + 1e-10)
+        top10_share = np.sum(sorted_dir[:10]) / (np.sum(abs_dir) + 1e-10)
+        print(f"  {cname}: top1_share={top1_share:.4f}, top10_share={top10_share:.4f}")
+    print()
+
+
+def post2000_concept_activation_layer_wise_variance_ratio(all_acts, concept_names):
+    """Phase 2304: Ratio of between-class to within-class variance per layer."""
+    print("=" * 70)
+    print("PHASE 2304: LAYER-WISE VARIANCE RATIO")
+    print("=" * 70)
+    for cname in concept_names[:3]:
+        best_ratio = 0
+        best_layer = 0
+        for L in range(0, 24, 3):
+            pos = all_acts[cname]["positive"][L]
+            neg = all_acts[cname]["negative"][L]
+            between = np.linalg.norm(np.mean(pos, axis=0) - np.mean(neg, axis=0))**2
+            within = np.mean(np.var(pos, axis=0)) + np.mean(np.var(neg, axis=0))
+            ratio = between / (within + 1e-10)
+            if ratio > best_ratio:
+                best_ratio = ratio
+                best_layer = L
+        print(f"  {cname}: best_layer=L{best_layer}, ratio={best_ratio:.4f}")
+    print()
+
+
+def post2000_concept_activation_neuron_response_magnitude_percentiles(all_acts, concept_names):
+    """Phase 2305: Percentile distribution of neuron response magnitudes."""
+    print("=" * 70)
+    print("PHASE 2305: NEURON RESPONSE MAGNITUDE PERCENTILES")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        response = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+        p50 = np.percentile(response, 50)
+        p90 = np.percentile(response, 90)
+        p99 = np.percentile(response, 99)
+        pmax = np.max(response)
+        print(f"  {cname}: p50={p50:.4f}, p90={p90:.4f}, p99={p99:.4f}, max={pmax:.4f}")
+    print()
+
+
+def post2000_concept_activation_concept_pair_independence_test(all_acts, concept_names):
+    """Phase 2306: Test statistical independence between concept pairs."""
+    print("=" * 70)
+    print("PHASE 2306: CONCEPT PAIR INDEPENDENCE TEST")
+    print("=" * 70)
+    layer = 10
+    pairs = [(concept_names[i], concept_names[j])
+             for i in range(len(concept_names)) for j in range(i+1, len(concept_names))]
+    for c1, c2 in pairs[:5]:
+        pos1 = all_acts[c1]["positive"][layer]
+        neg1 = all_acts[c1]["negative"][layer]
+        d1 = np.mean(pos1, axis=0) - np.mean(neg1, axis=0)
+        d1 = d1 / (np.linalg.norm(d1) + 1e-10)
+        pos2 = all_acts[c2]["positive"][layer]
+        neg2 = all_acts[c2]["negative"][layer]
+        d2 = np.mean(pos2, axis=0) - np.mean(neg2, axis=0)
+        d2 = d2 / (np.linalg.norm(d2) + 1e-10)
+        cos = abs(np.dot(d1, d2))
+        print(f"  {c1} vs {c2}: |cos|={cos:.4f}, {'independent' if cos < 0.1 else 'dependent'}")
+    print()
+
+
+def post2000_concept_activation_layer_contribution_to_final_repr(all_acts, concept_names):
+    """Phase 2307: How much does each layer contribute to final representation?"""
+    print("=" * 70)
+    print("PHASE 2307: LAYER CONTRIBUTION TO FINAL REPRESENTATION")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        final_dir = np.mean(all_acts[cname]["positive"][23], axis=0) - np.mean(all_acts[cname]["negative"][23], axis=0)
+        final_dir = final_dir / (np.linalg.norm(final_dir) + 1e-10)
+        contributions = []
+        for L in range(0, 24, 4):
+            layer_dir = np.mean(all_acts[cname]["positive"][L], axis=0) - np.mean(all_acts[cname]["negative"][L], axis=0)
+            layer_dir = layer_dir / (np.linalg.norm(layer_dir) + 1e-10)
+            sim = abs(np.dot(final_dir, layer_dir))
+            contributions.append((L, sim))
+        print(f"  {cname}: {[f'L{l}:{s:.3f}' for l, s in contributions]}")
+    print()
+
+
+def post2000_concept_activation_neuron_firing_rate_comparison(all_acts, concept_names):
+    """Phase 2308: Compare neuron firing rates between positive and negative."""
+    print("=" * 70)
+    print("PHASE 2308: NEURON FIRING RATE COMPARISON")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        pos_active = np.mean(pos > 0, axis=0)
+        neg_active = np.mean(neg > 0, axis=0)
+        diff_rate = np.abs(pos_active - neg_active)
+        n_diff = np.sum(diff_rate > 0.3)
+        print(f"  {cname}: neurons_with_rate_diff>0.3: {n_diff}/896, "
+              f"max_diff={np.max(diff_rate):.4f}")
+    print()
+
+
+def post2000_concept_activation_concept_signal_decay_rate(all_acts, concept_names):
+    """Phase 2309: How fast does concept signal decay from peak layer?"""
+    print("=" * 70)
+    print("PHASE 2309: CONCEPT SIGNAL DECAY RATE")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        signals = []
+        for L in range(24):
+            pos = all_acts[cname]["positive"][L]
+            neg = all_acts[cname]["negative"][L]
+            s = np.linalg.norm(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+            signals.append(s)
+        peak_layer = np.argmax(signals)
+        peak_signal = signals[peak_layer]
+        # Half-life: layers after peak until signal drops to half
+        half_life = 0
+        for L in range(peak_layer + 1, 24):
+            if signals[L] < peak_signal / 2:
+                half_life = L - peak_layer
+                break
+        if half_life == 0:
+            half_life = 24 - peak_layer  # never drops below half
+        print(f"  {cname}: peak=L{peak_layer} ({peak_signal:.4f}), half_life={half_life} layers")
+    print()
+
+
+def post2000_concept_activation_phase_2310_checkpoint(all_acts, concept_names):
+    """Phase 2310: Research checkpoint - 310 phases beyond 2000."""
+    print("=" * 70)
+    print("PHASE 2310: RESEARCH CHECKPOINT — 310 BEYOND 2000")
+    print("=" * 70)
+    print(f"  2310 analysis phases completed — 310 beyond the 2000 milestone!")
+    print(f"  Phases 2301-2310: cross-concept transfer, histogram stats,")
+    print(f"  direction temperature, layer-wise variance ratio, response percentiles,")
+    print(f"  independence test, layer contribution, firing rate, signal decay")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -62239,6 +62442,36 @@ def run_analysis():
 
     # Phase 2300: Milestone checkpoint (informational)
     post2000_concept_activation_phase_2300_milestone(all_acts, concept_names)
+
+    # Phase 2301: Cross-concept transfer score (informational)
+    post2000_concept_activation_cross_concept_transfer_score(all_acts, concept_names)
+
+    # Phase 2302: Neuron activation histogram stats (informational)
+    post2000_concept_activation_neuron_activation_histogram_stats(all_acts, concept_names)
+
+    # Phase 2303: Concept direction temperature (informational)
+    post2000_concept_activation_concept_direction_temperature(all_acts, concept_names)
+
+    # Phase 2304: Layer-wise variance ratio (informational)
+    post2000_concept_activation_layer_wise_variance_ratio(all_acts, concept_names)
+
+    # Phase 2305: Neuron response magnitude percentiles (informational)
+    post2000_concept_activation_neuron_response_magnitude_percentiles(all_acts, concept_names)
+
+    # Phase 2306: Concept pair independence test (informational)
+    post2000_concept_activation_concept_pair_independence_test(all_acts, concept_names)
+
+    # Phase 2307: Layer contribution to final representation (informational)
+    post2000_concept_activation_layer_contribution_to_final_repr(all_acts, concept_names)
+
+    # Phase 2308: Neuron firing rate comparison (informational)
+    post2000_concept_activation_neuron_firing_rate_comparison(all_acts, concept_names)
+
+    # Phase 2309: Concept signal decay rate (informational)
+    post2000_concept_activation_concept_signal_decay_rate(all_acts, concept_names)
+
+    # Phase 2310: Research checkpoint (informational)
+    post2000_concept_activation_phase_2310_checkpoint(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
