@@ -51868,6 +51868,193 @@ def post2000_concept_activation_phase_2130_checkpoint(all_acts, concept_names):
     print()
 
 
+def post2000_concept_activation_neuron_activation_quantile_analysis(all_acts, concept_names):
+    """Phase 2131: Quantile analysis of neuron activations for concept discrimination."""
+    print("=" * 70)
+    print("PHASE 2131: Neuron Activation Quantile Analysis")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        pos_q90 = np.percentile(pos, 90, axis=0)
+        neg_q90 = np.percentile(neg, 90, axis=0)
+        q90_diff = np.abs(pos_q90 - neg_q90)
+        top3 = np.argsort(q90_diff)[-3:][::-1]
+        print(f"  {cname} L{layer}: top Q90-diff neurons {top3.tolist()}, "
+              f"max Q90 diff={q90_diff[top3[0]]:.4f}")
+    print()
+
+
+def post2000_concept_activation_concept_direction_leave_one_out_stability(all_acts, concept_names):
+    """Phase 2132: Leave-one-out stability of concept directions."""
+    print("=" * 70)
+    print("PHASE 2132: Leave-One-Out Direction Stability")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        full_d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        full_d = full_d / (np.linalg.norm(full_d) + 1e-10)
+        cosines = []
+        for i in range(len(pos)):
+            loo_pos = np.delete(pos, i, axis=0)
+            d = np.mean(loo_pos, axis=0) - np.mean(neg, axis=0)
+            d = d / (np.linalg.norm(d) + 1e-10)
+            cosines.append(np.dot(full_d, d))
+        print(f"  {cname} L{layer}: LOO stability min={np.min(cosines):.4f}, "
+              f"mean={np.mean(cosines):.4f}")
+    print()
+
+
+def post2000_concept_activation_concept_direction_gradient_magnitude(all_acts, concept_names):
+    """Phase 2133: Magnitude of concept direction change between layers."""
+    print("=" * 70)
+    print("PHASE 2133: Concept Direction Gradient Magnitude")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        gradients = []
+        for l in range(23):
+            d1 = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+            d2 = np.mean(all_acts[cname]["positive"][l+1], axis=0) - np.mean(all_acts[cname]["negative"][l+1], axis=0)
+            grad = np.linalg.norm(d2 - d1)
+            gradients.append(grad)
+        max_grad_l = int(np.argmax(gradients))
+        print(f"  {cname}: max gradient at L{max_grad_l}→L{max_grad_l+1} ({gradients[max_grad_l]:.4f}), "
+              f"total gradient={sum(gradients):.4f}")
+    print()
+
+
+def post2000_concept_activation_neuron_concept_effect_size_distribution(all_acts, concept_names):
+    """Phase 2134: Distribution of Cohen's d effect sizes across neurons."""
+    print("=" * 70)
+    print("PHASE 2134: Neuron Effect Size Distribution")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        pooled_std = np.sqrt((np.var(pos, axis=0) + np.var(neg, axis=0)) / 2) + 1e-10
+        d = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0)) / pooled_std
+        large = np.sum(d > 0.8)
+        medium = np.sum((d > 0.5) & (d <= 0.8))
+        small = np.sum((d > 0.2) & (d <= 0.5))
+        negligible = np.sum(d <= 0.2)
+        print(f"  {cname} L{layer}: {large} large, {medium} medium, "
+              f"{small} small, {negligible} negligible effect sizes")
+    print()
+
+
+def post2000_concept_activation_concept_pair_direction_product(all_acts, concept_names):
+    """Phase 2135: Element-wise product analysis of concept direction pairs."""
+    print("=" * 70)
+    print("PHASE 2135: Concept Pair Direction Element-wise Product")
+    print("=" * 70)
+    layer = 10
+    from itertools import combinations
+    for c1, c2 in list(combinations(concept_names, 2))[:5]:
+        d1 = np.mean(all_acts[c1]["positive"][layer], axis=0) - np.mean(all_acts[c1]["negative"][layer], axis=0)
+        d2 = np.mean(all_acts[c2]["positive"][layer], axis=0) - np.mean(all_acts[c2]["negative"][layer], axis=0)
+        product = d1 * d2
+        cooperative = np.sum(product > 0)
+        competitive = np.sum(product < 0)
+        print(f"  {c1} vs {c2}: {cooperative} cooperative, {competitive} competitive neurons")
+    print()
+
+
+def post2000_concept_activation_layer_wise_signal_decay(all_acts, concept_names):
+    """Phase 2136: Signal decay rate from peak layer onwards."""
+    print("=" * 70)
+    print("PHASE 2136: Signal Decay from Peak Layer")
+    print("=" * 70)
+    for cname in concept_names:
+        norms = []
+        for l in range(24):
+            d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+            norms.append(np.linalg.norm(d))
+        peak_l = int(np.argmax(norms))
+        if peak_l < 23:
+            decay = (norms[peak_l] - norms[-1]) / (norms[peak_l] + 1e-10)
+            print(f"  {cname}: peak at L{peak_l} ({norms[peak_l]:.3f}), "
+                  f"final={norms[-1]:.3f}, decay={100*decay:.1f}%")
+        else:
+            print(f"  {cname}: peak at L{peak_l} (final layer, no decay)")
+    print()
+
+
+def post2000_concept_activation_neuron_activation_max_min_gap(all_acts, concept_names):
+    """Phase 2137: Gap between max and min activation per neuron."""
+    print("=" * 70)
+    print("PHASE 2137: Neuron Max-Min Activation Gap")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        combined = np.vstack([all_acts[cname]["positive"][layer],
+                               all_acts[cname]["negative"][layer]])
+        gaps = np.max(combined, axis=0) - np.min(combined, axis=0)
+        top5 = np.argsort(gaps)[-5:][::-1]
+        print(f"  {cname} L{layer}: top gap neurons {top5.tolist()}, "
+              f"max gap={gaps[top5[0]]:.4f}, mean gap={np.mean(gaps):.4f}")
+    print()
+
+
+def post2000_concept_activation_concept_encoding_depth_profile(all_acts, concept_names):
+    """Phase 2138: At what depth are concepts best encoded."""
+    print("=" * 70)
+    print("PHASE 2138: Concept Encoding Depth Profile")
+    print("=" * 70)
+    depth_categories = {"early (L0-5)": range(6), "middle (L6-17)": range(6, 18), "late (L18-23)": range(18, 24)}
+    for cname in concept_names:
+        best_signal = 0
+        best_cat = ""
+        for cat, layers in depth_categories.items():
+            signals = []
+            for l in layers:
+                d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+                signals.append(np.linalg.norm(d))
+            mean_signal = np.mean(signals)
+            if mean_signal > best_signal:
+                best_signal = mean_signal
+                best_cat = cat
+        print(f"  {cname}: strongest in {best_cat} (mean signal={best_signal:.3f})")
+    print()
+
+
+def post2000_concept_activation_concept_direction_angular_velocity_layer(all_acts, concept_names):
+    """Phase 2139: Angular velocity of concept direction through layer space."""
+    print("=" * 70)
+    print("PHASE 2139: Concept Direction Angular Velocity")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        directions = []
+        for l in range(24):
+            d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+            d = d / (np.linalg.norm(d) + 1e-10)
+            directions.append(d)
+        angular_velocities = []
+        for l in range(23):
+            cos = np.clip(np.dot(directions[l], directions[l+1]), -1, 1)
+            angle = np.degrees(np.arccos(cos))
+            angular_velocities.append(angle)
+        max_av_l = int(np.argmax(angular_velocities))
+        print(f"  {cname}: max angular vel={angular_velocities[max_av_l]:.1f}°/layer at L{max_av_l}, "
+              f"mean={np.mean(angular_velocities):.1f}°/layer")
+    print()
+
+
+def post2000_concept_activation_phase_2140_checkpoint(all_acts, concept_names):
+    """Phase 2140: Research checkpoint at 2140 phases."""
+    print("=" * 70)
+    print("PHASE 2140: RESEARCH CHECKPOINT (2140 PHASES)")
+    print("=" * 70)
+    print(f"  2140 analysis phases completed — 140 beyond the 2000 milestone!")
+    print(f"  Phases 2131-2140: quantile analysis, LOO stability, gradient magnitude,")
+    print(f"  effect size distribution, direction product, signal decay,")
+    print(f"  max-min gap, depth profile, angular velocity")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -58332,6 +58519,36 @@ def run_analysis():
 
     # Phase 2130: Research checkpoint (informational)
     post2000_concept_activation_phase_2130_checkpoint(all_acts, concept_names)
+
+    # Phase 2131: Quantile analysis (informational)
+    post2000_concept_activation_neuron_activation_quantile_analysis(all_acts, concept_names)
+
+    # Phase 2132: LOO stability (informational)
+    post2000_concept_activation_concept_direction_leave_one_out_stability(all_acts, concept_names)
+
+    # Phase 2133: Gradient magnitude (informational)
+    post2000_concept_activation_concept_direction_gradient_magnitude(all_acts, concept_names)
+
+    # Phase 2134: Effect size distribution (informational)
+    post2000_concept_activation_neuron_concept_effect_size_distribution(all_acts, concept_names)
+
+    # Phase 2135: Direction element-wise product (informational)
+    post2000_concept_activation_concept_pair_direction_product(all_acts, concept_names)
+
+    # Phase 2136: Signal decay (informational)
+    post2000_concept_activation_layer_wise_signal_decay(all_acts, concept_names)
+
+    # Phase 2137: Max-min gap (informational)
+    post2000_concept_activation_neuron_activation_max_min_gap(all_acts, concept_names)
+
+    # Phase 2138: Depth profile (informational)
+    post2000_concept_activation_concept_encoding_depth_profile(all_acts, concept_names)
+
+    # Phase 2139: Angular velocity (informational)
+    post2000_concept_activation_concept_direction_angular_velocity_layer(all_acts, concept_names)
+
+    # Phase 2140: Research checkpoint (informational)
+    post2000_concept_activation_phase_2140_checkpoint(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
