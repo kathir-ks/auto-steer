@@ -42282,6 +42282,192 @@ def concept_activation_phase_1650_milestone(all_acts, concept_names):
     print()
 
 
+def concept_activation_concept_direction_mean_centering_effect(all_acts, concept_names):
+    """Phase 1651: Compare concept directions with and without mean centering."""
+    print("=" * 70)
+    print("PHASE 1651: MEAN CENTERING EFFECT ON CONCEPT DIRECTIONS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        # Without centering
+        d_raw = pos.mean(0) - neg.mean(0)
+        d_raw = d_raw / (np.linalg.norm(d_raw) + 1e-10)
+        # With global centering
+        global_mean = np.mean(np.vstack([pos, neg]), axis=0)
+        d_centered = (pos - global_mean).mean(0) - (neg - global_mean).mean(0)
+        d_centered = d_centered / (np.linalg.norm(d_centered) + 1e-10)
+        cos = np.dot(d_raw, d_centered)
+        print(f"  {cname}: cosine(raw, centered)={cos:.6f}")
+    print()
+
+
+def concept_activation_neuron_activation_coefficient_of_variation(all_acts, concept_names):
+    """Phase 1652: Compute coefficient of variation for neuron activations."""
+    print("=" * 70)
+    print("PHASE 1652: NEURON ACTIVATION COEFFICIENT OF VARIATION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        acts = np.vstack([all_acts[cname]["positive"][layer], all_acts[cname]["negative"][layer]])
+        means = np.mean(acts, axis=0)
+        stds = np.std(acts, axis=0)
+        cv = stds / (np.abs(means) + 1e-10)
+        print(f"  {cname}: mean CV={np.mean(cv):.4f}, median CV={np.median(cv):.4f}, "
+              f"high CV (>2.0): {np.sum(cv > 2.0)} neurons")
+    print()
+
+
+def concept_activation_concept_direction_cross_validation_score(all_acts, concept_names):
+    """Phase 1653: Cross-validate concept direction estimation quality."""
+    print("=" * 70)
+    print("PHASE 1653: CROSS-VALIDATED CONCEPT DIRECTION QUALITY")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        n = min(len(pos), len(neg))
+        fold_size = n // 3
+        accs = []
+        for fold in range(3):
+            test_idx = list(range(fold * fold_size, (fold + 1) * fold_size))
+            train_idx = [i for i in range(n) if i not in test_idx]
+            d = pos[train_idx].mean(0) - neg[train_idx].mean(0)
+            d = d / (np.linalg.norm(d) + 1e-10)
+            pp = pos[test_idx] @ d
+            np_ = neg[test_idx] @ d
+            t = (np.mean(pp) + np.mean(np_)) / 2
+            acc = (np.sum(pp > t) + np.sum(np_ <= t)) / (len(pp) + len(np_))
+            accs.append(acc)
+        print(f"  {cname}: 3-fold CV accuracy={np.mean(accs):.4f} ± {np.std(accs):.4f}")
+    print()
+
+
+def concept_activation_layer_concept_signal_to_noise_evolution(all_acts, concept_names):
+    """Phase 1654: Track how SNR evolves across layers for each concept."""
+    print("=" * 70)
+    print("PHASE 1654: CONCEPT SNR EVOLUTION ACROSS LAYERS")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        snrs = []
+        for l in range(24):
+            pos = all_acts[cname]["positive"][l]
+            neg = all_acts[cname]["negative"][l]
+            signal = np.linalg.norm(pos.mean(0) - neg.mean(0))
+            noise = np.sqrt(np.mean(np.var(pos, axis=0)) + np.mean(np.var(neg, axis=0)))
+            snrs.append(signal / (noise + 1e-10))
+        peak_l = int(np.argmax(snrs))
+        print(f"  {cname}: peak SNR at L{peak_l} ({snrs[peak_l]:.4f}), "
+              f"L0={snrs[0]:.4f}, L23={snrs[23]:.4f}")
+    print()
+
+
+def concept_activation_neuron_importance_power_law_fit(all_acts, concept_names):
+    """Phase 1655: Fit power law to neuron importance distribution."""
+    print("=" * 70)
+    print("PHASE 1655: NEURON IMPORTANCE POWER LAW FIT")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        d = np.abs(np.mean(all_acts[cname]["positive"][layer], axis=0) -
+                   np.mean(all_acts[cname]["negative"][layer], axis=0))
+        d_sorted = np.sort(d)[::-1]
+        # Log-log fit on top 100
+        x = np.log(np.arange(1, 101))
+        y = np.log(d_sorted[:100] + 1e-10)
+        slope, intercept = np.polyfit(x, y, 1)
+        print(f"  {cname}: power law exponent={-slope:.3f}, "
+              f"top-1/top-100 ratio={d_sorted[0]/(d_sorted[99]+1e-10):.2f}")
+    print()
+
+
+def concept_activation_concept_direction_sensitivity_to_individual_samples(all_acts, concept_names):
+    """Phase 1656: Measure how much each sample influences the concept direction."""
+    print("=" * 70)
+    print("PHASE 1656: CONCEPT DIRECTION SENSITIVITY TO INDIVIDUAL SAMPLES")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        full_dir = pos.mean(0) - neg.mean(0)
+        full_dir = full_dir / (np.linalg.norm(full_dir) + 1e-10)
+        influences = []
+        for i in range(len(pos)):
+            loo_pos = np.delete(pos, i, axis=0)
+            d = loo_pos.mean(0) - neg.mean(0)
+            d = d / (np.linalg.norm(d) + 1e-10)
+            influences.append(1 - np.dot(d, full_dir))
+        print(f"  {cname}: max influence={max(influences):.6f}, "
+              f"mean={np.mean(influences):.6f}, std={np.std(influences):.6f}")
+    print()
+
+
+def concept_activation_concept_pair_orthogonality_improvement_potential(all_acts, concept_names):
+    """Phase 1657: Estimate potential for improving orthogonality between concept pairs."""
+    print("=" * 70)
+    print("PHASE 1657: ORTHOGONALITY IMPROVEMENT POTENTIAL")
+    print("=" * 70)
+    layer = 10
+    dirs = []
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        dirs.append(d / (np.linalg.norm(d) + 1e-10))
+    dirs = np.array(dirs)
+    G = dirs @ dirs.T
+    worst_pairs = []
+    for i in range(len(concept_names)):
+        for j in range(i+1, len(concept_names)):
+            worst_pairs.append((abs(G[i, j]), concept_names[i], concept_names[j]))
+    worst_pairs.sort(reverse=True)
+    print("  Top-3 most non-orthogonal pairs:")
+    for cos, c1, c2 in worst_pairs[:3]:
+        print(f"    {c1} vs {c2}: |cosine|={cos:.4f}")
+    print()
+
+
+def concept_activation_layer_representation_rank(all_acts, concept_names):
+    """Phase 1658: Compute numerical rank of activation matrix at each layer."""
+    print("=" * 70)
+    print("PHASE 1658: ACTIVATION MATRIX RANK PER LAYER")
+    print("=" * 70)
+    cname = concept_names[0]
+    for l in [0, 6, 12, 18, 23]:
+        acts = np.vstack([all_acts[cname]["positive"][l], all_acts[cname]["negative"][l]])
+        rank = np.linalg.matrix_rank(acts, tol=1e-5)
+        _, S, _ = np.linalg.svd(acts, full_matrices=False)
+        eff_rank = np.exp(-np.sum(S/S.sum() * np.log(S/S.sum() + 1e-10)))
+        print(f"  L{l}: numerical rank={rank}, effective rank={eff_rank:.1f}")
+    print()
+
+
+def concept_activation_concept_direction_alignment_across_concepts(all_acts, concept_names):
+    """Phase 1659: Check alignment of concept directions with each other across layers."""
+    print("=" * 70)
+    print("PHASE 1659: CROSS-CONCEPT DIRECTION ALIGNMENT ACROSS LAYERS")
+    print("=" * 70)
+    c1, c2 = concept_names[0], concept_names[1]
+    for l in range(0, 24, 4):
+        d1 = np.mean(all_acts[c1]["positive"][l], axis=0) - np.mean(all_acts[c1]["negative"][l], axis=0)
+        d2 = np.mean(all_acts[c2]["positive"][l], axis=0) - np.mean(all_acts[c2]["negative"][l], axis=0)
+        cos = np.dot(d1, d2) / (np.linalg.norm(d1) * np.linalg.norm(d2) + 1e-10)
+        print(f"  L{l}: {c1} vs {c2} cosine={cos:.4f}")
+    print()
+
+
+def concept_activation_phase_1660_status(all_acts, concept_names):
+    """Phase 1660: Status checkpoint at 1660 phases."""
+    print("=" * 70)
+    print("PHASE 1660: STATUS CHECKPOINT — 1660 ANALYSIS PHASES")
+    print("=" * 70)
+    print("1660 analysis phases completed.")
+    print(f"Concepts analyzed: {len(concept_names)}")
+    print("All phases informational — scoring pipeline unchanged.")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -47306,6 +47492,36 @@ def run_analysis():
 
     # Phase 1650: Milestone at 1650 phases (informational)
     concept_activation_phase_1650_milestone(all_acts, concept_names)
+
+    # Phase 1651: Mean centering effect (informational)
+    concept_activation_concept_direction_mean_centering_effect(all_acts, concept_names)
+
+    # Phase 1652: Neuron CV (informational)
+    concept_activation_neuron_activation_coefficient_of_variation(all_acts, concept_names)
+
+    # Phase 1653: Cross-validated direction quality (informational)
+    concept_activation_concept_direction_cross_validation_score(all_acts, concept_names)
+
+    # Phase 1654: SNR evolution across layers (informational)
+    concept_activation_layer_concept_signal_to_noise_evolution(all_acts, concept_names)
+
+    # Phase 1655: Neuron importance power law fit (informational)
+    concept_activation_neuron_importance_power_law_fit(all_acts, concept_names)
+
+    # Phase 1656: Direction sensitivity to samples (informational)
+    concept_activation_concept_direction_sensitivity_to_individual_samples(all_acts, concept_names)
+
+    # Phase 1657: Orthogonality improvement potential (informational)
+    concept_activation_concept_pair_orthogonality_improvement_potential(all_acts, concept_names)
+
+    # Phase 1658: Activation matrix rank per layer (informational)
+    concept_activation_layer_representation_rank(all_acts, concept_names)
+
+    # Phase 1659: Cross-concept direction alignment across layers (informational)
+    concept_activation_concept_direction_alignment_across_concepts(all_acts, concept_names)
+
+    # Phase 1660: Status checkpoint (informational)
+    concept_activation_phase_1660_status(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
