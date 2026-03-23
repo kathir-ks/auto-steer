@@ -49796,6 +49796,196 @@ def post2000_concept_activation_phase_2030_checkpoint(all_acts, concept_names):
     print()
 
 
+def post2000_concept_activation_neuron_activation_range_analysis(all_acts, concept_names):
+    """Phase 2031: Analyze the dynamic range of neuron activations per concept."""
+    print("=" * 70)
+    print("PHASE 2031: Neuron Activation Dynamic Range")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        combined = np.vstack([all_acts[cname]["positive"][layer],
+                               all_acts[cname]["negative"][layer]])
+        ranges = np.max(combined, axis=0) - np.min(combined, axis=0)
+        top5 = np.argsort(ranges)[-5:][::-1]
+        print(f"  {cname} L{layer}: max range neurons {top5.tolist()}, "
+              f"max range={ranges[top5[0]]:.4f}, mean range={np.mean(ranges):.4f}")
+    print()
+
+
+def post2000_concept_activation_concept_direction_cosine_to_principal(all_acts, concept_names):
+    """Phase 2032: Cosine similarity between concept directions and principal components."""
+    print("=" * 70)
+    print("PHASE 2032: Concept Direction vs Principal Components")
+    print("=" * 70)
+    layer = 10
+    all_data = []
+    for cname in concept_names:
+        all_data.append(np.vstack([all_acts[cname]["positive"][layer],
+                                    all_acts[cname]["negative"][layer]]))
+    all_data = np.vstack(all_data)
+    all_data_centered = all_data - np.mean(all_data, axis=0)
+    cov = np.cov(all_data_centered, rowvar=False)
+    eigvals, eigvecs = np.linalg.eigh(cov)
+    top_pcs = eigvecs[:, -3:][:, ::-1]  # top 3 PCs
+    for cname in concept_names[:4]:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        cosines = [abs(np.dot(d, top_pcs[:, i])) for i in range(3)]
+        print(f"  {cname}: |cos| with PC1={cosines[0]:.4f}, PC2={cosines[1]:.4f}, PC3={cosines[2]:.4f}")
+    print()
+
+
+def post2000_concept_activation_layer_wise_snr_profile(all_acts, concept_names):
+    """Phase 2033: Signal-to-noise ratio profile across all layers."""
+    print("=" * 70)
+    print("PHASE 2033: Layer-wise Signal-to-Noise Ratio Profile")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        snrs = []
+        for l in range(24):
+            pos = all_acts[cname]["positive"][l]
+            neg = all_acts[cname]["negative"][l]
+            signal = np.linalg.norm(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+            noise = np.mean([np.mean(np.std(pos, axis=0)), np.mean(np.std(neg, axis=0))])
+            snrs.append(signal / (noise + 1e-10))
+        best_l = int(np.argmax(snrs))
+        print(f"  {cname}: best SNR at L{best_l} ({snrs[best_l]:.4f}), "
+              f"worst at L{int(np.argmin(snrs))} ({snrs[int(np.argmin(snrs))]:.4f})")
+    print()
+
+
+def post2000_concept_activation_neuron_response_skewness(all_acts, concept_names):
+    """Phase 2034: Skewness of neuron responses for each concept."""
+    print("=" * 70)
+    print("PHASE 2034: Neuron Response Skewness")
+    print("=" * 70)
+    from scipy.stats import skew
+    layer = 10
+    for cname in concept_names[:4]:
+        combined = np.vstack([all_acts[cname]["positive"][layer],
+                               all_acts[cname]["negative"][layer]])
+        skew_values = skew(combined, axis=0)
+        most_skewed = int(np.argmax(np.abs(skew_values)))
+        print(f"  {cname} L{layer}: mean |skew|={np.mean(np.abs(skew_values)):.4f}, "
+              f"most skewed neuron={most_skewed} (skew={skew_values[most_skewed]:.4f})")
+    print()
+
+
+def post2000_concept_activation_concept_pair_angle_per_layer(all_acts, concept_names):
+    """Phase 2035: Track pairwise concept angles across layers."""
+    print("=" * 70)
+    print("PHASE 2035: Concept Pair Angles Across Layers")
+    print("=" * 70)
+    from itertools import combinations
+    pairs = list(combinations(concept_names, 2))[:5]
+    for c1, c2 in pairs:
+        angles = []
+        for l in range(24):
+            d1 = np.mean(all_acts[c1]["positive"][l], axis=0) - np.mean(all_acts[c1]["negative"][l], axis=0)
+            d2 = np.mean(all_acts[c2]["positive"][l], axis=0) - np.mean(all_acts[c2]["negative"][l], axis=0)
+            cos = np.dot(d1, d2) / (np.linalg.norm(d1) * np.linalg.norm(d2) + 1e-10)
+            angles.append(np.degrees(np.arccos(np.clip(cos, -1, 1))))
+        min_angle_l = int(np.argmin(angles))
+        max_angle_l = int(np.argmax(angles))
+        print(f"  {c1} vs {c2}: min angle={angles[min_angle_l]:.1f}° at L{min_angle_l}, "
+              f"max={angles[max_angle_l]:.1f}° at L{max_angle_l}")
+    print()
+
+
+def post2000_concept_activation_neuron_dead_ratio_per_concept(all_acts, concept_names):
+    """Phase 2036: Fraction of effectively dead neurons per concept."""
+    print("=" * 70)
+    print("PHASE 2036: Dead Neuron Ratio Per Concept")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        combined = np.vstack([all_acts[cname]["positive"][layer],
+                               all_acts[cname]["negative"][layer]])
+        abs_mean = np.mean(np.abs(combined), axis=0)
+        threshold = np.percentile(abs_mean, 10)
+        dead_count = np.sum(abs_mean < threshold)
+        n_neurons = combined.shape[1]
+        print(f"  {cname} L{layer}: {dead_count}/{n_neurons} near-dead neurons "
+              f"({100*dead_count/n_neurons:.1f}%)")
+    print()
+
+
+def post2000_concept_activation_concept_encoding_locality_index(all_acts, concept_names):
+    """Phase 2037: Compute locality index measuring how concentrated concept info is across layers."""
+    print("=" * 70)
+    print("PHASE 2037: Concept Encoding Locality Index")
+    print("=" * 70)
+    for cname in concept_names:
+        norms = []
+        for l in range(24):
+            d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+            norms.append(np.linalg.norm(d))
+        norms = np.array(norms)
+        total = norms.sum() + 1e-10
+        probs = norms / total
+        entropy = -np.sum(probs * np.log(probs + 1e-10))
+        max_entropy = np.log(24)
+        locality_index = 1 - entropy / max_entropy
+        print(f"  {cname}: locality_index={locality_index:.4f} "
+              f"(1=concentrated, 0=spread)")
+    print()
+
+
+def post2000_concept_activation_top_neuron_overlap_jaccard(all_acts, concept_names):
+    """Phase 2038: Jaccard similarity of top neurons across concept pairs."""
+    print("=" * 70)
+    print("PHASE 2038: Top Neuron Overlap (Jaccard)")
+    print("=" * 70)
+    from itertools import combinations
+    layer = 10
+    top_k = 20
+    top_neurons = {}
+    for cname in concept_names:
+        diff = np.abs(np.mean(all_acts[cname]["positive"][layer], axis=0) -
+                      np.mean(all_acts[cname]["negative"][layer], axis=0))
+        top_neurons[cname] = set(np.argsort(diff)[-top_k:])
+    for c1, c2 in list(combinations(concept_names, 2))[:5]:
+        intersection = len(top_neurons[c1] & top_neurons[c2])
+        union = len(top_neurons[c1] | top_neurons[c2])
+        jaccard = intersection / (union + 1e-10)
+        print(f"  {c1} vs {c2}: Jaccard={jaccard:.4f} ({intersection} shared neurons)")
+    print()
+
+
+def post2000_concept_activation_activation_covariance_spectrum(all_acts, concept_names):
+    """Phase 2039: Analyze covariance spectrum of activations per concept."""
+    print("=" * 70)
+    print("PHASE 2039: Activation Covariance Spectrum")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        combined = np.vstack([all_acts[cname]["positive"][layer],
+                               all_acts[cname]["negative"][layer]])
+        centered = combined - np.mean(combined, axis=0)
+        # Use SVD for efficiency
+        _, s, _ = np.linalg.svd(centered, full_matrices=False)
+        eigenvalues = s ** 2 / (len(combined) - 1)
+        total = eigenvalues.sum() + 1e-10
+        cumvar = np.cumsum(eigenvalues) / total
+        dims_50 = int(np.searchsorted(cumvar, 0.5)) + 1
+        dims_90 = int(np.searchsorted(cumvar, 0.9)) + 1
+        print(f"  {cname} L{layer}: 50% var in {dims_50} dims, 90% in {dims_90} dims, "
+              f"top eigenvalue={eigenvalues[0]/total:.4f}")
+    print()
+
+
+def post2000_concept_activation_phase_2040_checkpoint(all_acts, concept_names):
+    """Phase 2040: Research checkpoint."""
+    print("=" * 70)
+    print("PHASE 2040: RESEARCH CHECKPOINT (2040 PHASES)")
+    print("=" * 70)
+    print(f"  2040 analysis phases completed")
+    print(f"  Phases 2031-2040: dynamic range, direction vs PCs, SNR profile,")
+    print(f"  skewness, pairwise angles, dead neurons, locality index,")
+    print(f"  Jaccard overlap, covariance spectrum")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -55960,6 +56150,36 @@ def run_analysis():
 
     # Phase 2030: Research checkpoint (informational)
     post2000_concept_activation_phase_2030_checkpoint(all_acts, concept_names)
+
+    # Phase 2031: Neuron dynamic range (informational)
+    post2000_concept_activation_neuron_activation_range_analysis(all_acts, concept_names)
+
+    # Phase 2032: Direction vs principal components (informational)
+    post2000_concept_activation_concept_direction_cosine_to_principal(all_acts, concept_names)
+
+    # Phase 2033: Layer-wise SNR profile (informational)
+    post2000_concept_activation_layer_wise_snr_profile(all_acts, concept_names)
+
+    # Phase 2034: Neuron response skewness (informational)
+    post2000_concept_activation_neuron_response_skewness(all_acts, concept_names)
+
+    # Phase 2035: Concept pair angles across layers (informational)
+    post2000_concept_activation_concept_pair_angle_per_layer(all_acts, concept_names)
+
+    # Phase 2036: Dead neuron ratio (informational)
+    post2000_concept_activation_neuron_dead_ratio_per_concept(all_acts, concept_names)
+
+    # Phase 2037: Concept encoding locality index (informational)
+    post2000_concept_activation_concept_encoding_locality_index(all_acts, concept_names)
+
+    # Phase 2038: Top neuron Jaccard overlap (informational)
+    post2000_concept_activation_top_neuron_overlap_jaccard(all_acts, concept_names)
+
+    # Phase 2039: Covariance spectrum (informational)
+    post2000_concept_activation_activation_covariance_spectrum(all_acts, concept_names)
+
+    # Phase 2040: Research checkpoint (informational)
+    post2000_concept_activation_phase_2040_checkpoint(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
