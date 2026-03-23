@@ -42814,6 +42814,206 @@ def concept_activation_phase_1680_status(all_acts, concept_names):
     print()
 
 
+def concept_activation_concept_direction_angular_velocity(all_acts, concept_names):
+    """Phase 1681: Compute angular velocity of concept direction rotation across layers."""
+    print("=" * 70)
+    print("PHASE 1681: CONCEPT DIRECTION ANGULAR VELOCITY")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        dirs = []
+        for l in range(24):
+            d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+            dirs.append(d / (np.linalg.norm(d) + 1e-10))
+        angular_vel = []
+        for l in range(23):
+            cos = np.clip(np.dot(dirs[l], dirs[l+1]), -1, 1)
+            angle = np.arccos(cos)
+            angular_vel.append(np.degrees(angle))
+        max_l = int(np.argmax(angular_vel))
+        print(f"  {cname}: max angular velocity at L{max_l}→L{max_l+1} "
+              f"({angular_vel[max_l]:.2f}°/layer), mean={np.mean(angular_vel):.2f}°/layer")
+    print()
+
+
+def concept_activation_concept_separability_by_mahalanobis(all_acts, concept_names):
+    """Phase 1682: Compute Mahalanobis distance between pos/neg concept distributions."""
+    print("=" * 70)
+    print("PHASE 1682: MAHALANOBIS DISTANCE SEPARABILITY")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        diff = pos.mean(0) - neg.mean(0)
+        pooled_cov = (np.cov(pos.T) + np.cov(neg.T)) / 2
+        try:
+            cov_inv = np.linalg.pinv(pooled_cov)
+            mahal = np.sqrt(diff @ cov_inv @ diff)
+            print(f"  {cname}: Mahalanobis distance={mahal:.4f}")
+        except Exception:
+            print(f"  {cname}: computation failed")
+    print()
+
+
+def concept_activation_neuron_concept_mutual_info_top_layer(all_acts, concept_names):
+    """Phase 1683: Find which layer has highest MI between top neurons and concept."""
+    print("=" * 70)
+    print("PHASE 1683: BEST LAYER FOR NEURON-CONCEPT MUTUAL INFORMATION")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        best_mi = -1
+        best_l = -1
+        for l in range(0, 24, 4):
+            pos = all_acts[cname]["positive"][l]
+            neg = all_acts[cname]["negative"][l]
+            X = np.vstack([pos, neg])
+            y = np.array([1]*len(pos) + [0]*len(neg))
+            d = np.abs(pos.mean(0) - neg.mean(0))
+            top5 = np.argsort(d)[-5:]
+            mi = mutual_info_classif(X[:, top5], y, random_state=42).sum()
+            if mi > best_mi:
+                best_mi = mi
+                best_l = l
+        print(f"  {cname}: best MI layer=L{best_l} (MI={best_mi:.4f})")
+    print()
+
+
+def concept_activation_concept_direction_stability_metric(all_acts, concept_names):
+    """Phase 1684: Compute overall stability metric for each concept direction."""
+    print("=" * 70)
+    print("PHASE 1684: CONCEPT DIRECTION STABILITY METRIC")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        full_dir = pos.mean(0) - neg.mean(0)
+        full_dir = full_dir / (np.linalg.norm(full_dir) + 1e-10)
+        # Bootstrap stability
+        rng = np.random.RandomState(42)
+        cosines = []
+        for _ in range(20):
+            bp = rng.choice(len(pos), len(pos), replace=True)
+            bn = rng.choice(len(neg), len(neg), replace=True)
+            d = pos[bp].mean(0) - neg[bn].mean(0)
+            d = d / (np.linalg.norm(d) + 1e-10)
+            cosines.append(np.dot(d, full_dir))
+        stability = np.mean(cosines) * (1 - np.std(cosines))
+        print(f"  {cname}: stability metric={stability:.6f}")
+    print()
+
+
+def concept_activation_layer_concept_signal_concentration(all_acts, concept_names):
+    """Phase 1685: Measure how concentrated concept signal is across layers."""
+    print("=" * 70)
+    print("PHASE 1685: CONCEPT SIGNAL CONCENTRATION ACROSS LAYERS")
+    print("=" * 70)
+    for cname in concept_names:
+        norms = []
+        for l in range(24):
+            d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+            norms.append(np.linalg.norm(d))
+        norms = np.array(norms)
+        norms_norm = norms / (norms.sum() + 1e-10)
+        entropy = -np.sum(norms_norm * np.log(norms_norm + 1e-10))
+        max_entropy = np.log(24)
+        concentration = 1 - entropy / max_entropy
+        print(f"  {cname}: signal concentration={concentration:.4f} "
+              f"(0=uniform, 1=single layer)")
+    print()
+
+
+def concept_activation_neuron_activation_percentile_analysis(all_acts, concept_names):
+    """Phase 1686: Analyze percentile distribution of neuron activations."""
+    print("=" * 70)
+    print("PHASE 1686: NEURON ACTIVATION PERCENTILE ANALYSIS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        acts = np.vstack([all_acts[cname]["positive"][layer], all_acts[cname]["negative"][layer]])
+        p1 = np.percentile(acts, 1)
+        p25 = np.percentile(acts, 25)
+        p50 = np.percentile(acts, 50)
+        p75 = np.percentile(acts, 75)
+        p99 = np.percentile(acts, 99)
+        print(f"  {cname}: p1={p1:.3f}, p25={p25:.3f}, p50={p50:.3f}, "
+              f"p75={p75:.3f}, p99={p99:.3f}")
+    print()
+
+
+def concept_activation_concept_direction_gram_schmidt_residuals(all_acts, concept_names):
+    """Phase 1687: Apply Gram-Schmidt to concept directions and analyze residual norms."""
+    print("=" * 70)
+    print("PHASE 1687: GRAM-SCHMIDT RESIDUAL ANALYSIS")
+    print("=" * 70)
+    layer = 10
+    dirs = []
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        dirs.append(d.copy())
+    # Gram-Schmidt
+    ortho = []
+    residual_norms = []
+    for i, d in enumerate(dirs):
+        for u in ortho:
+            d = d - np.dot(d, u) * u
+        norm = np.linalg.norm(d)
+        residual_norms.append(norm / (np.linalg.norm(dirs[i]) + 1e-10))
+        if norm > 1e-10:
+            ortho.append(d / norm)
+    for ci, cname in enumerate(concept_names):
+        print(f"  {cname}: residual ratio={residual_norms[ci]:.4f}")
+    print()
+
+
+def concept_activation_concept_pair_discriminability_symmetry(all_acts, concept_names):
+    """Phase 1688: Check if concept pair discriminability is symmetric."""
+    print("=" * 70)
+    print("PHASE 1688: CONCEPT PAIR DISCRIMINABILITY SYMMETRY")
+    print("=" * 70)
+    layer = 10
+    for i in range(min(3, len(concept_names))):
+        for j in range(i+1, min(4, len(concept_names))):
+            c1, c2 = concept_names[i], concept_names[j]
+            d1 = np.mean(all_acts[c1]["positive"][layer], axis=0) - np.mean(all_acts[c1]["negative"][layer], axis=0)
+            d2 = np.mean(all_acts[c2]["positive"][layer], axis=0) - np.mean(all_acts[c2]["negative"][layer], axis=0)
+            # c1 data on c2 direction
+            c1_on_c2 = np.std(np.vstack([all_acts[c1]["positive"][layer], all_acts[c1]["negative"][layer]]) @ (d2 / (np.linalg.norm(d2) + 1e-10)))
+            c2_on_c1 = np.std(np.vstack([all_acts[c2]["positive"][layer], all_acts[c2]["negative"][layer]]) @ (d1 / (np.linalg.norm(d1) + 1e-10)))
+            asym = abs(c1_on_c2 - c2_on_c1) / (max(c1_on_c2, c2_on_c1) + 1e-10)
+            print(f"  {c1} ↔ {c2}: asymmetry={asym:.4f}")
+    print()
+
+
+def concept_activation_concept_direction_projection_quantiles(all_acts, concept_names):
+    """Phase 1689: Compute quantiles of projections onto concept directions."""
+    print("=" * 70)
+    print("PHASE 1689: CONCEPT DIRECTION PROJECTION QUANTILES")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        d_norm = d / (np.linalg.norm(d) + 1e-10)
+        pos_proj = all_acts[cname]["positive"][layer] @ d_norm
+        neg_proj = all_acts[cname]["negative"][layer] @ d_norm
+        print(f"  {cname}: pos q[10,50,90]=[{np.percentile(pos_proj, 10):.3f}, "
+              f"{np.percentile(pos_proj, 50):.3f}, {np.percentile(pos_proj, 90):.3f}], "
+              f"neg q[10,50,90]=[{np.percentile(neg_proj, 10):.3f}, "
+              f"{np.percentile(neg_proj, 50):.3f}, {np.percentile(neg_proj, 90):.3f}]")
+    print()
+
+
+def concept_activation_phase_1690_status(all_acts, concept_names):
+    """Phase 1690: Status checkpoint at 1690 phases."""
+    print("=" * 70)
+    print("PHASE 1690: STATUS CHECKPOINT — 1690 ANALYSIS PHASES")
+    print("=" * 70)
+    print("1690 analysis phases completed.")
+    print(f"Concepts analyzed: {len(concept_names)}")
+    print("All phases informational — scoring pipeline unchanged.")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -47928,6 +48128,36 @@ def run_analysis():
 
     # Phase 1680: Status checkpoint (informational)
     concept_activation_phase_1680_status(all_acts, concept_names)
+
+    # Phase 1681: Angular velocity (informational)
+    concept_activation_concept_direction_angular_velocity(all_acts, concept_names)
+
+    # Phase 1682: Mahalanobis distance separability (informational)
+    concept_activation_concept_separability_by_mahalanobis(all_acts, concept_names)
+
+    # Phase 1683: Best layer for neuron-concept MI (informational)
+    concept_activation_neuron_concept_mutual_info_top_layer(all_acts, concept_names)
+
+    # Phase 1684: Direction stability metric (informational)
+    concept_activation_concept_direction_stability_metric(all_acts, concept_names)
+
+    # Phase 1685: Signal concentration across layers (informational)
+    concept_activation_layer_concept_signal_concentration(all_acts, concept_names)
+
+    # Phase 1686: Neuron activation percentile analysis (informational)
+    concept_activation_neuron_activation_percentile_analysis(all_acts, concept_names)
+
+    # Phase 1687: Gram-Schmidt residual analysis (informational)
+    concept_activation_concept_direction_gram_schmidt_residuals(all_acts, concept_names)
+
+    # Phase 1688: Concept pair discriminability symmetry (informational)
+    concept_activation_concept_pair_discriminability_symmetry(all_acts, concept_names)
+
+    # Phase 1689: Projection quantiles (informational)
+    concept_activation_concept_direction_projection_quantiles(all_acts, concept_names)
+
+    # Phase 1690: Status checkpoint (informational)
+    concept_activation_phase_1690_status(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
