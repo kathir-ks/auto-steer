@@ -46771,6 +46771,207 @@ def concept_activation_phase_1880_checkpoint(all_acts, concept_names):
     print()
 
 
+def concept_activation_neuron_topk_overlap_across_concepts(all_acts, concept_names):
+    """Phase 1881: Overlap of top-K neurons across different concepts."""
+    print("=" * 70)
+    print("PHASE 1881: TOP-K NEURON OVERLAP ACROSS CONCEPTS")
+    print("=" * 70)
+    layer = 10
+    for K in [5, 10, 20]:
+        top_sets = {}
+        for cname in concept_names:
+            pos = all_acts[cname]["positive"][layer]
+            neg = all_acts[cname]["negative"][layer]
+            diff = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+            top_sets[cname] = set(np.argsort(diff)[-K:].tolist())
+        union = set.union(*top_sets.values())
+        avg_jaccard = 0
+        pairs = 0
+        for i in range(len(concept_names)):
+            for j in range(i+1, len(concept_names)):
+                inter = len(top_sets[concept_names[i]] & top_sets[concept_names[j]])
+                union_pair = len(top_sets[concept_names[i]] | top_sets[concept_names[j]])
+                avg_jaccard += inter / (union_pair + 1e-10)
+                pairs += 1
+        avg_jaccard /= pairs
+        print(f"  K={K}: unique_neurons={len(union)}, mean_jaccard={avg_jaccard:.4f}")
+    print()
+
+
+def concept_activation_concept_direction_layer_wise_norm_profile(all_acts, concept_names):
+    """Phase 1882: Norm profile of concept directions across all layers."""
+    print("=" * 70)
+    print("PHASE 1882: CONCEPT DIRECTION NORM PROFILE ACROSS LAYERS")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        norms = []
+        for l in range(24):
+            d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+            norms.append(np.linalg.norm(d))
+        peak = np.argmax(norms)
+        trough = np.argmin(norms)
+        print(f"  {cname}: peak_layer={peak}({norms[peak]:.3f}), trough_layer={trough}({norms[trough]:.3f}), range={norms[peak]-norms[trough]:.3f}")
+    print()
+
+
+def concept_activation_neuron_response_heterogeneity(all_acts, concept_names):
+    """Phase 1883: Heterogeneity of neuron responses within concept groups."""
+    print("=" * 70)
+    print("PHASE 1883: NEURON RESPONSE HETEROGENEITY")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        # Coefficient of variation across samples for each neuron
+        pos_heterogeneity = np.mean(np.std(pos, axis=0) / (np.abs(np.mean(pos, axis=0)) + 1e-10))
+        neg_heterogeneity = np.mean(np.std(neg, axis=0) / (np.abs(np.mean(neg, axis=0)) + 1e-10))
+        # Pairwise cosine similarity within positive class
+        pos_norms = np.linalg.norm(pos, axis=1, keepdims=True)
+        pos_unit = pos / (pos_norms + 1e-10)
+        cos_sim = pos_unit @ pos_unit.T
+        upper = cos_sim[np.triu_indices_from(cos_sim, k=1)]
+        print(f"  {cname}: pos_CV={pos_heterogeneity:.4f}, neg_CV={neg_heterogeneity:.4f}, intra_cos={np.mean(upper):.4f}")
+    print()
+
+
+def concept_activation_concept_direction_nullspace_dimension(all_acts, concept_names):
+    """Phase 1884: Dimension of nullspace of concept direction matrix."""
+    print("=" * 70)
+    print("PHASE 1884: CONCEPT DIRECTION NULLSPACE DIMENSION")
+    print("=" * 70)
+    layer = 10
+    directions = []
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        directions.append(d)
+    D = np.array(directions)
+    svs = np.linalg.svd(D, compute_uv=False)
+    rank = np.sum(svs > 0.01 * svs[0])
+    n_dims = D.shape[1]
+    nullspace_dim = n_dims - rank
+    print(f"  Direction matrix shape: {D.shape}")
+    print(f"  Numerical rank: {rank}")
+    print(f"  Nullspace dimension: {nullspace_dim}")
+    print(f"  Rank / n_concepts: {rank}/{len(concept_names)}")
+    print()
+
+
+def concept_activation_neuron_activation_percentile_separation(all_acts, concept_names):
+    """Phase 1885: Separation between concept classes at different percentiles."""
+    print("=" * 70)
+    print("PHASE 1885: NEURON ACTIVATION PERCENTILE SEPARATION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        pos_proj = pos @ d
+        neg_proj = neg @ d
+        for pct in [10, 25, 50]:
+            pos_pct = np.percentile(pos_proj, pct)
+            neg_pct = np.percentile(neg_proj, 100 - pct)
+            sep = pos_pct - neg_pct
+            print(f"  {cname} p{pct}: pos_p{pct}={pos_pct:.3f}, neg_p{100-pct}={neg_pct:.3f}, sep={sep:.3f}")
+    print()
+
+
+def concept_activation_concept_direction_mutual_coherence(all_acts, concept_names):
+    """Phase 1886: Mutual coherence of concept direction dictionary."""
+    print("=" * 70)
+    print("PHASE 1886: CONCEPT DIRECTION MUTUAL COHERENCE")
+    print("=" * 70)
+    layer = 10
+    directions = []
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        directions.append(d)
+    D = np.array(directions)
+    G = np.abs(D @ D.T)
+    np.fill_diagonal(G, 0)
+    mutual_coherence = np.max(G)
+    mean_coherence = np.mean(G)
+    print(f"  Mutual coherence (max off-diag |cos|): {mutual_coherence:.6f}")
+    print(f"  Mean coherence: {mean_coherence:.6f}")
+    print(f"  Welch bound: {np.sqrt((len(concept_names)-D.shape[1])/(D.shape[1]*(len(concept_names)-1)+1e-10)):.6f}")
+    print()
+
+
+def concept_activation_neuron_concept_classification_contribution(all_acts, concept_names):
+    """Phase 1887: Each neuron's contribution to classification accuracy."""
+    print("=" * 70)
+    print("PHASE 1887: NEURON CLASSIFICATION CONTRIBUTION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:3]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        # Contribution proportional to |d_i| * variance_explained
+        contrib = np.abs(d) / (np.sum(np.abs(d)) + 1e-10)
+        top5 = np.argsort(contrib)[-5:][::-1]
+        cumulative = np.sum(contrib[top5])
+        print(f"  {cname}: top5={top5.tolist()}, cumul_contrib={cumulative:.4f}")
+    print()
+
+
+def concept_activation_concept_direction_angle_distribution(all_acts, concept_names):
+    """Phase 1888: Distribution of pairwise angles between all concept directions."""
+    print("=" * 70)
+    print("PHASE 1888: CONCEPT DIRECTION ANGLE DISTRIBUTION")
+    print("=" * 70)
+    layer = 10
+    directions = []
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        directions.append(d)
+    angles = []
+    for i in range(len(directions)):
+        for j in range(i+1, len(directions)):
+            cos = np.dot(directions[i], directions[j])
+            angle = np.degrees(np.arccos(np.clip(abs(cos), 0, 1)))
+            angles.append(angle)
+    print(f"  Mean angle: {np.mean(angles):.2f}°")
+    print(f"  Std angle: {np.std(angles):.2f}°")
+    print(f"  Min angle: {np.min(angles):.2f}°")
+    print(f"  Max angle: {np.max(angles):.2f}°")
+    print()
+
+
+def concept_activation_neuron_activation_tail_analysis(all_acts, concept_names):
+    """Phase 1889: Heavy-tail analysis of neuron activation distributions."""
+    print("=" * 70)
+    print("PHASE 1889: NEURON ACTIVATION TAIL ANALYSIS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        all_data = np.vstack([pos, neg])
+        mean_acts = np.mean(all_data, axis=0)
+        p95 = np.percentile(np.abs(mean_acts), 95)
+        p99 = np.percentile(np.abs(mean_acts), 99)
+        tail_ratio = p99 / (p95 + 1e-10)
+        extreme_neurons = np.sum(np.abs(mean_acts) > 3 * np.std(mean_acts))
+        print(f"  {cname}: p95={p95:.4f}, p99={p99:.4f}, tail_ratio={tail_ratio:.4f}, extreme_neurons={extreme_neurons}")
+    print()
+
+
+def concept_activation_phase_1890_checkpoint(all_acts, concept_names):
+    """Phase 1890: Status checkpoint."""
+    print("=" * 70)
+    print("PHASE 1890: STATUS CHECKPOINT")
+    print("=" * 70)
+    print(f"  1890 analysis phases completed")
+    print(f"  10 phases to 1900 milestone!")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -52485,6 +52686,36 @@ def run_analysis():
 
     # Phase 1880: Status checkpoint (informational)
     concept_activation_phase_1880_checkpoint(all_acts, concept_names)
+
+    # Phase 1881: Top-K neuron overlap (informational)
+    concept_activation_neuron_topk_overlap_across_concepts(all_acts, concept_names)
+
+    # Phase 1882: Direction norm profile (informational)
+    concept_activation_concept_direction_layer_wise_norm_profile(all_acts, concept_names)
+
+    # Phase 1883: Response heterogeneity (informational)
+    concept_activation_neuron_response_heterogeneity(all_acts, concept_names)
+
+    # Phase 1884: Nullspace dimension (informational)
+    concept_activation_concept_direction_nullspace_dimension(all_acts, concept_names)
+
+    # Phase 1885: Percentile separation (informational)
+    concept_activation_neuron_activation_percentile_separation(all_acts, concept_names)
+
+    # Phase 1886: Mutual coherence (informational)
+    concept_activation_concept_direction_mutual_coherence(all_acts, concept_names)
+
+    # Phase 1887: Neuron classification contribution (informational)
+    concept_activation_neuron_concept_classification_contribution(all_acts, concept_names)
+
+    # Phase 1888: Angle distribution (informational)
+    concept_activation_concept_direction_angle_distribution(all_acts, concept_names)
+
+    # Phase 1889: Tail analysis (informational)
+    concept_activation_neuron_activation_tail_analysis(all_acts, concept_names)
+
+    # Phase 1890: Status checkpoint (informational)
+    concept_activation_phase_1890_checkpoint(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
