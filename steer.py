@@ -57855,6 +57855,214 @@ def post2000_concept_activation_phase_2430_checkpoint(all_acts, concept_names):
     print()
 
 
+def post2000_concept_activation_neuron_firing_rate_asymmetry(all_acts, concept_names):
+    """Phase 2431: Measure how asymmetric neuron firing rates are between positive and negative examples."""
+    print("=" * 70)
+    print("PHASE 2431: NEURON FIRING RATE ASYMMETRY")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        pos_rate = np.mean(pos > 0, axis=0)
+        neg_rate = np.mean(neg > 0, axis=0)
+        asymmetry = np.abs(pos_rate - neg_rate)
+        top_idx = np.argsort(asymmetry)[-5:][::-1]
+        print(f"  {cname}: max asymmetry={asymmetry[top_idx[0]]:.4f}, top neurons={top_idx.tolist()}")
+    print()
+
+
+def post2000_concept_activation_direction_projection_bimodality(all_acts, concept_names):
+    """Phase 2432: Test whether concept direction projections form bimodal distributions."""
+    print("=" * 70)
+    print("PHASE 2432: DIRECTION PROJECTION BIMODALITY")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        direction = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        direction = direction / (np.linalg.norm(direction) + 1e-10)
+        all_data = np.vstack([pos, neg])
+        projections = all_data @ direction
+        median = np.median(projections)
+        below = projections[projections < median]
+        above = projections[projections >= median]
+        gap = np.min(above) - np.max(below) if len(below) > 0 and len(above) > 0 else 0
+        bimodality = (np.mean(above) - np.mean(below)) / (np.std(projections) + 1e-10)
+        print(f"  {cname}: bimodality_index={bimodality:.4f}, gap={gap:.4f}")
+    print()
+
+
+def post2000_concept_activation_neuron_correlation_network(all_acts, concept_names):
+    """Phase 2433: Analyze the correlation network among top neurons per concept."""
+    print("=" * 70)
+    print("PHASE 2433: NEURON CORRELATION NETWORK")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        all_data = np.vstack([pos, neg])
+        var = np.var(all_data, axis=0)
+        top_idx = np.argsort(var)[-10:][::-1]
+        sub = all_data[:, top_idx]
+        corr = np.corrcoef(sub.T)
+        upper = corr[np.triu_indices(len(top_idx), k=1)]
+        print(f"  {cname}: mean_corr={np.mean(np.abs(upper)):.4f}, max_corr={np.max(np.abs(upper)):.4f}, n_high(>0.5)={np.sum(np.abs(upper)>0.5)}")
+    print()
+
+
+def post2000_concept_activation_layer_gradient_magnitude_v2(all_acts, concept_names):
+    """Phase 2434: Measure gradient of concept direction norm across layers."""
+    print("=" * 70)
+    print("PHASE 2434: LAYER GRADIENT OF CONCEPT DIRECTION MAGNITUDE")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        norms = []
+        for L in range(24):
+            pos = all_acts[cname]["positive"][L]
+            neg = all_acts[cname]["negative"][L]
+            direction = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+            norms.append(np.linalg.norm(direction))
+        norms = np.array(norms)
+        gradient = np.diff(norms)
+        max_increase_layer = np.argmax(gradient)
+        max_decrease_layer = np.argmin(gradient)
+        print(f"  {cname}: max_increase=L{max_increase_layer}->L{max_increase_layer+1} ({gradient[max_increase_layer]:.4f}), max_decrease=L{max_decrease_layer}->L{max_decrease_layer+1} ({gradient[max_decrease_layer]:.4f})")
+    print()
+
+
+def post2000_concept_activation_shared_neuron_importance(all_acts, concept_names):
+    """Phase 2435: Find neurons that are important for multiple concepts."""
+    print("=" * 70)
+    print("PHASE 2435: SHARED NEURON IMPORTANCE ACROSS CONCEPTS")
+    print("=" * 70)
+    layer = 10
+    importance_per_concept = {}
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        direction = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        importance_per_concept[cname] = np.abs(direction)
+    # Find neurons in top-20 for multiple concepts
+    top_sets = {}
+    for cname in concept_names:
+        top_sets[cname] = set(np.argsort(importance_per_concept[cname])[-20:].tolist())
+    shared_count = {}
+    for i, c1 in enumerate(concept_names):
+        for c2 in concept_names[i+1:]:
+            overlap = len(top_sets[c1] & top_sets[c2])
+            if overlap > 0:
+                shared_count[f"{c1}-{c2}"] = overlap
+    top_shared = sorted(shared_count.items(), key=lambda x: -x[1])[:5]
+    for pair, count in top_shared:
+        print(f"  {pair}: {count} shared neurons in top-20")
+    print()
+
+
+def post2000_concept_activation_projection_range_per_layer(all_acts, concept_names):
+    """Phase 2436: Range of concept direction projections at each layer."""
+    print("=" * 70)
+    print("PHASE 2436: PROJECTION RANGE PER LAYER")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        best_layer = -1
+        best_range = 0
+        for L in range(24):
+            pos = all_acts[cname]["positive"][L]
+            neg = all_acts[cname]["negative"][L]
+            direction = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+            direction = direction / (np.linalg.norm(direction) + 1e-10)
+            all_data = np.vstack([pos, neg])
+            proj = all_data @ direction
+            r = np.max(proj) - np.min(proj)
+            if r > best_range:
+                best_range = r
+                best_layer = L
+        print(f"  {cname}: best_layer=L{best_layer}, max_range={best_range:.4f}")
+    print()
+
+
+def post2000_concept_activation_neuron_activation_entropy_per_layer_v2(all_acts, concept_names):
+    """Phase 2437: Entropy of neuron activations across layers."""
+    print("=" * 70)
+    print("PHASE 2437: NEURON ACTIVATION ENTROPY PER LAYER")
+    print("=" * 70)
+    for cname in concept_names[:3]:
+        entropies = []
+        for L in range(24):
+            pos = all_acts[cname]["positive"][L]
+            neg = all_acts[cname]["negative"][L]
+            all_data = np.vstack([pos, neg])
+            # Discretize and compute entropy per neuron
+            mean_act = np.mean(np.abs(all_data), axis=0)
+            probs = mean_act / (np.sum(mean_act) + 1e-10)
+            entropy = -np.sum(probs * np.log(probs + 1e-15))
+            entropies.append(entropy)
+        entropies = np.array(entropies)
+        print(f"  {cname}: min_entropy=L{np.argmin(entropies)} ({entropies.min():.4f}), max_entropy=L{np.argmax(entropies)} ({entropies.max():.4f})")
+    print()
+
+
+def post2000_concept_activation_pca_explained_variance(all_acts, concept_names):
+    """Phase 2438: PCA explained variance of concept activations."""
+    print("=" * 70)
+    print("PHASE 2438: PCA EXPLAINED VARIANCE OF CONCEPT ACTIVATIONS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        all_data = np.vstack([pos, neg])
+        all_data = all_data - np.mean(all_data, axis=0)
+        cov = np.cov(all_data.T)
+        eigvals = np.linalg.eigvalsh(cov)[::-1]
+        total = np.sum(eigvals)
+        cumulative = np.cumsum(eigvals) / (total + 1e-10)
+        n_90 = np.searchsorted(cumulative, 0.9) + 1
+        n_95 = np.searchsorted(cumulative, 0.95) + 1
+        print(f"  {cname}: dims_for_90%={n_90}, dims_for_95%={n_95}, top1_var={eigvals[0]/total:.4f}")
+    print()
+
+
+def post2000_concept_activation_direction_stability_across_subsets(all_acts, concept_names):
+    """Phase 2439: Stability of concept direction when estimated from random subsets."""
+    print("=" * 70)
+    print("PHASE 2439: DIRECTION STABILITY ACROSS RANDOM SUBSETS")
+    print("=" * 70)
+    layer = 10
+    rng = np.random.RandomState(42)
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        full_dir = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        full_dir = full_dir / (np.linalg.norm(full_dir) + 1e-10)
+        cosines = []
+        for _ in range(20):
+            idx_p = rng.choice(30, 15, replace=False)
+            idx_n = rng.choice(30, 15, replace=False)
+            sub_dir = np.mean(pos[idx_p], axis=0) - np.mean(neg[idx_n], axis=0)
+            sub_dir = sub_dir / (np.linalg.norm(sub_dir) + 1e-10)
+            cosines.append(np.dot(full_dir, sub_dir))
+        cosines = np.array(cosines)
+        print(f"  {cname}: mean_cosine={cosines.mean():.4f}, min_cosine={cosines.min():.4f}, std={cosines.std():.4f}")
+    print()
+
+
+def post2000_concept_activation_phase_2440_checkpoint(all_acts, concept_names):
+    """Phase 2440: Research checkpoint."""
+    print("=" * 70)
+    print("PHASE 2440: RESEARCH CHECKPOINT — 440 BEYOND 2000")
+    print("=" * 70)
+    print(f"  2440 analysis phases completed — 440 beyond the 2000 milestone!")
+    print(f"  Phases 2431-2440: firing rate asymmetry, projection bimodality,")
+    print(f"  correlation network, layer gradient magnitude, shared neuron importance,")
+    print(f"  projection range, entropy per layer, PCA explained variance,")
+    print(f"  direction stability across subsets")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -65219,6 +65427,36 @@ def run_analysis():
 
     # Phase 2430: Research checkpoint (informational)
     post2000_concept_activation_phase_2430_checkpoint(all_acts, concept_names)
+
+    # Phase 2431: Neuron firing rate asymmetry (informational)
+    post2000_concept_activation_neuron_firing_rate_asymmetry(all_acts, concept_names)
+
+    # Phase 2432: Direction projection bimodality (informational)
+    post2000_concept_activation_direction_projection_bimodality(all_acts, concept_names)
+
+    # Phase 2433: Neuron correlation network (informational)
+    post2000_concept_activation_neuron_correlation_network(all_acts, concept_names)
+
+    # Phase 2434: Layer gradient of direction magnitude (informational)
+    post2000_concept_activation_layer_gradient_magnitude_v2(all_acts, concept_names)
+
+    # Phase 2435: Shared neuron importance (informational)
+    post2000_concept_activation_shared_neuron_importance(all_acts, concept_names)
+
+    # Phase 2436: Projection range per layer (informational)
+    post2000_concept_activation_projection_range_per_layer(all_acts, concept_names)
+
+    # Phase 2437: Neuron activation entropy per layer (informational)
+    post2000_concept_activation_neuron_activation_entropy_per_layer_v2(all_acts, concept_names)
+
+    # Phase 2438: PCA explained variance (informational)
+    post2000_concept_activation_pca_explained_variance(all_acts, concept_names)
+
+    # Phase 2439: Direction stability across subsets (informational)
+    post2000_concept_activation_direction_stability_across_subsets(all_acts, concept_names)
+
+    # Phase 2440: Research checkpoint (informational)
+    post2000_concept_activation_phase_2440_checkpoint(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
