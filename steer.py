@@ -56287,6 +56287,219 @@ def post2000_concept_activation_phase_2350_checkpoint(all_acts, concept_names):
     print()
 
 
+def post2000_concept_activation_neuron_activation_max_min_layer(all_acts, concept_names):
+    """Phase 2351: Layer where each neuron has max/min activation difference."""
+    print("=" * 70)
+    print("PHASE 2351: NEURON MAX/MIN ACTIVATION LAYER")
+    print("=" * 70)
+    for cname in concept_names[:3]:
+        max_layers = np.zeros(896)
+        for neuron in range(0, 896, 50):  # Sample every 50th
+            best_diff = 0
+            best_layer = 0
+            for L in range(0, 24, 4):
+                pos = all_acts[cname]["positive"][L]
+                neg = all_acts[cname]["negative"][L]
+                diff = abs(np.mean(pos[:, neuron]) - np.mean(neg[:, neuron]))
+                if diff > best_diff:
+                    best_diff = diff
+                    best_layer = L
+            max_layers[neuron] = best_layer
+        from collections import Counter
+        sampled_layers = max_layers[::50].astype(int)
+        counts = Counter(sampled_layers.tolist())
+        top = counts.most_common(2)
+        print(f"  {cname}: most_common_peak_layers={top}")
+    print()
+
+
+def post2000_concept_activation_concept_direction_cross_validation(all_acts, concept_names):
+    """Phase 2352: Cross-validate concept direction estimation."""
+    print("=" * 70)
+    print("PHASE 2352: CONCEPT DIRECTION CROSS-VALIDATION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        # 5-fold CV
+        fold_cosines = []
+        fold_size = 6
+        for fold in range(5):
+            start = fold * fold_size
+            end = start + fold_size
+            test_pos = pos[start:end]
+            test_neg = neg[start:end]
+            train_pos = np.vstack([pos[:start], pos[end:]])
+            train_neg = np.vstack([neg[:start], neg[end:]])
+            train_dir = np.mean(train_pos, axis=0) - np.mean(train_neg, axis=0)
+            train_dir = train_dir / (np.linalg.norm(train_dir) + 1e-10)
+            # Accuracy on test fold
+            test_data = np.vstack([test_pos, test_neg])
+            proj = test_data @ train_dir
+            pred = (proj > np.median(proj)).astype(int)
+            labels = np.array([1]*fold_size + [0]*fold_size)
+            acc = np.mean(pred == labels)
+            fold_cosines.append(max(acc, 1-acc))
+        print(f"  {cname}: CV_acc={np.mean(fold_cosines):.4f}±{np.std(fold_cosines):.4f}")
+    print()
+
+
+def post2000_concept_activation_neuron_activation_profile_similarity(all_acts, concept_names):
+    """Phase 2353: Similarity of neuron activation profiles across concepts."""
+    print("=" * 70)
+    print("PHASE 2353: NEURON ACTIVATION PROFILE SIMILARITY")
+    print("=" * 70)
+    layer = 10
+    profiles = {}
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        profiles[cname] = np.mean(pos, axis=0)
+    sims = []
+    for i in range(len(concept_names)):
+        for j in range(i+1, len(concept_names)):
+            cos = np.dot(profiles[concept_names[i]], profiles[concept_names[j]])
+            cos /= (np.linalg.norm(profiles[concept_names[i]]) * np.linalg.norm(profiles[concept_names[j]]) + 1e-10)
+            sims.append((concept_names[i], concept_names[j], cos))
+    sims.sort(key=lambda x: -x[2])
+    print(f"  Most similar: {sims[0][0]} & {sims[0][1]} (cos={sims[0][2]:.4f})")
+    print(f"  Least similar: {sims[-1][0]} & {sims[-1][1]} (cos={sims[-1][2]:.4f})")
+    print()
+
+
+def post2000_concept_activation_layer_wise_concept_direction_coherence_all(all_acts, concept_names):
+    """Phase 2354: Coherence of all concept directions at each layer."""
+    print("=" * 70)
+    print("PHASE 2354: LAYER-WISE CONCEPT DIRECTION COHERENCE (ALL)")
+    print("=" * 70)
+    for L in [0, 6, 12, 18, 23]:
+        directions = []
+        for cname in concept_names:
+            pos = all_acts[cname]["positive"][L]
+            neg = all_acts[cname]["negative"][L]
+            d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+            d = d / (np.linalg.norm(d) + 1e-10)
+            directions.append(d)
+        directions = np.array(directions)
+        gram = directions @ directions.T
+        off_diag = gram[np.triu_indices(len(concept_names), k=1)]
+        mean_cos = np.mean(np.abs(off_diag))
+        print(f"  L{L}: mean_|cos|={mean_cos:.4f}")
+    print()
+
+
+def post2000_concept_activation_neuron_activation_variance_explained_by_concept(all_acts, concept_names):
+    """Phase 2355: Fraction of neuron variance explained by concept membership."""
+    print("=" * 70)
+    print("PHASE 2355: NEURON VARIANCE EXPLAINED BY CONCEPT")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        all_data = np.vstack([pos, neg])
+        total_var = np.var(all_data, axis=0)
+        within_var = (np.var(pos, axis=0) + np.var(neg, axis=0)) / 2
+        explained = 1.0 - np.mean(within_var) / (np.mean(total_var) + 1e-10)
+        print(f"  {cname}: variance_explained={explained:.4f}")
+    print()
+
+
+def post2000_concept_activation_concept_direction_projection_distribution_test(all_acts, concept_names):
+    """Phase 2356: Test normality of projections onto concept direction."""
+    print("=" * 70)
+    print("PHASE 2356: PROJECTION DISTRIBUTION NORMALITY")
+    print("=" * 70)
+    from scipy.stats import shapiro
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        pos_proj = pos @ d
+        neg_proj = neg @ d
+        _, p_pos = shapiro(pos_proj)
+        _, p_neg = shapiro(neg_proj)
+        print(f"  {cname}: pos_normality_p={p_pos:.4f}, neg_normality_p={p_neg:.4f}")
+    print()
+
+
+def post2000_concept_activation_neuron_importance_cumulative_share(all_acts, concept_names):
+    """Phase 2357: Cumulative share of neuron importance at key thresholds."""
+    print("=" * 70)
+    print("PHASE 2357: NEURON IMPORTANCE CUMULATIVE SHARE")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        importance = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+        sorted_imp = np.sort(importance)[::-1]
+        total = np.sum(sorted_imp)
+        cumshare = np.cumsum(sorted_imp) / (total + 1e-10)
+        top1 = cumshare[0]
+        top5 = cumshare[4] if len(cumshare) > 4 else 1.0
+        top20 = cumshare[19] if len(cumshare) > 19 else 1.0
+        print(f"  {cname}: top1={top1:.4f}, top5={top5:.4f}, top20={top20:.4f}")
+    print()
+
+
+def post2000_concept_activation_concept_direction_angle_with_mean_activation(all_acts, concept_names):
+    """Phase 2358: Angle between concept direction and mean activation vector."""
+    print("=" * 70)
+    print("PHASE 2358: CONCEPT DIRECTION vs MEAN ACTIVATION ANGLE")
+    print("=" * 70)
+    layer = 10
+    # Compute overall mean activation
+    all_mean = np.zeros(896)
+    count = 0
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        all_mean += np.mean(pos, axis=0) + np.mean(neg, axis=0)
+        count += 2
+    all_mean /= count
+    all_mean_norm = all_mean / (np.linalg.norm(all_mean) + 1e-10)
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        cos = abs(np.dot(d, all_mean_norm))
+        angle = np.degrees(np.arccos(np.clip(cos, 0, 1)))
+        print(f"  {cname}: angle_with_mean={angle:.2f}°")
+    print()
+
+
+def post2000_concept_activation_neuron_activation_coefficient_of_variation_v2(all_acts, concept_names):
+    """Phase 2359: Coefficient of variation of neuron activations."""
+    print("=" * 70)
+    print("PHASE 2359: NEURON ACTIVATION COEFFICIENT OF VARIATION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        cv = np.std(pos, axis=0) / (np.abs(np.mean(pos, axis=0)) + 1e-10)
+        mean_cv = np.mean(cv)
+        low_cv = np.sum(cv < 0.5)
+        high_cv = np.sum(cv > 2.0)
+        print(f"  {cname}: mean_CV={mean_cv:.4f}, low_CV(<0.5)={low_cv}, high_CV(>2.0)={high_cv}")
+    print()
+
+
+def post2000_concept_activation_phase_2360_checkpoint(all_acts, concept_names):
+    """Phase 2360: Research checkpoint - 360 phases beyond 2000."""
+    print("=" * 70)
+    print("PHASE 2360: RESEARCH CHECKPOINT — 360 BEYOND 2000")
+    print("=" * 70)
+    print(f"  2360 analysis phases completed — 360 beyond the 2000 milestone!")
+    print(f"  Phases 2351-2360: max/min layer, cross-validation, profile similarity,")
+    print(f"  coherence all, variance explained, normality test, cumulative share,")
+    print(f"  angle with mean, coefficient of variation")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -63411,6 +63624,36 @@ def run_analysis():
 
     # Phase 2350: Research checkpoint (informational)
     post2000_concept_activation_phase_2350_checkpoint(all_acts, concept_names)
+
+    # Phase 2351: Neuron max/min activation layer (informational)
+    post2000_concept_activation_neuron_activation_max_min_layer(all_acts, concept_names)
+
+    # Phase 2352: Concept direction cross-validation (informational)
+    post2000_concept_activation_concept_direction_cross_validation(all_acts, concept_names)
+
+    # Phase 2353: Neuron activation profile similarity (informational)
+    post2000_concept_activation_neuron_activation_profile_similarity(all_acts, concept_names)
+
+    # Phase 2354: Layer-wise concept direction coherence all (informational)
+    post2000_concept_activation_layer_wise_concept_direction_coherence_all(all_acts, concept_names)
+
+    # Phase 2355: Neuron variance explained by concept (informational)
+    post2000_concept_activation_neuron_activation_variance_explained_by_concept(all_acts, concept_names)
+
+    # Phase 2356: Projection distribution normality (informational)
+    post2000_concept_activation_concept_direction_projection_distribution_test(all_acts, concept_names)
+
+    # Phase 2357: Neuron importance cumulative share (informational)
+    post2000_concept_activation_neuron_importance_cumulative_share(all_acts, concept_names)
+
+    # Phase 2358: Concept direction vs mean activation angle (informational)
+    post2000_concept_activation_concept_direction_angle_with_mean_activation(all_acts, concept_names)
+
+    # Phase 2359: Neuron activation coefficient of variation (informational)
+    post2000_concept_activation_neuron_activation_coefficient_of_variation_v2(all_acts, concept_names)
+
+    # Phase 2360: Research checkpoint (informational)
+    post2000_concept_activation_phase_2360_checkpoint(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
