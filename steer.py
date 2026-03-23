@@ -40094,6 +40094,214 @@ def concept_activation_phase_1540_status(all_acts, concept_names):
     print()
 
 
+def concept_activation_gradient_flow_analysis(all_acts, concept_names):
+    """Phase 1541: Analyze how concept signal gradient flows across layers."""
+    print("=" * 70)
+    print("PHASE 1541: CONCEPT SIGNAL GRADIENT FLOW ANALYSIS")
+    print("=" * 70)
+    for cname in concept_names:
+        pos = np.array([all_acts[cname]["positive"][l] for l in range(24)])
+        neg = np.array([all_acts[cname]["negative"][l] for l in range(24)])
+        diff_norms = [np.linalg.norm(pos[l].mean(axis=0) - neg[l].mean(axis=0)) for l in range(24)]
+        gradients = np.diff(diff_norms)
+        max_grad_layer = int(np.argmax(np.abs(gradients)))
+        print(f"  {cname}: max signal gradient at L{max_grad_layer}→L{max_grad_layer+1} "
+              f"(Δ={gradients[max_grad_layer]:.4f}), total range={max(diff_norms)-min(diff_norms):.4f}")
+    print()
+
+
+def concept_activation_layerwise_entropy_profile(all_acts, concept_names):
+    """Phase 1542: Compute activation entropy profile per concept per layer."""
+    print("=" * 70)
+    print("PHASE 1542: LAYERWISE ACTIVATION ENTROPY PROFILE")
+    print("=" * 70)
+    for cname in concept_names:
+        entropies = []
+        for l in range(24):
+            acts = np.vstack([all_acts[cname]["positive"][l], all_acts[cname]["negative"][l]])
+            var = np.var(acts, axis=0)
+            var = var[var > 1e-10]
+            entropy = 0.5 * np.sum(np.log(2 * np.pi * np.e * var))
+            entropies.append(entropy)
+        peak_layer = int(np.argmax(entropies))
+        print(f"  {cname}: peak entropy at L{peak_layer} ({entropies[peak_layer]:.1f}), "
+              f"min at L{int(np.argmin(entropies))} ({min(entropies):.1f})")
+    print()
+
+
+def concept_activation_pairwise_transfer_matrix(all_acts, concept_names):
+    """Phase 1543: Build transfer matrix showing how well each concept direction predicts others."""
+    print("=" * 70)
+    print("PHASE 1543: PAIRWISE CONCEPT TRANSFER MATRIX")
+    print("=" * 70)
+    layer = 10
+    directions = {}
+    for cname in concept_names:
+        pos_mean = np.mean(all_acts[cname]["positive"][layer], axis=0)
+        neg_mean = np.mean(all_acts[cname]["negative"][layer], axis=0)
+        d = pos_mean - neg_mean
+        directions[cname] = d / (np.linalg.norm(d) + 1e-10)
+    print("  Transfer accuracy (row=direction, col=concept):")
+    for src in concept_names[:4]:
+        accs = []
+        for tgt in concept_names[:4]:
+            pos_proj = all_acts[tgt]["positive"][layer] @ directions[src]
+            neg_proj = all_acts[tgt]["negative"][layer] @ directions[src]
+            threshold = (np.mean(pos_proj) + np.mean(neg_proj)) / 2
+            correct = np.sum(pos_proj > threshold) + np.sum(neg_proj <= threshold)
+            total = len(pos_proj) + len(neg_proj)
+            accs.append(correct / total)
+        print(f"    {src:>20s}: " + " ".join(f"{a:.2f}" for a in accs))
+    print()
+
+
+def concept_activation_neuron_activation_bimodality(all_acts, concept_names):
+    """Phase 1544: Test whether top neurons show bimodal activation distributions."""
+    print("=" * 70)
+    print("PHASE 1544: NEURON ACTIVATION BIMODALITY TEST")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        acts = np.vstack([all_acts[cname]["positive"][layer], all_acts[cname]["negative"][layer]])
+        labels = np.array([1]*len(all_acts[cname]["positive"][layer]) + [0]*len(all_acts[cname]["negative"][layer]))
+        mi = np.array([np.abs(np.corrcoef(acts[:, j], labels)[0, 1]) for j in range(acts.shape[1])])
+        top_neuron = int(np.argmax(mi))
+        vals = acts[:, top_neuron]
+        from scipy.stats import kurtosis as sp_kurtosis
+        kurt = sp_kurtosis(vals)
+        dip_proxy = (np.mean(vals[labels==1]) - np.mean(vals[labels==0])) / (np.std(vals) + 1e-10)
+        print(f"  {cname}: top neuron {top_neuron}, kurtosis={kurt:.3f}, separation={dip_proxy:.3f}")
+    print()
+
+
+def concept_activation_residual_correlation_structure(all_acts, concept_names):
+    """Phase 1545: Analyze correlation structure of residuals after removing concept directions."""
+    print("=" * 70)
+    print("PHASE 1545: RESIDUAL CORRELATION STRUCTURE")
+    print("=" * 70)
+    layer = 10
+    all_dirs = []
+    for cname in concept_names:
+        pos_mean = np.mean(all_acts[cname]["positive"][layer], axis=0)
+        neg_mean = np.mean(all_acts[cname]["negative"][layer], axis=0)
+        d = pos_mean - neg_mean
+        all_dirs.append(d / (np.linalg.norm(d) + 1e-10))
+    proj_matrix = np.column_stack(all_dirs)
+    for cname in concept_names[:4]:
+        acts = np.vstack([all_acts[cname]["positive"][layer], all_acts[cname]["negative"][layer]])
+        residuals = acts - acts @ proj_matrix @ np.linalg.pinv(proj_matrix)
+        cov = np.cov(residuals.T)
+        eigenvalues = np.linalg.eigvalsh(cov)
+        top5_ratio = np.sum(eigenvalues[-5:]) / (np.sum(eigenvalues) + 1e-10)
+        print(f"  {cname}: top-5 eigenvalue ratio in residual={top5_ratio:.4f}, "
+              f"effective dim={np.sum(eigenvalues)**2 / (np.sum(eigenvalues**2) + 1e-10):.1f}")
+    print()
+
+
+def concept_activation_concept_direction_temporal_stability(all_acts, concept_names):
+    """Phase 1546: Check stability of concept directions estimated from random subsets."""
+    print("=" * 70)
+    print("PHASE 1546: CONCEPT DIRECTION ESTIMATION STABILITY")
+    print("=" * 70)
+    layer = 10
+    rng = np.random.RandomState(42)
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        n = min(len(pos), len(neg))
+        cosines = []
+        for _ in range(20):
+            idx1 = rng.choice(n, n//2, replace=False)
+            idx2 = np.setdiff1d(np.arange(n), idx1)
+            d1 = pos[idx1].mean(0) - neg[idx1].mean(0)
+            d2 = pos[idx2].mean(0) - neg[idx2].mean(0)
+            cos = np.dot(d1, d2) / (np.linalg.norm(d1) * np.linalg.norm(d2) + 1e-10)
+            cosines.append(cos)
+        print(f"  {cname}: split-half cosine mean={np.mean(cosines):.4f} ± {np.std(cosines):.4f}")
+    print()
+
+
+def concept_activation_layerwise_discriminant_power(all_acts, concept_names):
+    """Phase 1547: Compute Fisher discriminant ratio per concept per layer."""
+    print("=" * 70)
+    print("PHASE 1547: LAYERWISE FISHER DISCRIMINANT POWER")
+    print("=" * 70)
+    for cname in concept_names:
+        best_layer = -1
+        best_fdr = -1
+        fdrs = []
+        for l in range(24):
+            pos = all_acts[cname]["positive"][l]
+            neg = all_acts[cname]["negative"][l]
+            diff = pos.mean(0) - neg.mean(0)
+            pooled_var = (np.var(pos, axis=0) + np.var(neg, axis=0)) / 2 + 1e-10
+            fdr = np.sum(diff**2 / pooled_var)
+            fdrs.append(fdr)
+            if fdr > best_fdr:
+                best_fdr = fdr
+                best_layer = l
+        print(f"  {cname}: best FDR at L{best_layer} ({best_fdr:.0f}), "
+              f"worst at L{int(np.argmin(fdrs))} ({min(fdrs):.0f})")
+    print()
+
+
+def concept_activation_neuron_sharing_graph_density(all_acts, concept_names):
+    """Phase 1548: Analyze how densely neurons are shared across concepts."""
+    print("=" * 70)
+    print("PHASE 1548: NEURON SHARING GRAPH DENSITY")
+    print("=" * 70)
+    layer = 10
+    top_k = 50
+    concept_top_neurons = {}
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        diff = np.abs(pos.mean(0) - neg.mean(0))
+        concept_top_neurons[cname] = set(np.argsort(diff)[-top_k:])
+    n_concepts = len(concept_names)
+    total_pairs = n_concepts * (n_concepts - 1) // 2
+    overlaps = []
+    for i in range(n_concepts):
+        for j in range(i+1, n_concepts):
+            overlap = len(concept_top_neurons[concept_names[i]] & concept_top_neurons[concept_names[j]])
+            overlaps.append(overlap)
+    print(f"  Top-{top_k} neuron overlaps across {total_pairs} concept pairs:")
+    print(f"    Mean overlap: {np.mean(overlaps):.1f} neurons")
+    print(f"    Max overlap: {max(overlaps)} neurons")
+    print(f"    Pairs with zero overlap: {sum(1 for o in overlaps if o == 0)}")
+    union_all = set()
+    for s in concept_top_neurons.values():
+        union_all |= s
+    print(f"    Total unique neurons used: {len(union_all)} / 896")
+    print()
+
+
+def concept_activation_activation_magnitude_distribution(all_acts, concept_names):
+    """Phase 1549: Analyze distribution of activation magnitudes across concepts."""
+    print("=" * 70)
+    print("PHASE 1549: ACTIVATION MAGNITUDE DISTRIBUTION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        acts = np.vstack([all_acts[cname]["positive"][layer], all_acts[cname]["negative"][layer]])
+        norms = np.linalg.norm(acts, axis=1)
+        print(f"  {cname}: mean_norm={np.mean(norms):.2f}, std={np.std(norms):.2f}, "
+              f"min={np.min(norms):.2f}, max={np.max(norms):.2f}, "
+              f"cv={np.std(norms)/(np.mean(norms)+1e-10):.4f}")
+    print()
+
+
+def concept_activation_phase_1550_status(all_acts, concept_names):
+    """Phase 1550: Status checkpoint at 1550 phases."""
+    print("=" * 70)
+    print("PHASE 1550: STATUS CHECKPOINT — 1550 ANALYSIS PHASES")
+    print("=" * 70)
+    print("1550 analysis phases completed.")
+    print(f"Concepts analyzed: {len(concept_names)}")
+    print("All phases informational — scoring pipeline unchanged.")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -44788,6 +44996,36 @@ def run_analysis():
 
     # Phase 1540: Status at 1540 phases (informational)
     concept_activation_phase_1540_status(all_acts, concept_names)
+
+    # Phase 1541: Concept signal gradient flow (informational)
+    concept_activation_gradient_flow_analysis(all_acts, concept_names)
+
+    # Phase 1542: Layerwise activation entropy (informational)
+    concept_activation_layerwise_entropy_profile(all_acts, concept_names)
+
+    # Phase 1543: Pairwise concept transfer matrix (informational)
+    concept_activation_pairwise_transfer_matrix(all_acts, concept_names)
+
+    # Phase 1544: Neuron activation bimodality (informational)
+    concept_activation_neuron_activation_bimodality(all_acts, concept_names)
+
+    # Phase 1545: Residual correlation structure (informational)
+    concept_activation_residual_correlation_structure(all_acts, concept_names)
+
+    # Phase 1546: Concept direction estimation stability (informational)
+    concept_activation_concept_direction_temporal_stability(all_acts, concept_names)
+
+    # Phase 1547: Layerwise Fisher discriminant power (informational)
+    concept_activation_layerwise_discriminant_power(all_acts, concept_names)
+
+    # Phase 1548: Neuron sharing graph density (informational)
+    concept_activation_neuron_sharing_graph_density(all_acts, concept_names)
+
+    # Phase 1549: Activation magnitude distribution (informational)
+    concept_activation_activation_magnitude_distribution(all_acts, concept_names)
+
+    # Phase 1550: Status checkpoint (informational)
+    concept_activation_phase_1550_status(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
