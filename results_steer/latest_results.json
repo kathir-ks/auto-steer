@@ -1,0 +1,184 @@
+{
+  "interpretability_score": 1.0,
+  "sparsity_score": 1.0,
+  "monosemanticity_score": 1.0,
+  "orthogonality_score": 1.0,
+  "layer_locality_score": 1.0,
+  "weights": {
+    "sparsity": 0.3,
+    "monosemanticity": 0.25,
+    "orthogonality": 0.25,
+    "layer_locality": 0.2
+  },
+  "elapsed_seconds": 542.5464205741882,
+  "per_concept_sparse": {
+    "sentiment": {
+      "best_layer": 11,
+      "full_accuracy": 1.0,
+      "min_neurons": 1,
+      "top_neurons": [
+        506,
+        611,
+        389
+      ],
+      "budget_curve": {
+        "1": 0.9166666666666667
+      }
+    },
+    "formality": {
+      "best_layer": 0,
+      "full_accuracy": 1.0,
+      "min_neurons": 1,
+      "top_neurons": [
+        796,
+        740,
+        64
+      ],
+      "budget_curve": {
+        "1": 0.9333333333333333
+      }
+    },
+    "certainty": {
+      "best_layer": 7,
+      "full_accuracy": 0.9833333333333332,
+      "min_neurons": 1,
+      "top_neurons": [
+        584,
+        20,
+        256
+      ],
+      "budget_curve": {
+        "1": 0.9
+      }
+    },
+    "temporal": {
+      "best_layer": 16,
+      "full_accuracy": 1.0,
+      "min_neurons": 1,
+      "top_neurons": [
+        529,
+        128,
+        507
+      ],
+      "budget_curve": {
+        "1": 0.9
+      }
+    },
+    "complexity": {
+      "best_layer": 0,
+      "full_accuracy": 0.9666666666666668,
+      "min_neurons": 1,
+      "top_neurons": [
+        699,
+        125,
+        56
+      ],
+      "budget_curve": {
+        "1": 0.9666666666666666
+      }
+    },
+    "subjectivity": {
+      "best_layer": 0,
+      "full_accuracy": 0.9833333333333332,
+      "min_neurons": 1,
+      "top_neurons": [
+        478,
+        427,
+        367
+      ],
+      "budget_curve": {
+        "1": 0.9
+      }
+    },
+    "emotion_joy_anger": {
+      "best_layer": 7,
+      "full_accuracy": 0.9833333333333334,
+      "min_neurons": 1,
+      "top_neurons": [
+        359,
+        821,
+        445
+      ],
+      "budget_curve": {
+        "1": 0.9166666666666666
+      }
+    },
+    "instruction": {
+      "best_layer": 1,
+      "full_accuracy": 0.9833333333333334,
+      "min_neurons": 1,
+      "top_neurons": [
+        798,
+        255,
+        726
+      ],
+      "budget_curve": {
+        "1": 0.9333333333333332
+      }
+    }
+  },
+  "per_concept_locality": {
+    "sentiment": {
+      "emergence_layer": 4,
+      "concentration": 1.0
+    },
+    "formality": {
+      "emergence_layer": 0,
+      "concentration": 1.0
+    },
+    "certainty": {
+      "emergence_layer": 1,
+      "concentration": 1.0
+    },
+    "temporal": {
+      "emergence_layer": 1,
+      "concentration": 1.0
+    },
+    "complexity": {
+      "emergence_layer": 0,
+      "concentration": 1.0
+    },
+    "subjectivity": {
+      "emergence_layer": 0,
+      "concentration": 1.0
+    },
+    "emotion_joy_anger": {
+      "emergence_layer": 0,
+      "concentration": 1.0
+    },
+    "instruction": {
+      "emergence_layer": 1,
+      "concentration": 1.0
+    }
+  },
+  "cross_concept_overlap": {
+    "sentiment_vs_formality": 0.0,
+    "sentiment_vs_certainty": 0.0,
+    "sentiment_vs_temporal": 0.0,
+    "sentiment_vs_complexity": 0.0,
+    "sentiment_vs_subjectivity": 0.0,
+    "sentiment_vs_emotion_joy_anger": 0.0,
+    "sentiment_vs_instruction": 0.0,
+    "formality_vs_certainty": 0.0,
+    "formality_vs_temporal": 0.0,
+    "formality_vs_complexity": 0.0,
+    "formality_vs_subjectivity": 0.0,
+    "formality_vs_emotion_joy_anger": 0.0,
+    "formality_vs_instruction": 0.0,
+    "certainty_vs_temporal": 0.0,
+    "certainty_vs_complexity": 0.0,
+    "certainty_vs_subjectivity": 0.0,
+    "certainty_vs_emotion_joy_anger": 0.0,
+    "certainty_vs_instruction": 0.0,
+    "temporal_vs_complexity": 0.0,
+    "temporal_vs_subjectivity": 0.0,
+    "temporal_vs_emotion_joy_anger": 0.0,
+    "temporal_vs_instruction": 0.0,
+    "complexity_vs_subjectivity": 0.0,
+    "complexity_vs_emotion_joy_anger": 0.0,
+    "complexity_vs_instruction": 0.0,
+    "subjectivity_vs_emotion_joy_anger": 0.0,
+    "subjectivity_vs_instruction": 0.0,
+    "emotion_joy_anger_vs_instruction": 0.0
+  }
+}

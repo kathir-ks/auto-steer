@@ -58889,6 +58889,217 @@ def post2000_concept_activation_phase_2480_checkpoint(all_acts, concept_names):
     print()
 
 
+def post2000_concept_activation_neuron_selectivity_per_layer(all_acts, concept_names):
+    """Phase 2481: How selective is each neuron for a single concept at different layers."""
+    print("=" * 70)
+    print("PHASE 2481: NEURON SELECTIVITY PER LAYER")
+    print("=" * 70)
+    for L in [0, 10, 23]:
+        selectivities = np.zeros(896)
+        for ni in range(896):
+            responses = []
+            for cname in concept_names:
+                pos = all_acts[cname]["positive"][L]
+                neg = all_acts[cname]["negative"][L]
+                response = abs(np.mean(pos[:, ni]) - np.mean(neg[:, ni]))
+                responses.append(response)
+            responses = np.array(responses)
+            if np.sum(responses) > 0:
+                probs = responses / np.sum(responses)
+                selectivities[ni] = 1.0 + np.sum(probs * np.log(probs + 1e-15)) / np.log(len(concept_names))
+        top5 = np.argsort(selectivities)[-5:][::-1]
+        print(f"  L{L}: most_selective={top5.tolist()}, selectivity={[f'{selectivities[i]:.4f}' for i in top5]}")
+    print()
+
+
+def post2000_concept_activation_concept_direction_angle_distribution(all_acts, concept_names):
+    """Phase 2482: Full distribution of pairwise angles between all concept directions."""
+    print("=" * 70)
+    print("PHASE 2482: PAIRWISE ANGLE DISTRIBUTION")
+    print("=" * 70)
+    layer = 10
+    directions = {}
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        directions[cname] = d / (np.linalg.norm(d) + 1e-10)
+    angles = []
+    for i, c1 in enumerate(concept_names):
+        for c2 in concept_names[i+1:]:
+            angle = np.degrees(np.arccos(np.clip(abs(np.dot(directions[c1], directions[c2])), 0, 1)))
+            angles.append(angle)
+    angles = np.array(angles)
+    print(f"  mean_angle={np.mean(angles):.2f}°, std={np.std(angles):.2f}°")
+    print(f"  min={np.min(angles):.2f}°, max={np.max(angles):.2f}°")
+    print(f"  percentiles: 25%={np.percentile(angles,25):.2f}°, 50%={np.percentile(angles,50):.2f}°, 75%={np.percentile(angles,75):.2f}°")
+    print()
+
+
+def post2000_concept_activation_cross_layer_projection_correlation(all_acts, concept_names):
+    """Phase 2483: Correlation of concept projections between different layers."""
+    print("=" * 70)
+    print("PHASE 2483: CROSS-LAYER PROJECTION CORRELATION")
+    print("=" * 70)
+    for cname in concept_names[:3]:
+        directions = {}
+        for L in range(24):
+            pos = all_acts[cname]["positive"][L]
+            neg = all_acts[cname]["negative"][L]
+            d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+            directions[L] = d / (np.linalg.norm(d) + 1e-10)
+        # Correlations between L0 and all others
+        corrs = []
+        for L in range(1, 24):
+            pos0 = all_acts[cname]["positive"][0] @ directions[0]
+            posL = all_acts[cname]["positive"][L] @ directions[L]
+            neg0 = all_acts[cname]["negative"][0] @ directions[0]
+            negL = all_acts[cname]["negative"][L] @ directions[L]
+            all0 = np.concatenate([pos0, neg0])
+            allL = np.concatenate([posL, negL])
+            corrs.append(np.corrcoef(all0, allL)[0, 1])
+        corrs = np.array(corrs)
+        print(f"  {cname}: L0-L23_corr={corrs[-1]:.4f}, min_corr=L0-L{np.argmin(corrs)+1} ({corrs.min():.4f})")
+    print()
+
+
+def post2000_concept_activation_neuron_importance_concentration(all_acts, concept_names):
+    """Phase 2484: How concentrated is neuron importance (Herfindahl index)."""
+    print("=" * 70)
+    print("PHASE 2484: NEURON IMPORTANCE CONCENTRATION (HERFINDAHL)")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        importance = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+        shares = importance / (np.sum(importance) + 1e-10)
+        hhi = np.sum(shares ** 2)
+        effective_n = 1.0 / (hhi + 1e-10)
+        print(f"  {cname}: HHI={hhi:.6f}, effective_neurons={effective_n:.1f}")
+    print()
+
+
+def post2000_concept_activation_concept_direction_projection_gap_v3(all_acts, concept_names):
+    """Phase 2485: Gap between closest positive and negative projections."""
+    print("=" * 70)
+    print("PHASE 2485: PROJECTION GAP (CLOSEST POINTS)")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        direction = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        direction = direction / (np.linalg.norm(direction) + 1e-10)
+        pos_proj = pos @ direction
+        neg_proj = neg @ direction
+        gap = np.min(pos_proj) - np.max(neg_proj)
+        print(f"  {cname}: gap={gap:.4f} ({'separated' if gap > 0 else 'OVERLAPPING'})")
+    print()
+
+
+def post2000_concept_activation_activation_covariance_structure(all_acts, concept_names):
+    """Phase 2486: Analyze covariance matrix structure of concept activations."""
+    print("=" * 70)
+    print("PHASE 2486: ACTIVATION COVARIANCE STRUCTURE")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        all_data = np.vstack([pos, neg])
+        all_data = all_data - np.mean(all_data, axis=0)
+        cov = np.cov(all_data.T)
+        eigvals = np.linalg.eigvalsh(cov)[::-1]
+        trace = np.sum(eigvals)
+        det_sign = np.sign(np.prod(eigvals[:10]))
+        print(f"  {cname}: trace={trace:.2f}, top_eigenvalue={eigvals[0]:.4f}, ratio_top/2nd={eigvals[0]/(eigvals[1]+1e-10):.4f}")
+    print()
+
+
+def post2000_concept_activation_concept_encoding_density(all_acts, concept_names):
+    """Phase 2487: How densely packed is concept information (bits per neuron estimate)."""
+    print("=" * 70)
+    print("PHASE 2487: CONCEPT ENCODING DENSITY")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        all_data = np.vstack([pos, neg])
+        labels = np.array([1]*30 + [0]*30)
+        mi = mutual_info_classif(all_data, labels, discrete_features=False, random_state=42)
+        total_mi = np.sum(mi)
+        n_informative = np.sum(mi > 0.01)
+        density = total_mi / (n_informative + 1e-10)
+        print(f"  {cname}: total_MI={total_mi:.4f}, informative_neurons={n_informative}, density={density:.6f} bits/neuron")
+    print()
+
+
+def post2000_concept_activation_layer_redundancy_analysis(all_acts, concept_names):
+    """Phase 2488: How redundant is concept information across layers."""
+    print("=" * 70)
+    print("PHASE 2488: LAYER REDUNDANCY ANALYSIS")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        accs = []
+        for L in range(24):
+            pos = all_acts[cname]["positive"][L]
+            neg = all_acts[cname]["negative"][L]
+            direction = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+            direction = direction / (np.linalg.norm(direction) + 1e-10)
+            all_data = np.vstack([pos, neg])
+            labels = np.array([1]*30 + [0]*30)
+            proj = all_data @ direction
+            threshold = (np.mean(proj[:30]) + np.mean(proj[30:])) / 2
+            acc = np.mean((proj > threshold) == labels)
+            accs.append(acc)
+        accs = np.array(accs)
+        n_above_90 = np.sum(accs >= 0.9)
+        n_perfect = np.sum(accs >= 1.0)
+        print(f"  {cname}: layers_above_90%={n_above_90}/24, perfect_layers={n_perfect}/24, min_acc=L{np.argmin(accs)} ({accs.min():.4f})")
+    print()
+
+
+def post2000_concept_activation_direction_norm_vs_accuracy(all_acts, concept_names):
+    """Phase 2489: Relationship between concept direction norm and classification accuracy."""
+    print("=" * 70)
+    print("PHASE 2489: DIRECTION NORM VS ACCURACY")
+    print("=" * 70)
+    layer = 10
+    norms = []
+    accs = []
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        direction = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        norm = np.linalg.norm(direction)
+        direction = direction / (norm + 1e-10)
+        all_data = np.vstack([pos, neg])
+        labels = np.array([1]*30 + [0]*30)
+        proj = all_data @ direction
+        threshold = (np.mean(proj[:30]) + np.mean(proj[30:])) / 2
+        acc = np.mean((proj > threshold) == labels)
+        norms.append(norm)
+        accs.append(acc)
+        print(f"  {cname}: norm={norm:.4f}, acc={acc:.4f}")
+    corr = np.corrcoef(norms, accs)[0, 1]
+    print(f"  norm-accuracy correlation: {corr:.4f}")
+    print()
+
+
+def post2000_concept_activation_phase_2490_checkpoint(all_acts, concept_names):
+    """Phase 2490: Research checkpoint."""
+    print("=" * 70)
+    print("PHASE 2490: RESEARCH CHECKPOINT — 490 BEYOND 2000")
+    print("=" * 70)
+    print(f"  2490 analysis phases completed — 490 beyond the 2000 milestone!")
+    print(f"  Phases 2481-2490: neuron selectivity, angle distribution, cross-layer projection,")
+    print(f"  importance concentration, projection gap, covariance structure,")
+    print(f"  encoding density, layer redundancy, direction norm vs accuracy")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -66403,6 +66614,36 @@ def run_analysis():
 
     # Phase 2480: Research checkpoint (informational)
     post2000_concept_activation_phase_2480_checkpoint(all_acts, concept_names)
+
+    # Phase 2481: Neuron selectivity per layer (informational)
+    post2000_concept_activation_neuron_selectivity_per_layer(all_acts, concept_names)
+
+    # Phase 2482: Pairwise angle distribution (informational)
+    post2000_concept_activation_concept_direction_angle_distribution(all_acts, concept_names)
+
+    # Phase 2483: Cross-layer projection correlation (informational)
+    post2000_concept_activation_cross_layer_projection_correlation(all_acts, concept_names)
+
+    # Phase 2484: Neuron importance concentration (informational)
+    post2000_concept_activation_neuron_importance_concentration(all_acts, concept_names)
+
+    # Phase 2485: Projection gap (informational)
+    post2000_concept_activation_concept_direction_projection_gap_v3(all_acts, concept_names)
+
+    # Phase 2486: Covariance structure (informational)
+    post2000_concept_activation_activation_covariance_structure(all_acts, concept_names)
+
+    # Phase 2487: Encoding density (informational)
+    post2000_concept_activation_concept_encoding_density(all_acts, concept_names)
+
+    # Phase 2488: Layer redundancy (informational)
+    post2000_concept_activation_layer_redundancy_analysis(all_acts, concept_names)
+
+    # Phase 2489: Direction norm vs accuracy (informational)
+    post2000_concept_activation_direction_norm_vs_accuracy(all_acts, concept_names)
+
+    # Phase 2490: Research checkpoint (informational)
+    post2000_concept_activation_phase_2490_checkpoint(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
