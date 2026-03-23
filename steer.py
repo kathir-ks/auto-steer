@@ -40302,6 +40302,205 @@ def concept_activation_phase_1550_status(all_acts, concept_names):
     print()
 
 
+def concept_activation_cross_layer_direction_drift(all_acts, concept_names):
+    """Phase 1551: Measure how concept directions drift across layers."""
+    print("=" * 70)
+    print("PHASE 1551: CROSS-LAYER CONCEPT DIRECTION DRIFT")
+    print("=" * 70)
+    for cname in concept_names:
+        directions = []
+        for l in range(24):
+            d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+            directions.append(d / (np.linalg.norm(d) + 1e-10))
+        # Measure drift from layer to layer
+        drifts = [1 - np.dot(directions[l], directions[l+1]) for l in range(23)]
+        max_drift_idx = int(np.argmax(drifts))
+        print(f"  {cname}: max drift at L{max_drift_idx}→L{max_drift_idx+1} ({drifts[max_drift_idx]:.4f}), "
+              f"mean drift={np.mean(drifts):.4f}, total accumulated={sum(drifts):.4f}")
+    print()
+
+
+def concept_activation_concept_separability_by_variance_ratio(all_acts, concept_names):
+    """Phase 1552: Compute between-class to within-class variance ratio per concept."""
+    print("=" * 70)
+    print("PHASE 1552: CONCEPT SEPARABILITY BY VARIANCE RATIO")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        overall_mean = np.mean(np.vstack([pos, neg]), axis=0)
+        between = (len(pos) * np.sum((pos.mean(0) - overall_mean)**2) +
+                   len(neg) * np.sum((neg.mean(0) - overall_mean)**2))
+        within = np.sum(np.var(pos, axis=0)) * len(pos) + np.sum(np.var(neg, axis=0)) * len(neg)
+        ratio = between / (within + 1e-10)
+        print(f"  {cname}: between/within variance ratio = {ratio:.4f}")
+    print()
+
+
+def concept_activation_neuron_response_asymmetry(all_acts, concept_names):
+    """Phase 1553: Test whether neurons respond asymmetrically to pos vs neg stimuli."""
+    print("=" * 70)
+    print("PHASE 1553: NEURON RESPONSE ASYMMETRY ANALYSIS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        pos_std = np.std(pos, axis=0)
+        neg_std = np.std(neg, axis=0)
+        asymmetry = np.abs(pos_std - neg_std) / (pos_std + neg_std + 1e-10)
+        top_asym_idx = int(np.argmax(asymmetry))
+        print(f"  {cname}: max asymmetry neuron={top_asym_idx} ({asymmetry[top_asym_idx]:.4f}), "
+              f"mean asymmetry={np.mean(asymmetry):.4f}, "
+              f"neurons with >0.3 asymmetry: {np.sum(asymmetry > 0.3)}")
+    print()
+
+
+def concept_activation_direction_projection_gap(all_acts, concept_names):
+    """Phase 1554: Measure the gap between pos and neg projections onto concept direction."""
+    print("=" * 70)
+    print("PHASE 1554: CONCEPT DIRECTION PROJECTION GAP ANALYSIS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        direction = pos.mean(0) - neg.mean(0)
+        direction = direction / (np.linalg.norm(direction) + 1e-10)
+        pos_proj = pos @ direction
+        neg_proj = neg @ direction
+        gap = np.mean(pos_proj) - np.mean(neg_proj)
+        overlap = max(0, min(np.max(neg_proj), np.max(pos_proj)) - max(np.min(neg_proj), np.min(pos_proj)))
+        print(f"  {cname}: mean gap={gap:.4f}, pos_std={np.std(pos_proj):.4f}, "
+              f"neg_std={np.std(neg_proj):.4f}, overlap_range={overlap:.4f}")
+    print()
+
+
+def concept_activation_layer_transition_steepness(all_acts, concept_names):
+    """Phase 1555: Measure how sharply concept representations transition between layers."""
+    print("=" * 70)
+    print("PHASE 1555: LAYER TRANSITION SHARPNESS")
+    print("=" * 70)
+    for cname in concept_names:
+        accs = []
+        for l in range(24):
+            pos = all_acts[cname]["positive"][l]
+            neg = all_acts[cname]["negative"][l]
+            d = pos.mean(0) - neg.mean(0)
+            d_norm = d / (np.linalg.norm(d) + 1e-10)
+            pos_p = pos @ d_norm
+            neg_p = neg @ d_norm
+            thresh = (np.mean(pos_p) + np.mean(neg_p)) / 2
+            acc = (np.sum(pos_p > thresh) + np.sum(neg_p <= thresh)) / (len(pos_p) + len(neg_p))
+            accs.append(acc)
+        accs = np.array(accs)
+        # Find steepest rise
+        diffs = np.diff(accs)
+        steepest = int(np.argmax(diffs))
+        print(f"  {cname}: steepest rise L{steepest}→L{steepest+1} (Δacc={diffs[steepest]:.4f}), "
+              f"emergence at L{np.argmax(accs > 0.9)}, plateau at L{np.argmax(accs > 0.95)}")
+    print()
+
+
+def concept_activation_concept_direction_norm_spectrum(all_acts, concept_names):
+    """Phase 1556: Analyze the spectrum of concept direction norms across layers."""
+    print("=" * 70)
+    print("PHASE 1556: CONCEPT DIRECTION NORM SPECTRUM")
+    print("=" * 70)
+    for cname in concept_names:
+        norms = []
+        for l in range(24):
+            d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+            norms.append(np.linalg.norm(d))
+        peak = int(np.argmax(norms))
+        trough = int(np.argmin(norms))
+        print(f"  {cname}: peak norm at L{peak} ({norms[peak]:.3f}), "
+              f"trough at L{trough} ({norms[trough]:.3f}), "
+              f"ratio={norms[peak]/(norms[trough]+1e-10):.2f}")
+    print()
+
+
+def concept_activation_neuron_concept_specificity_index(all_acts, concept_names):
+    """Phase 1557: Compute specificity index showing how dedicated each neuron is to one concept."""
+    print("=" * 70)
+    print("PHASE 1557: NEURON CONCEPT SPECIFICITY INDEX")
+    print("=" * 70)
+    layer = 10
+    # For each neuron, compute discriminability for each concept
+    n_neurons = all_acts[concept_names[0]]["positive"][layer].shape[1]
+    specificity_scores = np.zeros(n_neurons)
+    for j in range(n_neurons):
+        disc = []
+        for cname in concept_names:
+            pos_vals = all_acts[cname]["positive"][layer][:, j]
+            neg_vals = all_acts[cname]["negative"][layer][:, j]
+            d = abs(np.mean(pos_vals) - np.mean(neg_vals)) / (np.std(np.concatenate([pos_vals, neg_vals])) + 1e-10)
+            disc.append(d)
+        disc = np.array(disc)
+        if np.max(disc) > 0:
+            specificity_scores[j] = np.max(disc) / (np.sum(disc) + 1e-10)
+    highly_specific = np.sum(specificity_scores > 0.5)
+    print(f"  Highly specific neurons (>0.5): {highly_specific} / {n_neurons}")
+    print(f"  Mean specificity: {np.mean(specificity_scores):.4f}")
+    print(f"  Top-10 specificity scores: {np.sort(specificity_scores)[-10:][::-1].round(3)}")
+    print()
+
+
+def concept_activation_activation_covariance_structure(all_acts, concept_names):
+    """Phase 1558: Analyze covariance structure of activations within each concept."""
+    print("=" * 70)
+    print("PHASE 1558: WITHIN-CONCEPT COVARIANCE STRUCTURE")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        acts = np.vstack([all_acts[cname]["positive"][layer], all_acts[cname]["negative"][layer]])
+        cov = np.cov(acts.T)
+        eigenvalues = np.sort(np.linalg.eigvalsh(cov))[::-1]
+        eff_dim = np.sum(eigenvalues)**2 / (np.sum(eigenvalues**2) + 1e-10)
+        top10_ratio = np.sum(eigenvalues[:10]) / (np.sum(eigenvalues) + 1e-10)
+        print(f"  {cname}: effective dim={eff_dim:.1f}, top-10 eigenval ratio={top10_ratio:.4f}, "
+              f"condition={eigenvalues[0]/(eigenvalues[-1]+1e-10):.0f}")
+    print()
+
+
+def concept_activation_concept_encoding_redundancy(all_acts, concept_names):
+    """Phase 1559: Measure redundancy in concept encoding by comparing subspace dims."""
+    print("=" * 70)
+    print("PHASE 1559: CONCEPT ENCODING REDUNDANCY ANALYSIS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        diff = pos.mean(0) - neg.mean(0)
+        # PCA on concept-related variance
+        acts = np.vstack([pos, neg])
+        centered = acts - acts.mean(0)
+        U, S, Vt = np.linalg.svd(centered, full_matrices=False)
+        # How many PCs needed to capture concept direction
+        direction = diff / (np.linalg.norm(diff) + 1e-10)
+        cumulative_capture = 0
+        for k in range(min(30, len(S))):
+            cumulative_capture += np.dot(Vt[k], direction)**2
+            if cumulative_capture > 0.95:
+                print(f"  {cname}: {k+1} PCs needed for 95% direction capture, "
+                      f"top-1 capture={np.dot(Vt[0], direction)**2:.4f}")
+                break
+    print()
+
+
+def concept_activation_phase_1560_status(all_acts, concept_names):
+    """Phase 1560: Status checkpoint at 1560 phases."""
+    print("=" * 70)
+    print("PHASE 1560: STATUS CHECKPOINT — 1560 ANALYSIS PHASES")
+    print("=" * 70)
+    print("1560 analysis phases completed.")
+    print(f"Concepts analyzed: {len(concept_names)}")
+    print("All phases informational — scoring pipeline unchanged.")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -45026,6 +45225,36 @@ def run_analysis():
 
     # Phase 1550: Status checkpoint (informational)
     concept_activation_phase_1550_status(all_acts, concept_names)
+
+    # Phase 1551: Cross-layer direction drift (informational)
+    concept_activation_cross_layer_direction_drift(all_acts, concept_names)
+
+    # Phase 1552: Separability by variance ratio (informational)
+    concept_activation_concept_separability_by_variance_ratio(all_acts, concept_names)
+
+    # Phase 1553: Neuron response asymmetry (informational)
+    concept_activation_neuron_response_asymmetry(all_acts, concept_names)
+
+    # Phase 1554: Direction projection gap (informational)
+    concept_activation_direction_projection_gap(all_acts, concept_names)
+
+    # Phase 1555: Layer transition steepness (informational)
+    concept_activation_layer_transition_steepness(all_acts, concept_names)
+
+    # Phase 1556: Direction norm spectrum (informational)
+    concept_activation_concept_direction_norm_spectrum(all_acts, concept_names)
+
+    # Phase 1557: Neuron concept specificity index (informational)
+    concept_activation_neuron_concept_specificity_index(all_acts, concept_names)
+
+    # Phase 1558: Within-concept covariance structure (informational)
+    concept_activation_activation_covariance_structure(all_acts, concept_names)
+
+    # Phase 1559: Concept encoding redundancy (informational)
+    concept_activation_concept_encoding_redundancy(all_acts, concept_names)
+
+    # Phase 1560: Status checkpoint (informational)
+    concept_activation_phase_1560_status(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
