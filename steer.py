@@ -58680,6 +58680,215 @@ def post2000_concept_activation_phase_2470_checkpoint(all_acts, concept_names):
     print()
 
 
+def post2000_concept_activation_neuron_activation_kurtosis_per_concept(all_acts, concept_names):
+    """Phase 2471: Kurtosis of neuron activation distributions per concept."""
+    print("=" * 70)
+    print("PHASE 2471: NEURON ACTIVATION KURTOSIS PER CONCEPT")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        all_data = np.vstack([pos, neg])
+        mean = np.mean(all_data, axis=0)
+        std = np.std(all_data, axis=0) + 1e-10
+        kurt = np.mean(((all_data - mean) / std) ** 4, axis=0) - 3  # excess kurtosis
+        most_leptokurtic = np.argsort(kurt)[-3:][::-1]
+        most_platykurtic = np.argsort(kurt)[:3]
+        print(f"  {cname}: most_leptokurtic={most_leptokurtic.tolist()} ({[f'{kurt[i]:.2f}' for i in most_leptokurtic]}), most_platykurtic={most_platykurtic.tolist()}")
+    print()
+
+
+def post2000_concept_activation_concept_direction_alignment_with_eigenvectors(all_acts, concept_names):
+    """Phase 2472: Alignment of concept directions with principal eigenvectors of the activation covariance."""
+    print("=" * 70)
+    print("PHASE 2472: CONCEPT DIRECTION ALIGNMENT WITH EIGENVECTORS")
+    print("=" * 70)
+    layer = 10
+    all_data = []
+    for cname in concept_names:
+        all_data.append(all_acts[cname]["positive"][layer])
+        all_data.append(all_acts[cname]["negative"][layer])
+    all_data = np.vstack(all_data)
+    all_data = all_data - np.mean(all_data, axis=0)
+    cov = np.cov(all_data.T)
+    eigvals, eigvecs = np.linalg.eigh(cov)
+    top_eigvecs = eigvecs[:, -10:][:, ::-1]  # top 10 eigenvectors
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        direction = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        direction = direction / (np.linalg.norm(direction) + 1e-10)
+        alignments = np.abs(direction @ top_eigvecs)
+        best_eig = np.argmax(alignments)
+        print(f"  {cname}: best_eigvec=PC{best_eig+1} (alignment={alignments[best_eig]:.4f}), total_top10={np.sum(alignments**2):.4f}")
+    print()
+
+
+def post2000_concept_activation_leave_one_out_direction_stability(all_acts, concept_names):
+    """Phase 2473: Leave-one-out stability of concept directions."""
+    print("=" * 70)
+    print("PHASE 2473: LEAVE-ONE-OUT DIRECTION STABILITY")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        full_dir = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        full_dir = full_dir / (np.linalg.norm(full_dir) + 1e-10)
+        cosines = []
+        for i in range(30):
+            loo_pos = np.delete(pos, i, axis=0)
+            loo_neg = np.delete(neg, i, axis=0)
+            loo_dir = np.mean(loo_pos, axis=0) - np.mean(loo_neg, axis=0)
+            loo_dir = loo_dir / (np.linalg.norm(loo_dir) + 1e-10)
+            cosines.append(np.dot(full_dir, loo_dir))
+        cosines = np.array(cosines)
+        print(f"  {cname}: mean_cos={cosines.mean():.6f}, min_cos={cosines.min():.6f}, worst_sample={np.argmin(cosines)}")
+    print()
+
+
+def post2000_concept_activation_direction_projection_percentiles(all_acts, concept_names):
+    """Phase 2474: Percentile distribution of concept direction projections."""
+    print("=" * 70)
+    print("PHASE 2474: DIRECTION PROJECTION PERCENTILES")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        direction = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        direction = direction / (np.linalg.norm(direction) + 1e-10)
+        pos_proj = pos @ direction
+        neg_proj = neg @ direction
+        print(f"  {cname}: pos[5%,50%,95%]=[{np.percentile(pos_proj,5):.3f},{np.percentile(pos_proj,50):.3f},{np.percentile(pos_proj,95):.3f}], neg=[{np.percentile(neg_proj,5):.3f},{np.percentile(neg_proj,50):.3f},{np.percentile(neg_proj,95):.3f}]")
+    print()
+
+
+def post2000_concept_activation_neuron_mutual_information_layer_profile(all_acts, concept_names):
+    """Phase 2475: MI between top neuron and concept label across layers."""
+    print("=" * 70)
+    print("PHASE 2475: TOP NEURON MI ACROSS LAYERS")
+    print("=" * 70)
+    for cname in concept_names[:3]:
+        mi_profile = []
+        for L in range(24):
+            pos = all_acts[cname]["positive"][L]
+            neg = all_acts[cname]["negative"][L]
+            all_data = np.vstack([pos, neg])
+            labels = np.array([1]*30 + [0]*30)
+            mi = mutual_info_classif(all_data, labels, discrete_features=False, random_state=42)
+            mi_profile.append(np.max(mi))
+        mi_profile = np.array(mi_profile)
+        peak = np.argmax(mi_profile)
+        print(f"  {cname}: peak_MI=L{peak} ({mi_profile[peak]:.4f}), L0={mi_profile[0]:.4f}")
+    print()
+
+
+def post2000_concept_activation_concept_entanglement_score(all_acts, concept_names):
+    """Phase 2476: Concept entanglement: how much does modifying one concept direction affect others."""
+    print("=" * 70)
+    print("PHASE 2476: CONCEPT ENTANGLEMENT SCORE")
+    print("=" * 70)
+    layer = 10
+    directions = {}
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        directions[cname] = d / (np.linalg.norm(d) + 1e-10)
+    for cname in concept_names[:4]:
+        # Project out this concept's direction from all data
+        entanglement = 0
+        for other in concept_names:
+            if other == cname:
+                continue
+            cos = abs(np.dot(directions[cname], directions[other]))
+            entanglement += cos
+        entanglement /= (len(concept_names) - 1)
+        print(f"  {cname}: mean_entanglement={entanglement:.6f}")
+    print()
+
+
+def post2000_concept_activation_activation_sparsity_per_layer(all_acts, concept_names):
+    """Phase 2477: Fraction of near-zero activations per layer (activation sparsity)."""
+    print("=" * 70)
+    print("PHASE 2477: ACTIVATION SPARSITY PER LAYER")
+    print("=" * 70)
+    for L in [0, 5, 10, 15, 23]:
+        sparsities = []
+        for cname in concept_names:
+            pos = all_acts[cname]["positive"][L]
+            neg = all_acts[cname]["negative"][L]
+            all_data = np.vstack([pos, neg])
+            frac_zero = np.mean(np.abs(all_data) < 0.01)
+            sparsities.append(frac_zero)
+        print(f"  L{L}: mean_sparsity={np.mean(sparsities)*100:.1f}%, range=[{np.min(sparsities)*100:.1f}%, {np.max(sparsities)*100:.1f}%]")
+    print()
+
+
+def post2000_concept_activation_direction_gram_schmidt_residual(all_acts, concept_names):
+    """Phase 2478: Residual after Gram-Schmidt orthogonalization of concept directions."""
+    print("=" * 70)
+    print("PHASE 2478: GRAM-SCHMIDT RESIDUAL NORMS")
+    print("=" * 70)
+    layer = 10
+    directions = []
+    names = []
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        directions.append(d / (np.linalg.norm(d) + 1e-10))
+        names.append(cname)
+    # Gram-Schmidt
+    ortho = [directions[0].copy()]
+    for i in range(1, len(directions)):
+        v = directions[i].copy()
+        for j in range(len(ortho)):
+            v = v - np.dot(v, ortho[j]) * ortho[j]
+        residual_norm = np.linalg.norm(v)
+        print(f"  {names[i]}: residual_norm_after_GS={residual_norm:.6f} (1.0=fully independent)")
+        v = v / (residual_norm + 1e-10)
+        ortho.append(v)
+    print()
+
+
+def post2000_concept_activation_concept_prototype_analysis(all_acts, concept_names):
+    """Phase 2479: Find the most prototypical positive and negative example per concept."""
+    print("=" * 70)
+    print("PHASE 2479: CONCEPT PROTOTYPE ANALYSIS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        pos_centroid = np.mean(pos, axis=0)
+        neg_centroid = np.mean(neg, axis=0)
+        # Most prototypical = closest to centroid
+        pos_dists = np.linalg.norm(pos - pos_centroid, axis=1)
+        neg_dists = np.linalg.norm(neg - neg_centroid, axis=1)
+        best_pos = np.argmin(pos_dists)
+        best_neg = np.argmin(neg_dists)
+        worst_pos = np.argmax(pos_dists)
+        worst_neg = np.argmax(neg_dists)
+        print(f"  {cname}: most_proto_pos=#{best_pos} (d={pos_dists[best_pos]:.3f}), most_proto_neg=#{best_neg} (d={neg_dists[best_neg]:.3f})")
+        print(f"           least_proto_pos=#{worst_pos} (d={pos_dists[worst_pos]:.3f}), least_proto_neg=#{worst_neg} (d={neg_dists[worst_neg]:.3f})")
+    print()
+
+
+def post2000_concept_activation_phase_2480_checkpoint(all_acts, concept_names):
+    """Phase 2480: Research checkpoint."""
+    print("=" * 70)
+    print("PHASE 2480: RESEARCH CHECKPOINT — 480 BEYOND 2000")
+    print("=" * 70)
+    print(f"  2480 analysis phases completed — 480 beyond the 2000 milestone!")
+    print(f"  Phases 2471-2480: kurtosis, eigenvector alignment, LOO stability,")
+    print(f"  projection percentiles, MI layer profile, entanglement score,")
+    print(f"  activation sparsity, Gram-Schmidt residual, prototype analysis")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -66164,6 +66373,36 @@ def run_analysis():
 
     # Phase 2470: Research checkpoint (informational)
     post2000_concept_activation_phase_2470_checkpoint(all_acts, concept_names)
+
+    # Phase 2471: Neuron activation kurtosis (informational)
+    post2000_concept_activation_neuron_activation_kurtosis_per_concept(all_acts, concept_names)
+
+    # Phase 2472: Direction alignment with eigenvectors (informational)
+    post2000_concept_activation_concept_direction_alignment_with_eigenvectors(all_acts, concept_names)
+
+    # Phase 2473: Leave-one-out direction stability (informational)
+    post2000_concept_activation_leave_one_out_direction_stability(all_acts, concept_names)
+
+    # Phase 2474: Direction projection percentiles (informational)
+    post2000_concept_activation_direction_projection_percentiles(all_acts, concept_names)
+
+    # Phase 2475: Top neuron MI across layers (informational)
+    post2000_concept_activation_neuron_mutual_information_layer_profile(all_acts, concept_names)
+
+    # Phase 2476: Concept entanglement score (informational)
+    post2000_concept_activation_concept_entanglement_score(all_acts, concept_names)
+
+    # Phase 2477: Activation sparsity per layer (informational)
+    post2000_concept_activation_activation_sparsity_per_layer(all_acts, concept_names)
+
+    # Phase 2478: Gram-Schmidt residual norms (informational)
+    post2000_concept_activation_direction_gram_schmidt_residual(all_acts, concept_names)
+
+    # Phase 2479: Concept prototype analysis (informational)
+    post2000_concept_activation_concept_prototype_analysis(all_acts, concept_names)
+
+    # Phase 2480: Research checkpoint (informational)
+    post2000_concept_activation_phase_2480_checkpoint(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
