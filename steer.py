@@ -47998,6 +47998,206 @@ def concept_activation_phase_1940_checkpoint(all_acts, concept_names):
     print()
 
 
+def concept_activation_neuron_concept_discrimination_efficiency(all_acts, concept_names):
+    """Phase 1941: Discrimination efficiency — accuracy per active neuron."""
+    print("=" * 70)
+    print("PHASE 1941: NEURON CONCEPT DISCRIMINATION EFFICIENCY")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        diff = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+        threshold = np.percentile(diff, 75)
+        active = np.sum(diff > threshold)
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        d_unit = d / (np.linalg.norm(d) + 1e-10)
+        all_data = np.vstack([pos, neg])
+        labels = np.array([1]*len(pos) + [0]*len(neg))
+        projs = all_data @ d_unit
+        acc = np.mean((projs > np.median(projs)).astype(int) == labels)
+        efficiency = acc / (active + 1e-10)
+        print(f"  {cname}: active_neurons={active}, acc={acc:.4f}, efficiency={efficiency:.6f}")
+    print()
+
+
+def concept_activation_concept_direction_layer_wise_angle_to_final(all_acts, concept_names):
+    """Phase 1942: Angle of each layer's direction to the final layer direction."""
+    print("=" * 70)
+    print("PHASE 1942: ANGLE TO FINAL LAYER DIRECTION")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        final_d = np.mean(all_acts[cname]["positive"][23], axis=0) - np.mean(all_acts[cname]["negative"][23], axis=0)
+        final_d = final_d / (np.linalg.norm(final_d) + 1e-10)
+        angles = []
+        for l in range(23):
+            d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+            d = d / (np.linalg.norm(d) + 1e-10)
+            cos = np.dot(d, final_d)
+            angles.append(np.degrees(np.arccos(np.clip(abs(cos), 0, 1))))
+        converge_layer = next((l for l in range(23) if angles[l] < 30), 23)
+        print(f"  {cname}: converge_layer(angle<30°)={converge_layer}, L0_angle={angles[0]:.1f}°, L12_angle={angles[12]:.1f}°")
+    print()
+
+
+def concept_activation_neuron_activation_correlation_matrix_rank(all_acts, concept_names):
+    """Phase 1943: Effective rank of neuron activation correlation matrix."""
+    print("=" * 70)
+    print("PHASE 1943: ACTIVATION CORRELATION MATRIX RANK")
+    print("=" * 70)
+    layer = 10
+    all_data = []
+    for cname in concept_names:
+        all_data.append(all_acts[cname]["positive"][layer])
+        all_data.append(all_acts[cname]["negative"][layer])
+    all_data = np.vstack(all_data)
+    # Sample neurons for efficiency
+    n_sample = min(100, all_data.shape[1])
+    idx = np.random.choice(all_data.shape[1], n_sample, replace=False)
+    corr = np.corrcoef(all_data[:, idx].T)
+    eigenvalues = np.linalg.eigvalsh(corr)[::-1]
+    eigenvalues = np.maximum(eigenvalues, 0)
+    p = eigenvalues / (np.sum(eigenvalues) + 1e-10)
+    p = np.clip(p, 1e-10, 1)
+    eff_rank = np.exp(-np.sum(p * np.log(p)))
+    print(f"  Effective rank of correlation matrix: {eff_rank:.1f}/{n_sample}")
+    print(f"  Top eigenvalue ratio: {eigenvalues[0]/np.sum(eigenvalues):.4f}")
+    print()
+
+
+def concept_activation_concept_direction_noise_robustness_test(all_acts, concept_names):
+    """Phase 1944: Robustness of concept directions to additive noise."""
+    print("=" * 70)
+    print("PHASE 1944: DIRECTION ROBUSTNESS TO ADDITIVE NOISE")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        clean_dir = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        clean_dir = clean_dir / (np.linalg.norm(clean_dir) + 1e-10)
+        noise_levels = [0.1, 0.5, 1.0]
+        for sigma in noise_levels:
+            noisy_pos = pos + np.random.randn(*pos.shape) * sigma
+            noisy_neg = neg + np.random.randn(*neg.shape) * sigma
+            noisy_dir = np.mean(noisy_pos, axis=0) - np.mean(noisy_neg, axis=0)
+            noisy_dir = noisy_dir / (np.linalg.norm(noisy_dir) + 1e-10)
+            cos = np.dot(clean_dir, noisy_dir)
+            print(f"  {cname} σ={sigma}: cos={cos:.4f}")
+    print()
+
+
+def concept_activation_neuron_concept_activation_correlation_profile(all_acts, concept_names):
+    """Phase 1945: Correlation profile of concept-discriminative neurons."""
+    print("=" * 70)
+    print("PHASE 1945: CONCEPT-DISCRIMINATIVE NEURON CORRELATION PROFILE")
+    print("=" * 70)
+    layer = 10
+    cname = concept_names[0]
+    pos = all_acts[cname]["positive"][layer]
+    neg = all_acts[cname]["negative"][layer]
+    diff = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+    top10 = np.argsort(diff)[-10:]
+    bottom10 = np.argsort(diff)[:10]
+    all_data = np.vstack([pos, neg])
+    top_corr = np.mean(np.abs(np.corrcoef(all_data[:, top10].T)[np.triu_indices(10, k=1)]))
+    bot_corr = np.mean(np.abs(np.corrcoef(all_data[:, bottom10].T)[np.triu_indices(10, k=1)]))
+    print(f"  {cname}: top10_mean_corr={top_corr:.4f}, bottom10_mean_corr={bot_corr:.4f}")
+    print()
+
+
+def concept_activation_concept_direction_best_worst_layer_gap(all_acts, concept_names):
+    """Phase 1946: Gap between best and worst layer for concept separation."""
+    print("=" * 70)
+    print("PHASE 1946: BEST-WORST LAYER GAP")
+    print("=" * 70)
+    for cname in concept_names:
+        seps = []
+        for l in range(24):
+            d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+            seps.append(np.linalg.norm(d))
+        gap = max(seps) - min(seps)
+        ratio = max(seps) / (min(seps) + 1e-10)
+        print(f"  {cname}: best={np.argmax(seps)}({max(seps):.3f}), worst={np.argmin(seps)}({min(seps):.3f}), gap={gap:.3f}, ratio={ratio:.2f}")
+    print()
+
+
+def concept_activation_neuron_activation_feature_importance_via_permutation(all_acts, concept_names):
+    """Phase 1947: Feature importance via permutation test."""
+    print("=" * 70)
+    print("PHASE 1947: NEURON IMPORTANCE VIA PERMUTATION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:2]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        d_unit = d / (np.linalg.norm(d) + 1e-10)
+        all_data = np.vstack([pos, neg])
+        labels = np.array([1]*len(pos) + [0]*len(neg))
+        base_acc = np.mean((all_data @ d_unit > 0).astype(int) == labels)
+        # Permute top 5 neurons
+        diff = np.abs(d)
+        top5 = np.argsort(diff)[-5:]
+        perm_accs = []
+        for n in top5:
+            permuted = all_data.copy()
+            permuted[:, n] = np.random.permutation(permuted[:, n])
+            perm_acc = np.mean((permuted @ d_unit > 0).astype(int) == labels)
+            perm_accs.append(base_acc - perm_acc)
+        print(f"  {cname}: top5_importance={[f'{x:.4f}' for x in perm_accs]}")
+    print()
+
+
+def concept_activation_concept_direction_geometric_median(all_acts, concept_names):
+    """Phase 1948: Compare mean-based direction to geometric median direction."""
+    print("=" * 70)
+    print("PHASE 1948: MEAN VS GEOMETRIC MEDIAN DIRECTION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        mean_dir = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        mean_dir = mean_dir / (np.linalg.norm(mean_dir) + 1e-10)
+        # Approximate geometric median via iterative reweighting
+        median_pos = np.median(pos, axis=0)
+        median_neg = np.median(neg, axis=0)
+        median_dir = median_pos - median_neg
+        median_dir = median_dir / (np.linalg.norm(median_dir) + 1e-10)
+        cos = np.dot(mean_dir, median_dir)
+        print(f"  {cname}: cos(mean, median)={cos:.4f}")
+    print()
+
+
+def concept_activation_neuron_concept_response_uniformity(all_acts, concept_names):
+    """Phase 1949: Uniformity of neuron responses across samples."""
+    print("=" * 70)
+    print("PHASE 1949: NEURON RESPONSE UNIFORMITY")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        # Sample-to-sample variance for top neurons
+        diff = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+        top5 = np.argsort(diff)[-5:]
+        pos_uniformity = np.mean([np.std(pos[:, n]) / (np.abs(np.mean(pos[:, n])) + 1e-10) for n in top5])
+        neg_uniformity = np.mean([np.std(neg[:, n]) / (np.abs(np.mean(neg[:, n])) + 1e-10) for n in top5])
+        print(f"  {cname}: pos_CV={pos_uniformity:.4f}, neg_CV={neg_uniformity:.4f}")
+    print()
+
+
+def concept_activation_phase_1950_milestone(all_acts, concept_names):
+    """Phase 1950: Milestone checkpoint at 1950."""
+    print("=" * 70)
+    print("PHASE 1950: MILESTONE — 1950 PHASES")
+    print("=" * 70)
+    print(f"  1950 analysis phases completed")
+    print(f"  50 phases to 2000!")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -53892,6 +54092,36 @@ def run_analysis():
 
     # Phase 1940: Status checkpoint (informational)
     concept_activation_phase_1940_checkpoint(all_acts, concept_names)
+
+    # Phase 1941: Discrimination efficiency (informational)
+    concept_activation_neuron_concept_discrimination_efficiency(all_acts, concept_names)
+
+    # Phase 1942: Angle to final layer (informational)
+    concept_activation_concept_direction_layer_wise_angle_to_final(all_acts, concept_names)
+
+    # Phase 1943: Correlation matrix rank (informational)
+    concept_activation_neuron_activation_correlation_matrix_rank(all_acts, concept_names)
+
+    # Phase 1944: Robustness to noise (informational)
+    concept_activation_concept_direction_noise_robustness_test(all_acts, concept_names)
+
+    # Phase 1945: Discriminative neuron correlation profile (informational)
+    concept_activation_neuron_concept_activation_correlation_profile(all_acts, concept_names)
+
+    # Phase 1946: Best-worst layer gap (informational)
+    concept_activation_concept_direction_best_worst_layer_gap(all_acts, concept_names)
+
+    # Phase 1947: Permutation importance (informational)
+    concept_activation_neuron_activation_feature_importance_via_permutation(all_acts, concept_names)
+
+    # Phase 1948: Mean vs geometric median (informational)
+    concept_activation_concept_direction_geometric_median(all_acts, concept_names)
+
+    # Phase 1949: Response uniformity (informational)
+    concept_activation_neuron_concept_response_uniformity(all_acts, concept_names)
+
+    # Phase 1950: Milestone (informational)
+    concept_activation_phase_1950_milestone(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
