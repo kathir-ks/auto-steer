@@ -48382,6 +48382,194 @@ def concept_activation_phase_1960_checkpoint(all_acts, concept_names):
     print()
 
 
+def concept_activation_neuron_concept_activation_dispersion(all_acts, concept_names):
+    """Phase 1961: Dispersion of neuron activations within concept classes."""
+    print("=" * 70)
+    print("PHASE 1961: NEURON ACTIVATION DISPERSION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        pos_disp = np.mean(np.std(pos, axis=0))
+        neg_disp = np.mean(np.std(neg, axis=0))
+        all_disp = np.mean(np.std(np.vstack([pos, neg]), axis=0))
+        print(f"  {cname}: pos_disp={pos_disp:.4f}, neg_disp={neg_disp:.4f}, total_disp={all_disp:.4f}")
+    print()
+
+
+def concept_activation_concept_direction_pairwise_independence_test(all_acts, concept_names):
+    """Phase 1962: Test statistical independence of concept direction projections."""
+    print("=" * 70)
+    print("PHASE 1962: CONCEPT DIRECTION PAIRWISE INDEPENDENCE")
+    print("=" * 70)
+    layer = 10
+    all_data = []
+    for cname in concept_names:
+        all_data.append(all_acts[cname]["positive"][layer])
+        all_data.append(all_acts[cname]["negative"][layer])
+    all_data = np.vstack(all_data)
+    directions = []
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        directions.append(d)
+    projs = all_data @ np.array(directions).T
+    pairs_shown = 0
+    for i in range(len(concept_names)):
+        for j in range(i+1, len(concept_names)):
+            if pairs_shown >= 4:
+                break
+            corr = np.corrcoef(projs[:, i], projs[:, j])[0, 1]
+            print(f"  {concept_names[i]} vs {concept_names[j]}: proj_corr={corr:.4f}")
+            pairs_shown += 1
+        if pairs_shown >= 4:
+            break
+    print()
+
+
+def concept_activation_neuron_activation_energy_distribution(all_acts, concept_names):
+    """Phase 1963: Energy distribution across neurons."""
+    print("=" * 70)
+    print("PHASE 1963: NEURON ACTIVATION ENERGY DISTRIBUTION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        all_data = np.vstack([pos, neg])
+        energy = np.sum(all_data**2, axis=0)
+        sorted_energy = np.sort(energy)[::-1]
+        cumulative = np.cumsum(sorted_energy) / (np.sum(sorted_energy) + 1e-10)
+        neurons_50 = np.searchsorted(cumulative, 0.5) + 1
+        neurons_90 = np.searchsorted(cumulative, 0.9) + 1
+        print(f"  {cname}: neurons_for_50pct_energy={neurons_50}, neurons_for_90pct_energy={neurons_90}")
+    print()
+
+
+def concept_activation_concept_direction_layer_convergence_rate(all_acts, concept_names):
+    """Phase 1964: Rate at which concept direction converges to final direction."""
+    print("=" * 70)
+    print("PHASE 1964: DIRECTION CONVERGENCE RATE")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        final_d = np.mean(all_acts[cname]["positive"][23], axis=0) - np.mean(all_acts[cname]["negative"][23], axis=0)
+        final_d = final_d / (np.linalg.norm(final_d) + 1e-10)
+        cosines = []
+        for l in range(24):
+            d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+            d = d / (np.linalg.norm(d) + 1e-10)
+            cosines.append(np.dot(d, final_d))
+        # Find layer where cos > 0.9 first
+        converge_90 = next((l for l in range(24) if cosines[l] > 0.9), 24)
+        print(f"  {cname}: converge_90_layer={converge_90}, L0_cos={cosines[0]:.4f}, L12_cos={cosines[12]:.4f}")
+    print()
+
+
+def concept_activation_neuron_concept_activation_peak_width(all_acts, concept_names):
+    """Phase 1965: Width of activation peaks for concept-discriminative neurons."""
+    print("=" * 70)
+    print("PHASE 1965: ACTIVATION PEAK WIDTH")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        diff = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+        top_n = np.argmax(diff)
+        all_vals = np.concatenate([pos[:, top_n], neg[:, top_n]])
+        peak = np.max(all_vals)
+        half_max = peak / 2
+        above_half = np.sum(all_vals > half_max) / len(all_vals)
+        print(f"  {cname} neuron {top_n}: peak={peak:.4f}, half_max_frac={above_half:.4f}")
+    print()
+
+
+def concept_activation_concept_direction_information_density(all_acts, concept_names):
+    """Phase 1966: Information density — concept info per dimension."""
+    print("=" * 70)
+    print("PHASE 1966: CONCEPT INFORMATION DENSITY")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        n_dims = len(d)
+        signal = np.linalg.norm(d)
+        # Information density = signal per dimension
+        density = signal / np.sqrt(n_dims)
+        # Effective dimensions used
+        d_abs = np.abs(d) / (np.sum(np.abs(d)) + 1e-10)
+        d_abs = np.clip(d_abs, 1e-10, 1)
+        eff_dims = np.exp(-np.sum(d_abs * np.log(d_abs)))
+        print(f"  {cname}: info_density={density:.4f}, effective_dims={eff_dims:.1f}, total_dims={n_dims}")
+    print()
+
+
+def concept_activation_neuron_concept_activation_centroid_shift(all_acts, concept_names):
+    """Phase 1967: Shift of activation centroids from layer to layer."""
+    print("=" * 70)
+    print("PHASE 1967: ACTIVATION CENTROID SHIFT ACROSS LAYERS")
+    print("=" * 70)
+    for cname in concept_names[:3]:
+        shifts = []
+        for l in range(23):
+            c1 = np.mean(np.vstack([all_acts[cname]["positive"][l], all_acts[cname]["negative"][l]]), axis=0)
+            c2 = np.mean(np.vstack([all_acts[cname]["positive"][l+1], all_acts[cname]["negative"][l+1]]), axis=0)
+            shifts.append(np.linalg.norm(c2 - c1))
+        max_shift_layer = np.argmax(shifts)
+        print(f"  {cname}: max_shift_layer={max_shift_layer}({shifts[max_shift_layer]:.3f}), mean_shift={np.mean(shifts):.3f}")
+    print()
+
+
+def concept_activation_concept_direction_explained_variance_ratio(all_acts, concept_names):
+    """Phase 1968: Ratio of variance explained by concept direction to total."""
+    print("=" * 70)
+    print("PHASE 1968: EXPLAINED VARIANCE RATIO BY CONCEPT DIRECTION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        all_data = np.vstack([pos, neg])
+        all_data_c = all_data - np.mean(all_data, axis=0)
+        total_var = np.sum(all_data_c**2)
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        proj = (all_data_c @ d).reshape(-1, 1) * d.reshape(1, -1)
+        explained = np.sum(proj**2)
+        print(f"  {cname}: explained_var_ratio={explained/total_var:.6f}")
+    print()
+
+
+def concept_activation_neuron_concept_top_bottom_neuron_overlap(all_acts, concept_names):
+    """Phase 1969: Overlap between top positive and top negative neurons."""
+    print("=" * 70)
+    print("PHASE 1969: TOP POSITIVE VS TOP NEGATIVE NEURON OVERLAP")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        top_pos = set(np.argsort(d)[-10:].tolist())
+        top_neg = set(np.argsort(d)[:10].tolist())
+        overlap = len(top_pos & top_neg)
+        print(f"  {cname}: top10_pos_neurons={len(top_pos)}, top10_neg_neurons={len(top_neg)}, overlap={overlap}")
+    print()
+
+
+def concept_activation_phase_1970_checkpoint(all_acts, concept_names):
+    """Phase 1970: Status checkpoint."""
+    print("=" * 70)
+    print("PHASE 1970: STATUS CHECKPOINT")
+    print("=" * 70)
+    print(f"  1970 analysis phases completed")
+    print(f"  30 phases to 2000!")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -54336,6 +54524,36 @@ def run_analysis():
 
     # Phase 1960: Status checkpoint (informational)
     concept_activation_phase_1960_checkpoint(all_acts, concept_names)
+
+    # Phase 1961: Activation dispersion (informational)
+    concept_activation_neuron_concept_activation_dispersion(all_acts, concept_names)
+
+    # Phase 1962: Pairwise independence test (informational)
+    concept_activation_concept_direction_pairwise_independence_test(all_acts, concept_names)
+
+    # Phase 1963: Energy distribution (informational)
+    concept_activation_neuron_activation_energy_distribution(all_acts, concept_names)
+
+    # Phase 1964: Direction convergence rate (informational)
+    concept_activation_concept_direction_layer_convergence_rate(all_acts, concept_names)
+
+    # Phase 1965: Activation peak width (informational)
+    concept_activation_neuron_concept_activation_peak_width(all_acts, concept_names)
+
+    # Phase 1966: Information density (informational)
+    concept_activation_concept_direction_information_density(all_acts, concept_names)
+
+    # Phase 1967: Centroid shift (informational)
+    concept_activation_neuron_concept_activation_centroid_shift(all_acts, concept_names)
+
+    # Phase 1968: Explained variance ratio (informational)
+    concept_activation_concept_direction_explained_variance_ratio(all_acts, concept_names)
+
+    # Phase 1969: Top positive vs negative neuron overlap (informational)
+    concept_activation_neuron_concept_top_bottom_neuron_overlap(all_acts, concept_names)
+
+    # Phase 1970: Status checkpoint (informational)
+    concept_activation_phase_1970_checkpoint(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
