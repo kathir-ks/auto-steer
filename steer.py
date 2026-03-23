@@ -57479,6 +57479,193 @@ def post2000_concept_activation_phase_2410_checkpoint(all_acts, concept_names):
     print()
 
 
+def post2000_concept_activation_neuron_activation_median_importance(all_acts, concept_names):
+    """Phase 2411: Median neuron importance per concept."""
+    print("=" * 70)
+    print("PHASE 2411: MEDIAN NEURON IMPORTANCE")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        importance = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+        print(f"  {cname}: median={np.median(importance):.6f}, mean={np.mean(importance):.6f}, "
+              f"mean/median={np.mean(importance)/(np.median(importance)+1e-10):.2f}")
+    print()
+
+
+def post2000_concept_activation_concept_direction_pairwise_inner_product(all_acts, concept_names):
+    """Phase 2412: Raw inner products between concept directions (not normalized)."""
+    print("=" * 70)
+    print("PHASE 2412: PAIRWISE INNER PRODUCTS (UNNORMALIZED)")
+    print("=" * 70)
+    layer = 10
+    directions = {}
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        directions[cname] = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+    pairs = [(concept_names[i], concept_names[j])
+             for i in range(len(concept_names)) for j in range(i+1, len(concept_names))]
+    for c1, c2 in pairs[:5]:
+        ip = np.dot(directions[c1], directions[c2])
+        print(f"  {c1} · {c2} = {ip:.4f}")
+    print()
+
+
+def post2000_concept_activation_neuron_activation_percentile_importance(all_acts, concept_names):
+    """Phase 2413: Importance at key percentiles."""
+    print("=" * 70)
+    print("PHASE 2413: NEURON IMPORTANCE PERCENTILES")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        importance = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+        p50 = np.percentile(importance, 50)
+        p75 = np.percentile(importance, 75)
+        p95 = np.percentile(importance, 95)
+        p99 = np.percentile(importance, 99)
+        print(f"  {cname}: p50={p50:.4f}, p75={p75:.4f}, p95={p95:.4f}, p99={p99:.4f}")
+    print()
+
+
+def post2000_concept_activation_concept_direction_projection_min_max(all_acts, concept_names):
+    """Phase 2414: Min and max projections onto concept direction."""
+    print("=" * 70)
+    print("PHASE 2414: PROJECTION MIN/MAX")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        all_data = np.vstack([pos, neg])
+        proj = all_data @ d
+        print(f"  {cname}: min={np.min(proj):.4f}, max={np.max(proj):.4f}, "
+              f"range={np.max(proj)-np.min(proj):.4f}")
+    print()
+
+
+def post2000_concept_activation_neuron_activation_top_neuron_consistency(all_acts, concept_names):
+    """Phase 2415: Are top neurons consistent between split halves?"""
+    print("=" * 70)
+    print("PHASE 2415: TOP NEURON SPLIT-HALF CONSISTENCY")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        # First half
+        imp1 = np.abs(np.mean(pos[:15], axis=0) - np.mean(neg[:15], axis=0))
+        top1 = set(np.argsort(imp1)[-20:])
+        # Second half
+        imp2 = np.abs(np.mean(pos[15:], axis=0) - np.mean(neg[15:], axis=0))
+        top2 = set(np.argsort(imp2)[-20:])
+        overlap = len(top1 & top2) / 20
+        print(f"  {cname}: top20_overlap={overlap:.4f}")
+    print()
+
+
+def post2000_concept_activation_concept_direction_norm_ratio_across_layers(all_acts, concept_names):
+    """Phase 2416: Ratio of concept direction norms between layers."""
+    print("=" * 70)
+    print("PHASE 2416: CONCEPT DIRECTION NORM RATIO ACROSS LAYERS")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        norms = {}
+        for L in [0, 10, 23]:
+            pos = all_acts[cname]["positive"][L]
+            neg = all_acts[cname]["negative"][L]
+            d = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+            norms[L] = np.linalg.norm(d)
+        print(f"  {cname}: L23/L0={norms[23]/(norms[0]+1e-10):.4f}, "
+              f"L23/L10={norms[23]/(norms[10]+1e-10):.4f}")
+    print()
+
+
+def post2000_concept_activation_neuron_activation_weighted_mean_layer(all_acts, concept_names):
+    """Phase 2417: Weighted mean layer (center of mass of concept signal)."""
+    print("=" * 70)
+    print("PHASE 2417: WEIGHTED MEAN LAYER")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        signals = []
+        for L in range(24):
+            pos = all_acts[cname]["positive"][L]
+            neg = all_acts[cname]["negative"][L]
+            signals.append(np.linalg.norm(np.mean(pos, axis=0) - np.mean(neg, axis=0)))
+        signals = np.array(signals)
+        weights = signals / (np.sum(signals) + 1e-10)
+        center_of_mass = np.sum(np.arange(24) * weights)
+        print(f"  {cname}: center_of_mass=L{center_of_mass:.2f}")
+    print()
+
+
+def post2000_concept_activation_concept_direction_stability_score_summary(all_acts, concept_names):
+    """Phase 2418: Summary stability score for each concept direction."""
+    print("=" * 70)
+    print("PHASE 2418: CONCEPT DIRECTION STABILITY SUMMARY")
+    print("=" * 70)
+    layer = 10
+    np.random.seed(42)
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        full_dir = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        full_dir = full_dir / (np.linalg.norm(full_dir) + 1e-10)
+        # Split-half
+        d1 = np.mean(pos[:15], axis=0) - np.mean(neg[:15], axis=0)
+        d1 = d1 / (np.linalg.norm(d1) + 1e-10)
+        split_cos = abs(np.dot(full_dir, d1))
+        # Bootstrap
+        idx = np.random.choice(30, 20, replace=True)
+        boot_dir = np.mean(pos[idx], axis=0) - np.mean(neg[idx], axis=0)
+        boot_dir = boot_dir / (np.linalg.norm(boot_dir) + 1e-10)
+        boot_cos = abs(np.dot(full_dir, boot_dir))
+        stability = (split_cos + boot_cos) / 2
+        print(f"  {cname}: stability={stability:.6f} (split={split_cos:.6f}, boot={boot_cos:.6f})")
+    print()
+
+
+def post2000_concept_activation_neuron_activation_concept_prediction_accuracy(all_acts, concept_names):
+    """Phase 2419: Single-neuron concept prediction accuracy."""
+    print("=" * 70)
+    print("PHASE 2419: SINGLE-NEURON PREDICTION ACCURACY")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        best_acc = 0
+        best_neuron = 0
+        for n in range(896):
+            threshold = (np.mean(pos[:, n]) + np.mean(neg[:, n])) / 2
+            pred = np.concatenate([(pos[:, n] > threshold).astype(int),
+                                   (neg[:, n] > threshold).astype(int)])
+            labels = np.array([1]*30 + [0]*30)
+            acc = max(np.mean(pred == labels), np.mean(pred != labels))
+            if acc > best_acc:
+                best_acc = acc
+                best_neuron = n
+        print(f"  {cname}: best_neuron={best_neuron}, acc={best_acc:.4f}")
+    print()
+
+
+def post2000_concept_activation_phase_2420_checkpoint(all_acts, concept_names):
+    """Phase 2420: Research checkpoint - 420 phases beyond 2000."""
+    print("=" * 70)
+    print("PHASE 2420: RESEARCH CHECKPOINT — 420 BEYOND 2000")
+    print("=" * 70)
+    print(f"  2420 analysis phases completed — 420 beyond the 2000 milestone!")
+    print(f"  Phases 2411-2420: median importance, pairwise inner products,")
+    print(f"  importance percentiles, projection min/max, top neuron consistency,")
+    print(f"  norm ratio, weighted mean layer, stability summary, single-neuron acc")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -64783,6 +64970,36 @@ def run_analysis():
 
     # Phase 2410: Research checkpoint (informational)
     post2000_concept_activation_phase_2410_checkpoint(all_acts, concept_names)
+
+    # Phase 2411: Median neuron importance (informational)
+    post2000_concept_activation_neuron_activation_median_importance(all_acts, concept_names)
+
+    # Phase 2412: Pairwise inner products (informational)
+    post2000_concept_activation_concept_direction_pairwise_inner_product(all_acts, concept_names)
+
+    # Phase 2413: Neuron importance percentiles (informational)
+    post2000_concept_activation_neuron_activation_percentile_importance(all_acts, concept_names)
+
+    # Phase 2414: Projection min/max (informational)
+    post2000_concept_activation_concept_direction_projection_min_max(all_acts, concept_names)
+
+    # Phase 2415: Top neuron split-half consistency (informational)
+    post2000_concept_activation_neuron_activation_top_neuron_consistency(all_acts, concept_names)
+
+    # Phase 2416: Concept direction norm ratio across layers (informational)
+    post2000_concept_activation_concept_direction_norm_ratio_across_layers(all_acts, concept_names)
+
+    # Phase 2417: Weighted mean layer (informational)
+    post2000_concept_activation_neuron_activation_weighted_mean_layer(all_acts, concept_names)
+
+    # Phase 2418: Concept direction stability summary (informational)
+    post2000_concept_activation_concept_direction_stability_score_summary(all_acts, concept_names)
+
+    # Phase 2419: Single-neuron prediction accuracy (informational)
+    post2000_concept_activation_neuron_activation_concept_prediction_accuracy(all_acts, concept_names)
+
+    # Phase 2420: Research checkpoint (informational)
+    post2000_concept_activation_phase_2420_checkpoint(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
