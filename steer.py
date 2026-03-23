@@ -47187,6 +47187,207 @@ def concept_activation_phase_1900_milestone(all_acts, concept_names):
     print()
 
 
+def concept_activation_neuron_activation_concentration_index(all_acts, concept_names):
+    """Phase 1901: Herfindahl-Hirschman index of neuron activation concentration."""
+    print("=" * 70)
+    print("PHASE 1901: NEURON ACTIVATION CONCENTRATION (HHI)")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        all_data = np.vstack([pos, neg])
+        mean_abs = np.abs(np.mean(all_data, axis=0))
+        shares = mean_abs / (np.sum(mean_abs) + 1e-10)
+        hhi = np.sum(shares**2)
+        equiv_neurons = 1.0 / (hhi + 1e-10)
+        print(f"  {cname}: HHI={hhi:.6f}, equiv_neurons={equiv_neurons:.1f}")
+    print()
+
+
+def concept_activation_concept_direction_cross_validation_accuracy(all_acts, concept_names):
+    """Phase 1902: Cross-validated accuracy of concept direction classifiers."""
+    print("=" * 70)
+    print("PHASE 1902: CROSS-VALIDATED CONCEPT DIRECTION ACCURACY")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        n = min(len(pos), len(neg))
+        accs = []
+        for fold in range(5):
+            test_size = n // 5
+            start = fold * test_size
+            end = start + test_size
+            train_pos = np.vstack([pos[:start], pos[end:]])
+            train_neg = np.vstack([neg[:start], neg[end:]])
+            test_pos = pos[start:end]
+            test_neg = neg[start:end]
+            d = np.mean(train_pos, axis=0) - np.mean(train_neg, axis=0)
+            d = d / (np.linalg.norm(d) + 1e-10)
+            test_data = np.vstack([test_pos, test_neg])
+            test_labels = np.array([1]*len(test_pos) + [0]*len(test_neg))
+            projs = test_data @ d
+            preds = (projs > 0).astype(int)
+            accs.append(np.mean(preds == test_labels))
+        print(f"  {cname}: mean_cv_acc={np.mean(accs):.4f}, std={np.std(accs):.4f}")
+    print()
+
+
+def concept_activation_neuron_response_magnitude_ordering(all_acts, concept_names):
+    """Phase 1903: Ordering of neuron response magnitudes across concepts."""
+    print("=" * 70)
+    print("PHASE 1903: NEURON RESPONSE MAGNITUDE ORDERING")
+    print("=" * 70)
+    layer = 10
+    all_magnitudes = {}
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        all_magnitudes[cname] = np.linalg.norm(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+    sorted_concepts = sorted(all_magnitudes.items(), key=lambda x: x[1], reverse=True)
+    for i, (cname, mag) in enumerate(sorted_concepts):
+        print(f"  {i+1}. {cname}: direction_magnitude={mag:.4f}")
+    print()
+
+
+def concept_activation_concept_direction_cosine_similarity_stability(all_acts, concept_names):
+    """Phase 1904: Stability of pairwise cosine similarities across layers."""
+    print("=" * 70)
+    print("PHASE 1904: PAIRWISE COSINE STABILITY ACROSS LAYERS")
+    print("=" * 70)
+    c1, c2 = concept_names[0], concept_names[6]  # sentiment vs emotion
+    cosines = []
+    for l in range(24):
+        d1 = np.mean(all_acts[c1]["positive"][l], axis=0) - np.mean(all_acts[c1]["negative"][l], axis=0)
+        d2 = np.mean(all_acts[c2]["positive"][l], axis=0) - np.mean(all_acts[c2]["negative"][l], axis=0)
+        cos = np.dot(d1, d2) / (np.linalg.norm(d1) * np.linalg.norm(d2) + 1e-10)
+        cosines.append(cos)
+    print(f"  {c1} vs {c2} cosine across layers:")
+    print(f"    Mean: {np.mean(cosines):.4f}, Std: {np.std(cosines):.4f}")
+    print(f"    Min: {np.min(cosines):.4f} at L{np.argmin(cosines)}")
+    print(f"    Max: {np.max(cosines):.4f} at L{np.argmax(cosines)}")
+    print()
+
+
+def concept_activation_neuron_activation_distributional_shift(all_acts, concept_names):
+    """Phase 1905: Distributional shift of neuron activations between pos/neg."""
+    print("=" * 70)
+    print("PHASE 1905: NEURON ACTIVATION DISTRIBUTIONAL SHIFT")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        # Wasserstein-like distance approximation per neuron
+        shifts = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+        total_shift = np.sum(shifts)
+        max_shift_neuron = np.argmax(shifts)
+        print(f"  {cname}: total_shift={total_shift:.2f}, max_shift_neuron={max_shift_neuron}({shifts[max_shift_neuron]:.4f}), mean_shift={np.mean(shifts):.4f}")
+    print()
+
+
+def concept_activation_concept_direction_effective_rank_evolution(all_acts, concept_names):
+    """Phase 1906: Evolution of effective rank of concept directions across layers."""
+    print("=" * 70)
+    print("PHASE 1906: EFFECTIVE RANK EVOLUTION ACROSS LAYERS")
+    print("=" * 70)
+    for layer in [0, 4, 8, 12, 16, 20, 23]:
+        directions = []
+        for cname in concept_names:
+            d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+            d = d / (np.linalg.norm(d) + 1e-10)
+            directions.append(d)
+        D = np.array(directions)
+        svs = np.linalg.svd(D, compute_uv=False)
+        svs_norm = svs / (svs[0] + 1e-10)
+        eff_rank = np.exp(-np.sum(svs_norm * np.log(svs_norm + 1e-10)))
+        print(f"  Layer {layer:2d}: effective_rank={eff_rank:.3f}")
+    print()
+
+
+def concept_activation_neuron_concept_encoding_efficiency_metric(all_acts, concept_names):
+    """Phase 1907: Encoding efficiency — bits of concept info per active neuron."""
+    print("=" * 70)
+    print("PHASE 1907: CONCEPT ENCODING EFFICIENCY")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        diff = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+        # Count active neurons (above noise floor)
+        threshold = np.percentile(diff, 50)
+        active = np.sum(diff > threshold)
+        # Accuracy with just active neurons
+        mask = diff > threshold
+        d_sparse = np.zeros_like(diff)
+        d_sparse[mask] = np.mean(pos, axis=0)[mask] - np.mean(neg, axis=0)[mask]
+        d_sparse = d_sparse / (np.linalg.norm(d_sparse) + 1e-10)
+        all_data = np.vstack([pos, neg])
+        labels = np.array([1]*len(pos) + [0]*len(neg))
+        projs = all_data @ d_sparse
+        acc = np.mean((projs > np.median(projs)).astype(int) == labels)
+        bits = acc * np.log2(2) if acc > 0.5 else 0
+        print(f"  {cname}: active_neurons={active}, sparse_acc={acc:.4f}, bits_per_neuron={bits/active:.6f}")
+    print()
+
+
+def concept_activation_concept_direction_layer_consensus(all_acts, concept_names):
+    """Phase 1908: Consensus of concept directions across layers."""
+    print("=" * 70)
+    print("PHASE 1908: CONCEPT DIRECTION LAYER CONSENSUS")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        dirs = []
+        for l in range(24):
+            d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+            d = d / (np.linalg.norm(d) + 1e-10)
+            dirs.append(d)
+        # Consensus: average pairwise cosine among all layers
+        cos_sum = 0
+        count = 0
+        for i in range(24):
+            for j in range(i+1, 24):
+                cos_sum += np.dot(dirs[i], dirs[j])
+                count += 1
+        mean_cos = cos_sum / count
+        print(f"  {cname}: mean_cross_layer_cos={mean_cos:.4f}")
+    print()
+
+
+def concept_activation_neuron_activation_joint_statistics(all_acts, concept_names):
+    """Phase 1909: Joint statistics of neuron activations across concept pairs."""
+    print("=" * 70)
+    print("PHASE 1909: NEURON ACTIVATION JOINT STATISTICS")
+    print("=" * 70)
+    layer = 10
+    c1, c2 = concept_names[0], concept_names[1]
+    pos1 = np.mean(all_acts[c1]["positive"][layer], axis=0)
+    neg1 = np.mean(all_acts[c1]["negative"][layer], axis=0)
+    pos2 = np.mean(all_acts[c2]["positive"][layer], axis=0)
+    neg2 = np.mean(all_acts[c2]["negative"][layer], axis=0)
+    diff1 = pos1 - neg1
+    diff2 = pos2 - neg2
+    # Joint classification: neurons that are important for both
+    joint_important = np.sum((np.abs(diff1) > np.percentile(np.abs(diff1), 90)) &
+                            (np.abs(diff2) > np.percentile(np.abs(diff2), 90)))
+    corr = np.corrcoef(diff1, diff2)[0, 1]
+    print(f"  {c1} vs {c2}: joint_top10pct_neurons={joint_important}, direction_corr={corr:.4f}")
+    print()
+
+
+def concept_activation_phase_1910_checkpoint(all_acts, concept_names):
+    """Phase 1910: Status checkpoint."""
+    print("=" * 70)
+    print("PHASE 1910: STATUS CHECKPOINT")
+    print("=" * 70)
+    print(f"  1910 analysis phases completed")
+    print(f"  Post-1900 milestone, continuing...")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -52961,6 +53162,36 @@ def run_analysis():
 
     # Phase 1900: MAJOR MILESTONE (informational)
     concept_activation_phase_1900_milestone(all_acts, concept_names)
+
+    # Phase 1901: Activation concentration HHI (informational)
+    concept_activation_neuron_activation_concentration_index(all_acts, concept_names)
+
+    # Phase 1902: Cross-validated direction accuracy (informational)
+    concept_activation_concept_direction_cross_validation_accuracy(all_acts, concept_names)
+
+    # Phase 1903: Response magnitude ordering (informational)
+    concept_activation_neuron_response_magnitude_ordering(all_acts, concept_names)
+
+    # Phase 1904: Pairwise cosine stability (informational)
+    concept_activation_concept_direction_cosine_similarity_stability(all_acts, concept_names)
+
+    # Phase 1905: Distributional shift (informational)
+    concept_activation_neuron_activation_distributional_shift(all_acts, concept_names)
+
+    # Phase 1906: Effective rank evolution (informational)
+    concept_activation_concept_direction_effective_rank_evolution(all_acts, concept_names)
+
+    # Phase 1907: Encoding efficiency metric (informational)
+    concept_activation_neuron_concept_encoding_efficiency_metric(all_acts, concept_names)
+
+    # Phase 1908: Layer consensus (informational)
+    concept_activation_concept_direction_layer_consensus(all_acts, concept_names)
+
+    # Phase 1909: Joint statistics (informational)
+    concept_activation_neuron_activation_joint_statistics(all_acts, concept_names)
+
+    # Phase 1910: Status checkpoint (informational)
+    concept_activation_phase_1910_checkpoint(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
