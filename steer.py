@@ -53456,6 +53456,215 @@ def post2000_concept_activation_phase_2210_checkpoint(all_acts, concept_names):
     print()
 
 
+def post2000_concept_activation_neuron_activation_positive_fraction(all_acts, concept_names):
+    """Phase 2211: Fraction of positive activations per neuron for each concept."""
+    print("=" * 70)
+    print("PHASE 2211: Neuron Positive Activation Fraction")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        combined = np.vstack([all_acts[cname]["positive"][layer],
+                               all_acts[cname]["negative"][layer]])
+        pos_frac = np.mean(combined > 0, axis=0)
+        mostly_positive = np.sum(pos_frac > 0.9)
+        mostly_negative = np.sum(pos_frac < 0.1)
+        print(f"  {cname} L{layer}: {mostly_positive} mostly-positive neurons, "
+              f"{mostly_negative} mostly-negative, mean pos_frac={np.mean(pos_frac):.4f}")
+    print()
+
+
+def post2000_concept_activation_concept_direction_projection_bimodality(all_acts, concept_names):
+    """Phase 2212: Test bimodality of concept direction projections."""
+    print("=" * 70)
+    print("PHASE 2212: Concept Projection Bimodality")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        direction = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        direction = direction / (np.linalg.norm(direction) + 1e-10)
+        all_proj = np.concatenate([pos @ direction, neg @ direction])
+        # Bimodality via dip in histogram
+        hist, edges = np.histogram(all_proj, bins=20)
+        # Count valleys (local minima)
+        valleys = sum(1 for i in range(1, len(hist)-1) if hist[i] < hist[i-1] and hist[i] < hist[i+1])
+        print(f"  {cname} L{layer}: {valleys} histogram valleys (bimodal if ≥1)")
+    print()
+
+
+def post2000_concept_activation_concept_direction_stability_score(all_acts, concept_names):
+    """Phase 2213: Composite stability score combining multiple stability measures."""
+    print("=" * 70)
+    print("PHASE 2213: Concept Direction Composite Stability Score")
+    print("=" * 70)
+    layer = 10
+    np.random.seed(42)
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        # 1. Subsample stability
+        cosines = []
+        for _ in range(10):
+            idx_p = np.random.choice(len(pos), len(pos)//2, replace=False)
+            idx_n = np.random.choice(len(neg), len(neg)//2, replace=False)
+            d = np.mean(pos[idx_p], axis=0) - np.mean(neg[idx_n], axis=0)
+            d_full = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+            cosines.append(np.dot(d, d_full) / (np.linalg.norm(d) * np.linalg.norm(d_full) + 1e-10))
+        subsample = np.mean(cosines)
+        # 2. Cross-layer stability (with adjacent)
+        d_curr = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        d_curr_n = d_curr / (np.linalg.norm(d_curr) + 1e-10)
+        layer_stab = []
+        for dl in [-1, 1]:
+            l2 = layer + dl
+            if 0 <= l2 < 24:
+                d2 = np.mean(all_acts[cname]["positive"][l2], axis=0) - np.mean(all_acts[cname]["negative"][l2], axis=0)
+                d2_n = d2 / (np.linalg.norm(d2) + 1e-10)
+                layer_stab.append(np.dot(d_curr_n, d2_n))
+        cross_layer = np.mean(layer_stab)
+        composite = (subsample + cross_layer) / 2
+        print(f"  {cname} L{layer}: stability={composite:.4f} "
+              f"(subsample={subsample:.4f}, cross-layer={cross_layer:.4f})")
+    print()
+
+
+def post2000_concept_activation_neuron_concept_selectivity_depth(all_acts, concept_names):
+    """Phase 2214: At what depth are neurons most concept-selective."""
+    print("=" * 70)
+    print("PHASE 2214: Neuron Concept Selectivity Depth")
+    print("=" * 70)
+    selectivity_per_layer = []
+    for l in range(24):
+        response_matrix = np.zeros((len(concept_names), all_acts[concept_names[0]]["positive"][l].shape[1]))
+        for ci, cname in enumerate(concept_names):
+            diff = np.abs(np.mean(all_acts[cname]["positive"][l], axis=0) -
+                          np.mean(all_acts[cname]["negative"][l], axis=0))
+            response_matrix[ci] = diff
+        col_max = response_matrix.max(axis=0)
+        col_sum = response_matrix.sum(axis=0) + 1e-10
+        selectivity = np.mean(col_max / col_sum)
+        selectivity_per_layer.append(selectivity)
+    best_l = int(np.argmax(selectivity_per_layer))
+    worst_l = int(np.argmin(selectivity_per_layer))
+    print(f"  Most selective: L{best_l} ({selectivity_per_layer[best_l]:.4f})")
+    print(f"  Least selective: L{worst_l} ({selectivity_per_layer[worst_l]:.4f})")
+    print()
+
+
+def post2000_concept_activation_concept_pair_direction_distance(all_acts, concept_names):
+    """Phase 2215: Euclidean distance between normalized concept directions."""
+    print("=" * 70)
+    print("PHASE 2215: Concept Direction Euclidean Distance")
+    print("=" * 70)
+    layer = 10
+    from itertools import combinations
+    directions = {}
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        directions[cname] = d / (np.linalg.norm(d) + 1e-10)
+    dists = []
+    for c1, c2 in combinations(concept_names, 2):
+        dist = np.linalg.norm(directions[c1] - directions[c2])
+        dists.append((c1, c2, dist))
+    dists.sort(key=lambda x: x[2])
+    print(f"  L{layer} closest: {dists[0][0]} vs {dists[0][1]} (dist={dists[0][2]:.4f})")
+    print(f"  Farthest: {dists[-1][0]} vs {dists[-1][1]} (dist={dists[-1][2]:.4f})")
+    print(f"  Mean distance: {np.mean([d[2] for d in dists]):.4f}")
+    print()
+
+
+def post2000_concept_activation_neuron_activation_coefficient_variation_per_layer(all_acts, concept_names):
+    """Phase 2216: Coefficient of variation across layers."""
+    print("=" * 70)
+    print("PHASE 2216: Activation CV Across Layers")
+    print("=" * 70)
+    cname = concept_names[0]
+    for l in [0, 6, 12, 18, 23]:
+        combined = np.vstack([all_acts[cname]["positive"][l],
+                               all_acts[cname]["negative"][l]])
+        means = np.mean(combined, axis=0)
+        stds = np.std(combined, axis=0)
+        cv = stds / (np.abs(means) + 1e-10)
+        print(f"  {cname} L{l}: mean CV={np.mean(cv):.4f}, "
+              f"median CV={np.median(cv):.4f}")
+    print()
+
+
+def post2000_concept_activation_concept_direction_consistency_across_polarities(all_acts, concept_names):
+    """Phase 2217: Direction consistency when estimated from pos-only vs neg-only."""
+    print("=" * 70)
+    print("PHASE 2217: Direction Consistency Across Polarities")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        grand_mean = np.mean(np.vstack([pos, neg]), axis=0)
+        d_pos = np.mean(pos, axis=0) - grand_mean
+        d_neg = grand_mean - np.mean(neg, axis=0)
+        d_pos_n = d_pos / (np.linalg.norm(d_pos) + 1e-10)
+        d_neg_n = d_neg / (np.linalg.norm(d_neg) + 1e-10)
+        cos = np.dot(d_pos_n, d_neg_n)
+        print(f"  {cname} L{layer}: pos-dir vs neg-dir cosine={cos:.4f}")
+    print()
+
+
+def post2000_concept_activation_concept_encoding_compactness(all_acts, concept_names):
+    """Phase 2218: Compactness of concept encoding measured by avg distance to centroid."""
+    print("=" * 70)
+    print("PHASE 2218: Concept Encoding Compactness")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        pos_center = np.mean(pos, axis=0)
+        neg_center = np.mean(neg, axis=0)
+        pos_compact = np.mean(np.linalg.norm(pos - pos_center, axis=1))
+        neg_compact = np.mean(np.linalg.norm(neg - neg_center, axis=1))
+        print(f"  {cname} L{layer}: pos compactness={pos_compact:.4f}, "
+              f"neg compactness={neg_compact:.4f}")
+    print()
+
+
+def post2000_concept_activation_concept_pair_direction_angle_trend(all_acts, concept_names):
+    """Phase 2219: Trend of concept pair angles from early to late layers."""
+    print("=" * 70)
+    print("PHASE 2219: Concept Pair Angle Trend (Early→Late)")
+    print("=" * 70)
+    from itertools import combinations
+    for c1, c2 in list(combinations(concept_names, 2))[:4]:
+        early_angles = []
+        late_angles = []
+        for l in range(6):
+            d1 = np.mean(all_acts[c1]["positive"][l], axis=0) - np.mean(all_acts[c1]["negative"][l], axis=0)
+            d2 = np.mean(all_acts[c2]["positive"][l], axis=0) - np.mean(all_acts[c2]["negative"][l], axis=0)
+            cos = np.dot(d1, d2) / (np.linalg.norm(d1) * np.linalg.norm(d2) + 1e-10)
+            early_angles.append(np.degrees(np.arccos(np.clip(abs(cos), 0, 1))))
+        for l in range(18, 24):
+            d1 = np.mean(all_acts[c1]["positive"][l], axis=0) - np.mean(all_acts[c1]["negative"][l], axis=0)
+            d2 = np.mean(all_acts[c2]["positive"][l], axis=0) - np.mean(all_acts[c2]["negative"][l], axis=0)
+            cos = np.dot(d1, d2) / (np.linalg.norm(d1) * np.linalg.norm(d2) + 1e-10)
+            late_angles.append(np.degrees(np.arccos(np.clip(abs(cos), 0, 1))))
+        trend = np.mean(late_angles) - np.mean(early_angles)
+        print(f"  {c1} vs {c2}: early={np.mean(early_angles):.1f}°, "
+              f"late={np.mean(late_angles):.1f}°, trend={trend:+.1f}°")
+    print()
+
+
+def post2000_concept_activation_phase_2220_checkpoint(all_acts, concept_names):
+    """Phase 2220: Research checkpoint at 2220 phases."""
+    print("=" * 70)
+    print("PHASE 2220: RESEARCH CHECKPOINT (2220 PHASES)")
+    print("=" * 70)
+    print(f"  2220 analysis phases completed — 220 beyond the 2000 milestone!")
+    print(f"  Phases 2211-2220: positive fraction, projection bimodality,")
+    print(f"  composite stability, selectivity depth, direction distance,")
+    print(f"  CV across layers, polarity consistency, compactness, angle trend")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -60160,6 +60369,36 @@ def run_analysis():
 
     # Phase 2210: Research checkpoint (informational)
     post2000_concept_activation_phase_2210_checkpoint(all_acts, concept_names)
+
+    # Phase 2211: Positive fraction (informational)
+    post2000_concept_activation_neuron_activation_positive_fraction(all_acts, concept_names)
+
+    # Phase 2212: Projection bimodality (informational)
+    post2000_concept_activation_concept_direction_projection_bimodality(all_acts, concept_names)
+
+    # Phase 2213: Composite stability (informational)
+    post2000_concept_activation_concept_direction_stability_score(all_acts, concept_names)
+
+    # Phase 2214: Selectivity depth (informational)
+    post2000_concept_activation_neuron_concept_selectivity_depth(all_acts, concept_names)
+
+    # Phase 2215: Direction distance (informational)
+    post2000_concept_activation_concept_pair_direction_distance(all_acts, concept_names)
+
+    # Phase 2216: CV across layers (informational)
+    post2000_concept_activation_neuron_activation_coefficient_variation_per_layer(all_acts, concept_names)
+
+    # Phase 2217: Polarity consistency (informational)
+    post2000_concept_activation_concept_direction_consistency_across_polarities(all_acts, concept_names)
+
+    # Phase 2218: Compactness (informational)
+    post2000_concept_activation_concept_encoding_compactness(all_acts, concept_names)
+
+    # Phase 2219: Angle trend (informational)
+    post2000_concept_activation_concept_pair_direction_angle_trend(all_acts, concept_names)
+
+    # Phase 2220: Research checkpoint (informational)
+    post2000_concept_activation_phase_2220_checkpoint(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
