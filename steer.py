@@ -46567,6 +46567,210 @@ def concept_activation_phase_1870_checkpoint(all_acts, concept_names):
     print()
 
 
+def concept_activation_neuron_response_symmetry_analysis(all_acts, concept_names):
+    """Phase 1871: Symmetry of neuron responses between positive and negative samples."""
+    print("=" * 70)
+    print("PHASE 1871: NEURON RESPONSE SYMMETRY ANALYSIS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        pos_mean = np.mean(pos, axis=0)
+        neg_mean = np.mean(neg, axis=0)
+        mid = (pos_mean + neg_mean) / 2
+        pos_dev = np.linalg.norm(pos_mean - mid)
+        neg_dev = np.linalg.norm(neg_mean - mid)
+        symmetry = min(pos_dev, neg_dev) / (max(pos_dev, neg_dev) + 1e-10)
+        print(f"  {cname}: symmetry={symmetry:.4f}, pos_dev={pos_dev:.4f}, neg_dev={neg_dev:.4f}")
+    print()
+
+
+def concept_activation_concept_direction_spectral_gap(all_acts, concept_names):
+    """Phase 1872: Spectral gap in concept activation matrices."""
+    print("=" * 70)
+    print("PHASE 1872: CONCEPT ACTIVATION SPECTRAL GAP")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        all_data = np.vstack([pos, neg])
+        all_data = all_data - np.mean(all_data, axis=0)
+        svs = np.linalg.svd(all_data, compute_uv=False)
+        if len(svs) > 1:
+            gap = svs[0] - svs[1]
+            ratio = svs[0] / (svs[1] + 1e-10)
+        else:
+            gap = svs[0]
+            ratio = float('inf')
+        print(f"  {cname}: spectral_gap={gap:.4f}, sv1/sv2={ratio:.4f}")
+    print()
+
+
+def concept_activation_neuron_activation_mode_analysis(all_acts, concept_names):
+    """Phase 1873: Mode analysis of neuron activation distributions."""
+    print("=" * 70)
+    print("PHASE 1873: NEURON ACTIVATION MODE ANALYSIS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:3]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        diff = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+        top_n = np.argmax(diff)
+        all_vals = np.concatenate([pos[:, top_n], neg[:, top_n]])
+        # Estimate modes using histogram peaks
+        counts, edges = np.histogram(all_vals, bins=10)
+        modes = np.argsort(counts)[-2:]
+        mode_centers = [(edges[m] + edges[m+1])/2 for m in modes]
+        print(f"  {cname} neuron {top_n}: mode_centers={[f'{m:.3f}' for m in mode_centers]}, max_count={counts[modes[-1]]}")
+    print()
+
+
+def concept_activation_concept_direction_projection_overlap_cross(all_acts, concept_names):
+    """Phase 1874: Overlap of projection distributions between concepts."""
+    print("=" * 70)
+    print("PHASE 1874: CONCEPT PROJECTION DISTRIBUTION OVERLAP")
+    print("=" * 70)
+    layer = 10
+    pairs_shown = 0
+    for i in range(len(concept_names)):
+        for j in range(i+1, len(concept_names)):
+            if pairs_shown >= 4:
+                break
+            c1, c2 = concept_names[i], concept_names[j]
+            d1 = np.mean(all_acts[c1]["positive"][layer], axis=0) - np.mean(all_acts[c1]["negative"][layer], axis=0)
+            d1 = d1 / (np.linalg.norm(d1) + 1e-10)
+            # Project c2 data onto c1 direction
+            c2_pos_proj = all_acts[c2]["positive"][layer] @ d1
+            c2_neg_proj = all_acts[c2]["negative"][layer] @ d1
+            c1_pos_proj = all_acts[c1]["positive"][layer] @ d1
+            # Overlap: how much c2 projections overlap with c1 positive distribution
+            c1_range = (np.min(c1_pos_proj), np.max(c1_pos_proj))
+            c2_in_range = np.mean((np.concatenate([c2_pos_proj, c2_neg_proj]) >= c1_range[0]) &
+                                   (np.concatenate([c2_pos_proj, c2_neg_proj]) <= c1_range[1]))
+            print(f"  {c1} dir, {c2} data overlap: {c2_in_range:.4f}")
+            pairs_shown += 1
+        if pairs_shown >= 4:
+            break
+    print()
+
+
+def concept_activation_neuron_importance_stability_across_layers(all_acts, concept_names):
+    """Phase 1875: How stable is neuron importance ranking across layers."""
+    print("=" * 70)
+    print("PHASE 1875: NEURON IMPORTANCE RANKING STABILITY ACROSS LAYERS")
+    print("=" * 70)
+    from scipy.stats import spearmanr
+    cname = concept_names[0]
+    layers_check = [0, 6, 12, 18, 23]
+    rankings = {}
+    for l in layers_check:
+        pos = all_acts[cname]["positive"][l]
+        neg = all_acts[cname]["negative"][l]
+        importance = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+        rankings[l] = importance
+    for i, l1 in enumerate(layers_check):
+        for l2 in layers_check[i+1:i+2]:
+            rho, _ = spearmanr(rankings[l1], rankings[l2])
+            print(f"  {cname} L{l1} vs L{l2}: spearman_rho={rho:.4f}")
+    print()
+
+
+def concept_activation_concept_direction_reconstruction_error(all_acts, concept_names):
+    """Phase 1876: Reconstruction error when approximating data with concept directions."""
+    print("=" * 70)
+    print("PHASE 1876: CONCEPT DIRECTION RECONSTRUCTION ERROR")
+    print("=" * 70)
+    layer = 10
+    directions = []
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        d = d / (np.linalg.norm(d) + 1e-10)
+        directions.append(d)
+    D = np.array(directions)
+    Q, _ = np.linalg.qr(D.T)
+    Q = Q[:, :len(concept_names)]
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        pos_centered = pos - np.mean(pos, axis=0)
+        reconstructed = (pos_centered @ Q) @ Q.T
+        error = np.mean(np.linalg.norm(pos_centered - reconstructed, axis=1))
+        total = np.mean(np.linalg.norm(pos_centered, axis=1))
+        print(f"  {cname}: recon_error={error:.4f}, total_norm={total:.4f}, error_frac={error/(total+1e-10):.4f}")
+    print()
+
+
+def concept_activation_neuron_activation_correlation_with_labels(all_acts, concept_names):
+    """Phase 1877: Point-biserial correlation of neuron activations with concept labels."""
+    print("=" * 70)
+    print("PHASE 1877: NEURON-LABEL POINT-BISERIAL CORRELATION")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        X = np.vstack([pos, neg])
+        y = np.array([1]*len(pos) + [0]*len(neg))
+        correlations = np.array([np.corrcoef(X[:, n], y)[0, 1] for n in range(X.shape[1])])
+        top3 = np.argsort(np.abs(correlations))[-3:][::-1]
+        print(f"  {cname}: top3_corr_neurons={top3.tolist()}, correlations={correlations[top3].tolist()}")
+    print()
+
+
+def concept_activation_concept_direction_curvature_analysis(all_acts, concept_names):
+    """Phase 1878: Curvature of concept direction trajectory across layers."""
+    print("=" * 70)
+    print("PHASE 1878: CONCEPT DIRECTION CURVATURE ACROSS LAYERS")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        dirs = []
+        for l in range(24):
+            d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+            d = d / (np.linalg.norm(d) + 1e-10)
+            dirs.append(d)
+        curvatures = []
+        for l in range(1, 23):
+            v1 = dirs[l] - dirs[l-1]
+            v2 = dirs[l+1] - dirs[l]
+            cos = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2) + 1e-10)
+            curvatures.append(1 - cos)
+        max_curv_layer = np.argmax(curvatures) + 1
+        print(f"  {cname}: max_curvature_layer={max_curv_layer}, curvature={curvatures[max_curv_layer-1]:.4f}, mean={np.mean(curvatures):.4f}")
+    print()
+
+
+def concept_activation_neuron_concept_information_geometry(all_acts, concept_names):
+    """Phase 1879: Information geometry of neuron activations."""
+    print("=" * 70)
+    print("PHASE 1879: NEURON CONCEPT INFORMATION GEOMETRY")
+    print("=" * 70)
+    layer = 10
+    # Fisher information matrix diagonal approximation
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        pos_var = np.var(pos, axis=0)
+        neg_var = np.var(neg, axis=0)
+        mean_diff = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        fisher_diag = mean_diff**2 / (0.5 * (pos_var + neg_var) + 1e-10)
+        total_fisher = np.sum(fisher_diag)
+        top_fisher_neurons = np.argsort(fisher_diag)[-3:][::-1]
+        print(f"  {cname}: total_fisher_info={total_fisher:.2f}, top3_neurons={top_fisher_neurons.tolist()}")
+    print()
+
+
+def concept_activation_phase_1880_checkpoint(all_acts, concept_names):
+    """Phase 1880: Status checkpoint."""
+    print("=" * 70)
+    print("PHASE 1880: STATUS CHECKPOINT")
+    print("=" * 70)
+    print(f"  1880 analysis phases completed")
+    print(f"  Approaching 1900 milestone...")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -52251,6 +52455,36 @@ def run_analysis():
 
     # Phase 1870: Status checkpoint (informational)
     concept_activation_phase_1870_checkpoint(all_acts, concept_names)
+
+    # Phase 1871: Neuron response symmetry (informational)
+    concept_activation_neuron_response_symmetry_analysis(all_acts, concept_names)
+
+    # Phase 1872: Spectral gap (informational)
+    concept_activation_concept_direction_spectral_gap(all_acts, concept_names)
+
+    # Phase 1873: Neuron activation mode analysis (informational)
+    concept_activation_neuron_activation_mode_analysis(all_acts, concept_names)
+
+    # Phase 1874: Concept projection overlap (informational)
+    concept_activation_concept_direction_projection_overlap_cross(all_acts, concept_names)
+
+    # Phase 1875: Neuron importance ranking stability (informational)
+    concept_activation_neuron_importance_stability_across_layers(all_acts, concept_names)
+
+    # Phase 1876: Reconstruction error (informational)
+    concept_activation_concept_direction_reconstruction_error(all_acts, concept_names)
+
+    # Phase 1877: Point-biserial correlation (informational)
+    concept_activation_neuron_activation_correlation_with_labels(all_acts, concept_names)
+
+    # Phase 1878: Direction curvature (informational)
+    concept_activation_concept_direction_curvature_analysis(all_acts, concept_names)
+
+    # Phase 1879: Information geometry (informational)
+    concept_activation_neuron_concept_information_geometry(all_acts, concept_names)
+
+    # Phase 1880: Status checkpoint (informational)
+    concept_activation_phase_1880_checkpoint(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
