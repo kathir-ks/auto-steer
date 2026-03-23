@@ -46193,6 +46193,194 @@ def concept_activation_phase_1850_milestone(all_acts, concept_names):
     print()
 
 
+def concept_activation_neuron_activation_quantile_analysis(all_acts, concept_names):
+    """Phase 1851: Quantile analysis of neuron activations for concept separation."""
+    print("=" * 70)
+    print("PHASE 1851: NEURON ACTIVATION QUANTILE ANALYSIS")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        diff = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+        top_n = np.argmax(diff)
+        pos_q = np.percentile(pos[:, top_n], [25, 50, 75])
+        neg_q = np.percentile(neg[:, top_n], [25, 50, 75])
+        print(f"  {cname} neuron {top_n}: pos_quartiles={pos_q.tolist()}, neg_quartiles={neg_q.tolist()}")
+    print()
+
+
+def concept_activation_concept_direction_decorrelation_analysis(all_acts, concept_names):
+    """Phase 1852: Decorrelation of concept directions via Gram-Schmidt."""
+    print("=" * 70)
+    print("PHASE 1852: CONCEPT DIRECTION DECORRELATION VIA GRAM-SCHMIDT")
+    print("=" * 70)
+    layer = 10
+    directions = []
+    for cname in concept_names:
+        d = np.mean(all_acts[cname]["positive"][layer], axis=0) - np.mean(all_acts[cname]["negative"][layer], axis=0)
+        directions.append(d)
+    # Gram-Schmidt
+    ortho = []
+    for d in directions:
+        v = d.copy()
+        for u in ortho:
+            v = v - np.dot(v, u) * u
+        norm = np.linalg.norm(v)
+        if norm > 1e-10:
+            v = v / norm
+        ortho.append(v)
+    # Check residual after orthogonalization
+    for i, cname in enumerate(concept_names[:4]):
+        orig = directions[i] / (np.linalg.norm(directions[i]) + 1e-10)
+        cos = np.dot(orig, ortho[i])
+        print(f"  {cname}: cos(original, orthogonalized)={cos:.4f}, info_retained={cos**2:.4f}")
+    print()
+
+
+def concept_activation_neuron_concept_selectivity_index(all_acts, concept_names):
+    """Phase 1853: Selectivity index (d-prime) for neurons."""
+    print("=" * 70)
+    print("PHASE 1853: NEURON CONCEPT SELECTIVITY INDEX (D-PRIME)")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        d_primes = np.zeros(pos.shape[1])
+        for n in range(pos.shape[1]):
+            mean_diff = np.mean(pos[:, n]) - np.mean(neg[:, n])
+            pooled_std = np.sqrt((np.var(pos[:, n]) + np.var(neg[:, n])) / 2 + 1e-10)
+            d_primes[n] = mean_diff / pooled_std
+        top3 = np.argsort(np.abs(d_primes))[-3:][::-1]
+        print(f"  {cname}: top3_d_prime_neurons={top3.tolist()}, d_primes={d_primes[top3].tolist()}")
+    print()
+
+
+def concept_activation_concept_direction_stability_across_splits(all_acts, concept_names):
+    """Phase 1854: Stability of concept directions across random data splits."""
+    print("=" * 70)
+    print("PHASE 1854: CONCEPT DIRECTION STABILITY ACROSS SPLITS")
+    print("=" * 70)
+    layer = 10
+    n_splits = 5
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        cosines = []
+        for _ in range(n_splits):
+            idx = np.random.permutation(len(pos))
+            half = len(idx) // 2
+            d1 = np.mean(pos[idx[:half]], axis=0) - np.mean(neg[idx[:half]], axis=0)
+            d2 = np.mean(pos[idx[half:]], axis=0) - np.mean(neg[idx[half:]], axis=0)
+            d1 = d1 / (np.linalg.norm(d1) + 1e-10)
+            d2 = d2 / (np.linalg.norm(d2) + 1e-10)
+            cosines.append(np.dot(d1, d2))
+        print(f"  {cname}: mean_split_cos={np.mean(cosines):.4f}, min={np.min(cosines):.4f}")
+    print()
+
+
+def concept_activation_neuron_population_sparsity(all_acts, concept_names):
+    """Phase 1855: Population-level sparsity of neuron responses."""
+    print("=" * 70)
+    print("PHASE 1855: NEURON POPULATION SPARSITY")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        all_data = np.vstack([pos, neg])
+        mean_resp = np.mean(np.abs(all_data), axis=0)
+        # Hoyer sparsity
+        n = len(mean_resp)
+        l1 = np.sum(np.abs(mean_resp))
+        l2 = np.linalg.norm(mean_resp)
+        hoyer = (np.sqrt(n) - l1/(l2+1e-10)) / (np.sqrt(n) - 1 + 1e-10)
+        print(f"  {cname}: hoyer_sparsity={hoyer:.4f}, active_frac(>0.01*max)={np.mean(mean_resp > 0.01*np.max(mean_resp)):.4f}")
+    print()
+
+
+def concept_activation_concept_direction_layer_alignment_heatmap(all_acts, concept_names):
+    """Phase 1856: Alignment between concept directions at different layers."""
+    print("=" * 70)
+    print("PHASE 1856: CONCEPT DIRECTION CROSS-LAYER ALIGNMENT")
+    print("=" * 70)
+    cname = concept_names[0]
+    layers_check = [0, 6, 12, 18, 23]
+    dirs = {}
+    for l in layers_check:
+        d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+        dirs[l] = d / (np.linalg.norm(d) + 1e-10)
+    for i, l1 in enumerate(layers_check):
+        for l2 in layers_check[i+1:]:
+            cos = np.dot(dirs[l1], dirs[l2])
+            print(f"  {cname} L{l1} vs L{l2}: cos={cos:.4f}")
+    print()
+
+
+def concept_activation_neuron_functional_grouping(all_acts, concept_names):
+    """Phase 1857: Group neurons by functional similarity across concepts."""
+    print("=" * 70)
+    print("PHASE 1857: NEURON FUNCTIONAL GROUPING")
+    print("=" * 70)
+    layer = 10
+    n_neurons = all_acts[concept_names[0]]["positive"][layer].shape[1]
+    response_matrix = np.zeros((n_neurons, len(concept_names)))
+    for ci, cname in enumerate(concept_names):
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        response_matrix[:, ci] = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+    # K-means with k=4
+    from sklearn.cluster import KMeans
+    km = KMeans(n_clusters=4, random_state=42, n_init=3).fit(response_matrix)
+    for k in range(4):
+        mask = km.labels_ == k
+        print(f"  Group {k}: {np.sum(mask)} neurons, mean_response_norm={np.mean(np.linalg.norm(response_matrix[mask], axis=1)):.4f}")
+    print()
+
+
+def concept_activation_concept_direction_signal_persistence(all_acts, concept_names):
+    """Phase 1858: How persistent is concept signal across consecutive layers."""
+    print("=" * 70)
+    print("PHASE 1858: CONCEPT DIRECTION SIGNAL PERSISTENCE")
+    print("=" * 70)
+    for cname in concept_names[:4]:
+        persistence = 0
+        for l in range(23):
+            d1 = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+            d2 = np.mean(all_acts[cname]["positive"][l+1], axis=0) - np.mean(all_acts[cname]["negative"][l+1], axis=0)
+            cos = np.dot(d1, d2) / (np.linalg.norm(d1) * np.linalg.norm(d2) + 1e-10)
+            if cos > 0.5:
+                persistence += 1
+        print(f"  {cname}: persistent_transitions={persistence}/23, persistence_rate={persistence/23:.4f}")
+    print()
+
+
+def concept_activation_concept_pair_direction_angle_per_layer(all_acts, concept_names):
+    """Phase 1859: Track concept pair angle across layers."""
+    print("=" * 70)
+    print("PHASE 1859: CONCEPT PAIR ANGLE EVOLUTION ACROSS LAYERS")
+    print("=" * 70)
+    c1, c2 = concept_names[0], concept_names[1]
+    for layer in [0, 4, 8, 12, 16, 20, 23]:
+        d1 = np.mean(all_acts[c1]["positive"][layer], axis=0) - np.mean(all_acts[c1]["negative"][layer], axis=0)
+        d2 = np.mean(all_acts[c2]["positive"][layer], axis=0) - np.mean(all_acts[c2]["negative"][layer], axis=0)
+        cos = np.dot(d1, d2) / (np.linalg.norm(d1) * np.linalg.norm(d2) + 1e-10)
+        angle = np.degrees(np.arccos(np.clip(abs(cos), 0, 1)))
+        print(f"  {c1} vs {c2} at L{layer}: angle={angle:.1f}°, cos={cos:.4f}")
+    print()
+
+
+def concept_activation_phase_1860_checkpoint(all_acts, concept_names):
+    """Phase 1860: Status checkpoint."""
+    print("=" * 70)
+    print("PHASE 1860: STATUS CHECKPOINT")
+    print("=" * 70)
+    print(f"  1860 analysis phases completed")
+    print(f"  Continuing autonomous research loop...")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -51817,6 +52005,36 @@ def run_analysis():
 
     # Phase 1850: Milestone checkpoint (informational)
     concept_activation_phase_1850_milestone(all_acts, concept_names)
+
+    # Phase 1851: Neuron activation quantile analysis (informational)
+    concept_activation_neuron_activation_quantile_analysis(all_acts, concept_names)
+
+    # Phase 1852: Concept direction decorrelation (informational)
+    concept_activation_concept_direction_decorrelation_analysis(all_acts, concept_names)
+
+    # Phase 1853: Neuron selectivity index d-prime (informational)
+    concept_activation_neuron_concept_selectivity_index(all_acts, concept_names)
+
+    # Phase 1854: Direction stability across splits (informational)
+    concept_activation_concept_direction_stability_across_splits(all_acts, concept_names)
+
+    # Phase 1855: Neuron population sparsity (informational)
+    concept_activation_neuron_population_sparsity(all_acts, concept_names)
+
+    # Phase 1856: Cross-layer alignment (informational)
+    concept_activation_concept_direction_layer_alignment_heatmap(all_acts, concept_names)
+
+    # Phase 1857: Neuron functional grouping (informational)
+    concept_activation_neuron_functional_grouping(all_acts, concept_names)
+
+    # Phase 1858: Signal persistence (informational)
+    concept_activation_concept_direction_signal_persistence(all_acts, concept_names)
+
+    # Phase 1859: Concept pair angle evolution (informational)
+    concept_activation_concept_pair_direction_angle_per_layer(all_acts, concept_names)
+
+    # Phase 1860: Status checkpoint (informational)
+    concept_activation_phase_1860_checkpoint(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
