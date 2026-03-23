@@ -49570,6 +49570,232 @@ def post2000_concept_activation_phase_2020_research_continuation(all_acts, conce
     print()
 
 
+def post2000_concept_activation_neuron_shared_importance(all_acts, concept_names):
+    """Phase 2021: Identify neurons important across multiple concepts."""
+    print("=" * 70)
+    print("PHASE 2021: Shared Neuron Importance Across Concepts")
+    print("=" * 70)
+    layer = 10
+    importance_per_concept = {}
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        diff = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+        pooled_std = np.sqrt((np.var(pos, axis=0) + np.var(neg, axis=0)) / 2) + 1e-10
+        importance_per_concept[cname] = diff / pooled_std
+    # Find neurons in top-50 for multiple concepts
+    top_k = 50
+    top_sets = {cname: set(np.argsort(imp)[-top_k:]) for cname, imp in importance_per_concept.items()}
+    from collections import Counter
+    neuron_counts = Counter()
+    for s in top_sets.values():
+        neuron_counts.update(s)
+    shared = [(n, c) for n, c in neuron_counts.most_common(10) if c > 1]
+    print(f"  L{layer}: top-{top_k} neurons shared across concepts:")
+    for neuron, count in shared[:5]:
+        concepts_using = [c for c in concept_names if neuron in top_sets[c]]
+        print(f"    neuron {neuron}: shared by {count} concepts ({', '.join(concepts_using[:3])})")
+    print()
+
+
+def post2000_concept_activation_concept_direction_norm_evolution(all_acts, concept_names):
+    """Phase 2022: Track how concept direction norms evolve across layers."""
+    print("=" * 70)
+    print("PHASE 2022: Concept Direction Norm Evolution")
+    print("=" * 70)
+    for cname in concept_names:
+        norms = []
+        for l in range(24):
+            p_mean = np.mean(all_acts[cname]["positive"][l], axis=0)
+            n_mean = np.mean(all_acts[cname]["negative"][l], axis=0)
+            norms.append(np.linalg.norm(p_mean - n_mean))
+        peak_l = int(np.argmax(norms))
+        min_l = int(np.argmin(norms))
+        print(f"  {cname}: peak norm at L{peak_l} ({norms[peak_l]:.3f}), "
+              f"min at L{min_l} ({norms[min_l]:.3f}), "
+              f"ratio={norms[peak_l]/(norms[min_l]+1e-10):.1f}x")
+    print()
+
+
+def post2000_concept_activation_within_class_spread(all_acts, concept_names):
+    """Phase 2023: Measure within-class spread relative to between-class distance."""
+    print("=" * 70)
+    print("PHASE 2023: Within-Class Spread Analysis")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        pos_spread = np.mean(np.std(pos, axis=0))
+        neg_spread = np.mean(np.std(neg, axis=0))
+        between_dist = np.linalg.norm(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+        snr = between_dist / (pos_spread + neg_spread + 1e-10)
+        print(f"  {cname} L{layer}: pos_spread={pos_spread:.4f}, neg_spread={neg_spread:.4f}, "
+              f"between_dist={between_dist:.4f}, SNR={snr:.4f}")
+    print()
+
+
+def post2000_concept_activation_layer_transition_sharpness(all_acts, concept_names):
+    """Phase 2024: Measure sharpness of concept emergence transitions."""
+    print("=" * 70)
+    print("PHASE 2024: Concept Emergence Transition Sharpness")
+    print("=" * 70)
+    for cname in concept_names:
+        accuracies = []
+        for l in range(24):
+            pos = all_acts[cname]["positive"][l]
+            neg = all_acts[cname]["negative"][l]
+            direction = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+            norm = np.linalg.norm(direction)
+            if norm < 1e-10:
+                accuracies.append(0.5)
+                continue
+            direction = direction / norm
+            all_data = np.vstack([pos, neg])
+            projections = all_data @ direction
+            labels = np.array([1]*len(pos) + [0]*len(neg))
+            threshold = np.median(projections)
+            preds = (projections > threshold).astype(int)
+            acc = np.mean(preds == labels)
+            accuracies.append(max(acc, 1 - acc))
+        diffs = np.diff(accuracies)
+        sharpest = int(np.argmax(np.abs(diffs)))
+        print(f"  {cname}: sharpest transition L{sharpest}→L{sharpest+1} "
+              f"(Δacc={diffs[sharpest]:.4f}), "
+              f"final acc={accuracies[-1]:.4f}")
+    print()
+
+
+def post2000_concept_activation_residual_correlation_analysis(all_acts, concept_names):
+    """Phase 2025: Analyze correlations in classification residuals across concepts."""
+    print("=" * 70)
+    print("PHASE 2025: Residual Correlation Analysis")
+    print("=" * 70)
+    layer = 10
+    residuals = {}
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        direction = np.mean(pos, axis=0) - np.mean(neg, axis=0)
+        norm = np.linalg.norm(direction)
+        if norm > 0:
+            direction = direction / norm
+        all_data = np.vstack([pos, neg])
+        projections = all_data @ direction
+        labels = np.array([1.0]*len(pos) + [0.0]*len(neg))
+        proj_norm = (projections - projections.min()) / (projections.max() - projections.min() + 1e-10)
+        residuals[cname] = labels - proj_norm
+    from itertools import combinations
+    max_corr = 0
+    max_pair = ("", "")
+    for c1, c2 in combinations(concept_names, 2):
+        min_len = min(len(residuals[c1]), len(residuals[c2]))
+        corr = np.abs(np.corrcoef(residuals[c1][:min_len], residuals[c2][:min_len])[0, 1])
+        if corr > max_corr:
+            max_corr = corr
+            max_pair = (c1, c2)
+    print(f"  L{layer}: max residual correlation={max_corr:.4f} ({max_pair[0]} vs {max_pair[1]})")
+    print()
+
+
+def post2000_concept_activation_dimensionality_per_layer(all_acts, concept_names):
+    """Phase 2026: Estimate effective dimensionality of concept representations per layer."""
+    print("=" * 70)
+    print("PHASE 2026: Per-Layer Effective Dimensionality")
+    print("=" * 70)
+    for l in [0, 6, 12, 18, 23]:
+        all_directions = []
+        for cname in concept_names:
+            d = np.mean(all_acts[cname]["positive"][l], axis=0) - np.mean(all_acts[cname]["negative"][l], axis=0)
+            norm = np.linalg.norm(d)
+            if norm > 0:
+                d = d / norm
+            all_directions.append(d)
+        dir_matrix = np.array(all_directions)
+        gram = dir_matrix @ dir_matrix.T
+        eigenvalues = np.linalg.eigvalsh(gram)
+        eigenvalues = np.maximum(eigenvalues, 0)
+        eigenvalues = eigenvalues / (eigenvalues.sum() + 1e-10)
+        eff_dim = np.exp(-np.sum(eigenvalues * np.log(eigenvalues + 1e-10)))
+        print(f"  L{l}: effective dimensionality={eff_dim:.3f} / {len(concept_names)}")
+    print()
+
+
+def post2000_concept_activation_neuron_concept_mutual_info_quick(all_acts, concept_names):
+    """Phase 2027: Quick mutual information estimate between top neurons and concepts."""
+    print("=" * 70)
+    print("PHASE 2027: Quick Neuron-Concept Mutual Information")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names[:4]:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        X = np.vstack([pos, neg])
+        y = np.array([1]*len(pos) + [0]*len(neg))
+        diff = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+        top5 = np.argsort(diff)[-5:][::-1]
+        from sklearn.feature_selection import mutual_info_classif
+        mi = mutual_info_classif(X[:, top5], y, random_state=42, n_neighbors=3)
+        print(f"  {cname} L{layer}: top neurons {top5.tolist()}, MI={mi.tolist()}")
+    print()
+
+
+def post2000_concept_activation_concept_encoding_sparseness_gini(all_acts, concept_names):
+    """Phase 2028: Measure sparseness of concept encoding using Gini coefficient."""
+    print("=" * 70)
+    print("PHASE 2028: Concept Encoding Sparseness (Gini)")
+    print("=" * 70)
+    layer = 10
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        diff = np.abs(np.mean(pos, axis=0) - np.mean(neg, axis=0))
+        sorted_diff = np.sort(diff)
+        n = len(sorted_diff)
+        index = np.arange(1, n + 1)
+        gini = (2 * np.sum(index * sorted_diff)) / (n * np.sum(sorted_diff) + 1e-10) - (n + 1) / n
+        print(f"  {cname} L{layer}: Gini coefficient={gini:.4f}")
+    print()
+
+
+def post2000_concept_activation_pca_variance_concentration(all_acts, concept_names):
+    """Phase 2029: Analyze PCA variance concentration in concept-contrastive subspace."""
+    print("=" * 70)
+    print("PHASE 2029: PCA Variance Concentration in Concept Subspace")
+    print("=" * 70)
+    layer = 10
+    all_diffs = []
+    for cname in concept_names:
+        pos = all_acts[cname]["positive"][layer]
+        neg = all_acts[cname]["negative"][layer]
+        for i in range(min(len(pos), len(neg))):
+            all_diffs.append(pos[i] - neg[i])
+    all_diffs = np.array(all_diffs)
+    cov = np.cov(all_diffs, rowvar=False)
+    eigenvalues = np.linalg.eigvalsh(cov)[::-1]
+    eigenvalues = np.maximum(eigenvalues, 0)
+    total = eigenvalues.sum() + 1e-10
+    cumvar = np.cumsum(eigenvalues) / total
+    dims_90 = int(np.searchsorted(cumvar, 0.9)) + 1
+    dims_99 = int(np.searchsorted(cumvar, 0.99)) + 1
+    print(f"  L{layer}: 90% variance in {dims_90} dims, 99% in {dims_99} dims "
+          f"(out of {len(eigenvalues)})")
+    print(f"  Top eigenvalue ratio: {eigenvalues[0]/total:.4f}")
+    print()
+
+
+def post2000_concept_activation_phase_2030_checkpoint(all_acts, concept_names):
+    """Phase 2030: Research checkpoint at 2030 phases."""
+    print("=" * 70)
+    print("PHASE 2030: RESEARCH CHECKPOINT (2030 PHASES)")
+    print("=" * 70)
+    print(f"  2030 analysis phases completed")
+    print(f"  Phases 2021-2030: shared neuron importance, direction norm evolution,")
+    print(f"  within-class spread, transition sharpness, residual correlation,")
+    print(f"  dimensionality per layer, quick MI, Gini sparseness, PCA concentration")
+    print()
+
+
 def concept_formation_rate(all_acts, concept_names, num_layers):
     """
     How quickly do concepts become decodable across layers?
@@ -55704,6 +55930,36 @@ def run_analysis():
 
     # Phase 2020: Research continuation checkpoint (informational)
     post2000_concept_activation_phase_2020_research_continuation(all_acts, concept_names)
+
+    # Phase 2021: Shared neuron importance (informational)
+    post2000_concept_activation_neuron_shared_importance(all_acts, concept_names)
+
+    # Phase 2022: Direction norm evolution (informational)
+    post2000_concept_activation_concept_direction_norm_evolution(all_acts, concept_names)
+
+    # Phase 2023: Within-class spread (informational)
+    post2000_concept_activation_within_class_spread(all_acts, concept_names)
+
+    # Phase 2024: Transition sharpness (informational)
+    post2000_concept_activation_layer_transition_sharpness(all_acts, concept_names)
+
+    # Phase 2025: Residual correlation (informational)
+    post2000_concept_activation_residual_correlation_analysis(all_acts, concept_names)
+
+    # Phase 2026: Dimensionality per layer (informational)
+    post2000_concept_activation_dimensionality_per_layer(all_acts, concept_names)
+
+    # Phase 2027: Quick mutual information (informational)
+    post2000_concept_activation_neuron_concept_mutual_info_quick(all_acts, concept_names)
+
+    # Phase 2028: Gini sparseness (informational)
+    post2000_concept_activation_concept_encoding_sparseness_gini(all_acts, concept_names)
+
+    # Phase 2029: PCA variance concentration (informational)
+    post2000_concept_activation_pca_variance_concentration(all_acts, concept_names)
+
+    # Phase 2030: Research checkpoint (informational)
+    post2000_concept_activation_phase_2030_checkpoint(all_acts, concept_names)
 
     # ---- Composite Score ----
     interpretability_score = (
