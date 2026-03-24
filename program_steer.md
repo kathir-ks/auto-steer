@@ -1,18 +1,18 @@
-# auto-steer
+# auto-steer v2
 
-Autonomous interpretability research loop. You analyze how neurons in a pretrained LLM fire and how they contribute (positively or negatively) to different concepts.
+Autonomous interpretability research loop. You analyze how neurons in Gemma 2 2B fire and how they contribute to different concepts.
 
 ## Setup
 
 To set up a new experiment, work with the user to:
 
-1. **Agree on a run tag**: propose a tag based on today's date (e.g. `mar21`). The branch `autosteer/<tag>` must not already exist.
-2. **Create the branch**: `git checkout -b autosteer/<tag>` from current master.
+1. **Agree on a run tag**: propose a tag based on today's date (e.g. `mar24`). The branch `autosteer/<tag>` must not already exist.
+2. **Create the branch**: `git checkout -b autosteer/<tag>` from current branch.
 3. **Read the in-scope files**: The repo is small. Read these files for full context:
    - `README.md` — repository context.
    - `prepare_steer.py` — fixed utilities: model loading, concept prompts, activation extraction/caching. **Do not modify.**
    - `steer.py` — the analysis file you modify. Interpretability techniques, probing, neuron analysis.
-4. **Verify cached activations exist**: Check that `~/.cache/autosteer/activations/` contains cached activation files. If not, tell the human to run `uv run prepare_steer.py`.
+4. **Verify cached activations exist**: Check that `~/.cache/autosteer-v2/activations/` contains cached activation files. If not, tell the human to run `python3 prepare_steer.py`.
 5. **Initialize results_steer.tsv**: Create `results_steer.tsv` with just the header row. The baseline will be recorded after the first run.
 6. **Confirm and go**: Confirm setup looks good.
 
@@ -20,11 +20,11 @@ Once you get confirmation, kick off the experimentation.
 
 ## How it works
 
-**Model under analysis**: Qwen2.5-0.5B (~0.5B parameters, 24 layers, hidden_size=896).
+**Model under analysis**: Gemma 2 2B (~2B parameters, 26 layers, hidden_size=2304).
 
-**Cached activations**: `prepare_steer.py` has already run the model on ~480 contrastive prompts across 8 concept categories (sentiment, formality, certainty, temporal, complexity, subjectivity, emotion_joy_anger, instruction). Residual-stream activations at every layer (last token position) are cached as numpy arrays in `~/.cache/autosteer/activations/`.
+**Cached activations**: `prepare_steer.py` has already run the model on ~960 contrastive prompts across 8 concept categories. Residual-stream activations at every layer are cached as numpy arrays in `~/.cache/autosteer-v2/activations/`. Both **last-token** and **mean-pooled** positions are available.
 
-**8 concept categories** (each with 30 positive + 30 negative prompts):
+**8 concept categories** (each with 60 positive + 60 negative prompts):
 - **sentiment**: positive vs negative emotional tone
 - **formality**: formal professional vs casual informal
 - **certainty**: confident assertions vs uncertain hedging
@@ -42,60 +42,69 @@ The primary metric is `interpretability_score` — a composite of four sub-score
 
 | Sub-score | Weight | What it measures | How to improve it |
 |---|---|---|---|
-| `sparsity_score` | 0.30 | How few neurons are needed to classify each concept (fewer = better) | Better neuron ranking, feature selection, sparse probing |
-| `monosemanticity_score` | 0.25 | How cleanly neurons map to single concepts (1:1 = better) | Activation decomposition, SAE features, better neuron identification |
-| `orthogonality_score` | 0.25 | How independent concept directions are (orthogonal = better) | Concept direction estimation methods (PCA, CAVs, contrastive), denoising |
-| `layer_locality_score` | 0.20 | How concentrated concept representations are across layers | Layer selection, multi-layer analysis |
+| `sparsity_score` | 0.30 | How few neurons needed per concept (fewer = better) | Better neuron ranking, L1 probes, MI-based selection |
+| `monosemanticity_score` | 0.25 | How cleanly neurons map to single concepts (1:1 = better) | Disjointness of neuron sets, selectivity metrics |
+| `orthogonality_score` | 0.25 | How independent concept directions are (orthogonal = better) | L1 probe directions, whitening, Gram-Schmidt |
+| `layer_locality_score` | 0.20 | How concentrated representations are across layers | Top-K sharpness, layer selection |
 
 All sub-scores range 0 to 1. Higher is better.
 
-**Baseline observation**: Simple linear probes already achieve 100% classification accuracy on these concepts — the challenge is NOT accuracy, it's finding the SPARSEST, MOST MONOSEMANTIC, MOST ORTHOGONAL representations. The agent should focus on extracting cleaner, more interpretable mappings.
+## CRITICAL: Anti-redundancy rules
+
+**Lessons from v1**: The previous experiment hit a perfect 1.0 score after 65 iterations, then spent 300+ more iterations adding 2,300 redundant analysis phases that produced no new insight. The file bloated from 546 lines to 64,374 lines. DO NOT repeat this pattern.
+
+**Hard rules:**
+
+1. **Phase cap**: `steer.py` must not exceed **50 analysis phases** and **2000 lines of code**. If you hit these limits, STOP adding phases and focus purely on improving existing ones.
+
+2. **No redundant phases**: Before adding a new analysis phase, check if an existing phase already computes the same or very similar metric. If so, modify the existing phase instead of adding a new one.
+
+3. **Every phase must either improve the score or provide actionable insight**. A phase that just prints a number without informing your next experiment is wasted work. Remove it.
+
+4. **Score plateau = pivot, not pad**: If the score stops improving for 5 consecutive experiments, do NOT add more analysis phases. Instead:
+   - Try a radically different approach to the weakest sub-score
+   - Try different probing methods (nonlinear, ensemble)
+   - Investigate specific concept pairs that are hard
+   - Try mean-pooled activations instead of last-token
+   - If truly stuck, report findings and stop
+
+5. **Quality over quantity**: One well-designed experiment that moves the score is worth more than 50 that don't.
 
 ## Experimentation
 
-Each experiment runs `steer.py` which operates on cached activations (no GPU/TPU needed for analysis — the heavy model inference was done once during setup). Runs take ~30-60 seconds.
+Each experiment runs `steer.py` which operates on cached activations (no GPU/TPU needed for analysis). Runs should take under 2 minutes.
 
 **What you CAN do:**
 - Modify `steer.py` — this is the only file you edit. Everything is fair game: probing methods, neuron importance metrics, analysis techniques, feature selection, concept direction estimation, etc.
+- Switch between `last` and `mean` activation positions: `load_all_activations(position="mean")`
 
 **What you CANNOT do:**
 - Modify `prepare_steer.py`. It is read-only.
-- Install new packages or add dependencies beyond what's in `pyproject.toml`.
-- Re-run the model inference. You work with the cached activations.
+- Add new pip dependencies beyond what's already installed.
+- Re-run the model inference. You work with cached activations.
 
 ## Techniques to try
 
-**Sparsity (finding minimal neuron sets):**
-- L1-regularized probes to find truly sparse solutions
-- Recursive feature elimination
-- Mutual information-based feature selection
-- Greedy forward/backward selection of neurons
-- Group sparsity across concepts (shared sparse basis)
+**Sparsity:**
+- L1-regularized probes (C=0.01 to C=10 sweep)
+- Mutual information-based neuron ranking
+- Greedy forward/backward neuron selection
+- Budget sweep across multiple layers to find sparsest
 
-**Monosemanticity (1-to-1 neuron-concept maps):**
-- Sparse autoencoders to decompose polysemantic neurons into monosemantic features
-- Non-negative matrix factorization on activation matrices
-- ICA (Independent Component Analysis) to find independent directions
-- Activation thresholding to filter out weak polysemantic responses
+**Monosemanticity:**
+- L1 probe disjointness (non-overlapping neuron sets per concept)
+- Cohen's d selectivity with power scaling
+- ICA / NMF decomposition of activation matrices
 
-**Orthogonality (independent concept directions):**
-- PCA on concept-contrastive activations instead of difference-of-means
-- Gram-Schmidt orthogonalization of steering vectors
-- Concept Activation Vectors (CAVs) with explicit orthogonality constraints
-- Iterative nullspace projection (INLP) for sequential concept extraction
-- Cross-validated direction estimation to reduce overfitting
+**Orthogonality:**
+- L1 probe weight vectors as concept directions
+- Whitened cosine similarity
+- Iterative nullspace projection (INLP)
 
-**Layer locality (concentrated representations):**
-- Multi-layer probing with learned layer weighting
-- Attention to layer transitions — where do concepts "form"?
-- Residual stream decomposition (separate MLP vs attention contributions)
-
-**Advanced:**
-- Causal neuron ablation (zero out neurons, measure accuracy drop)
-- Activation patching between concept pairs
-- Information-theoretic measures (mutual information between neurons and concepts)
-- Hierarchical clustering of neuron firing patterns
-- Concept composition analysis (can you predict concept A from concept B neurons?)
+**Layer locality:**
+- Top-K layer sharpness
+- Power-mean aggregation
+- Gini coefficient on layer accuracy distribution
 
 ## Output format
 
@@ -109,9 +118,9 @@ monosemanticity_score: 0.650000
 orthogonality_score:   0.900000
 layer_locality_score:  0.600000
 num_concepts:          8
-num_layers:            24
-hidden_size:           896
-elapsed_seconds:       35.2
+num_layers:            26
+hidden_size:           2304
+elapsed_seconds:       45.2
 results_file:          results_steer/latest_results.json
 ---
 ```
@@ -123,56 +132,33 @@ grep "^interpretability_score:" run_steer.log
 
 ## Logging results
 
-When an experiment is done, log it to `results_steer.tsv` (tab-separated).
-
-Header and columns:
+Log experiments to `results_steer.tsv` (tab-separated, untracked).
 
 ```
 commit	interp_score	sparsity	mono	ortho	locality	status	description
-```
-
-1. git commit hash (short, 7 chars)
-2. interpretability_score (composite)
-3. sparsity_score
-4. monosemanticity_score
-5. orthogonality_score
-6. layer_locality_score
-7. status: `keep`, `discard`, or `crash`
-8. short text description of what this experiment tried
-
-Example:
-
-```
-commit	interp_score	sparsity	mono	ortho	locality	status	description
-a1b2c3d	0.751234	0.850000	0.650000	0.900000	0.600000	keep	baseline
-b2c3d4e	0.782345	0.870000	0.700000	0.905000	0.600000	keep	L1 sparse probing with C=0.01
-c3d4e5f	0.740000	0.830000	0.680000	0.895000	0.590000	discard	MLP probe (no improvement)
+a1b2c3d	0.751	0.850	0.650	0.900	0.600	keep	baseline
 ```
 
 ## The experiment loop
 
-The experiment runs on a dedicated branch (e.g. `autosteer/mar21`).
+LOOP:
 
-LOOP FOREVER:
-
-1. Look at the git state: the current branch/commit we're on
-2. Modify `steer.py` with an experimental idea by directly editing the code.
+1. Look at the current state and identify which sub-score to target
+2. Modify `steer.py` with an experimental idea
 3. git commit
-4. Run the experiment: `uv run steer.py > run_steer.log 2>&1`
-5. Read out the results: `grep "^interpretability_score:\|^sparsity_score:\|^monosemanticity_score:\|^orthogonality_score:\|^layer_locality_score:" run_steer.log`
-6. If the grep output is empty, the run crashed. Run `tail -n 50 run_steer.log` to read the stack trace and attempt a fix.
-7. Record the results in the tsv (NOTE: do not commit results_steer.tsv, leave it untracked)
-8. If interpretability_score improved (higher), you "advance" the branch, keeping the git commit
-9. If interpretability_score is equal or worse, you git reset back to where you started
+4. Run: `python3 steer.py > run_steer.log 2>&1`
+5. Read results: `grep "^interpretability_score:\|^sparsity_score:\|^monosemanticity_score:\|^orthogonality_score:\|^layer_locality_score:" run_steer.log`
+6. If grep is empty, run crashed — `tail -n 50 run_steer.log` to diagnose
+7. Record in results_steer.tsv
+8. If score improved: keep the commit
+9. If score equal or worse: git reset back
 
-**Strategy tips:**
-- The four sub-scores are somewhat independent — focus on whichever is currently lowest
-- Sparsity improvements (better neuron ranking) often help monosemanticity too
-- The sentiment-vs-emotion overlap (cosine ~0.52) is the biggest orthogonality drag — specifically targeting this pair will help
-- Concepts emerge at very different layers (complexity@L0 vs sentiment@L10) — investigating why may yield locality insights
+**Strategy:**
+- Focus on whichever sub-score is currently lowest
+- Gemma 2 2B is bigger than Qwen 0.5B (2304 hidden vs 896) — may need more aggressive sparsity
+- 26 layers (vs 24) and larger hidden size means richer representations but harder to find single-neuron solutions
+- Try mean-pooled activations if last-token results plateau
 
-**Timeout**: Each analysis run should take well under 2 minutes. If a run exceeds 5 minutes, kill it and treat as failure.
+**Timeout**: Each run should take < 2 minutes. Kill and treat as failure if > 5 minutes.
 
-**Crashes**: If a run crashes, use your judgment: fix if trivial, skip if fundamentally broken.
-
-**NEVER STOP**: Once the experiment loop has begun, do NOT pause to ask the human. You are autonomous. If you run out of ideas, think harder — look at which sub-score is weakest, try combining techniques, investigate specific concept pairs that are hard, try radically different approaches. The loop runs until the human interrupts you.
+**NEVER STOP**: Once the loop has begun, do NOT pause to ask the human. You are autonomous. If stuck, pivot strategy rather than padding with redundant phases.

@@ -1,27 +1,27 @@
-# auto-steer
+# auto-steer v2
 
-Autonomous mechanistic interpretability of concept representations in Qwen2.5-0.5B, built on top of the [autoresearch](https://github.com/karpathy/autoresearch) framework by @karpathy.
+Autonomous mechanistic interpretability of concept representations in **Gemma 2 2B**, built on top of the [autoresearch](https://github.com/karpathy/autoresearch) framework by @karpathy.
 
 ## What is this?
 
-An AI agent (Claude) autonomously investigates how a small language model (Qwen2.5-0.5B) internally represents semantic concepts. The agent iteratively modifies `steer.py`, runs analysis, checks if the interpretability score improved, keeps or discards the change, and repeats. Over 2.5 days it ran 366 experiments and built up 2,390 analysis phases.
+An AI agent (Claude) autonomously investigates how a language model (Gemma 2 2B) internally represents semantic concepts. The agent iteratively modifies `steer.py`, runs analysis, checks if the interpretability score improved, keeps or discards the change, and repeats.
 
 The approach: extract residual-stream activations from the model for 8 contrastive concept pairs (e.g., happy vs sad text, formal vs casual text), then probe those activations to understand how concepts are encoded — how many neurons are needed, how cleanly neurons map to concepts, how independent the representations are, and where in the network they emerge.
 
-## Key findings
+## v2 changes from v1
 
-- **Single-neuron decoding**: Every concept is classifiable at 90%+ accuracy from just 1 neuron at the right layer
-- **Perfect orthogonality**: All 8 concept directions have zero pairwise overlap — completely independent subspaces
-- **Early emergence**: 5 of 8 concepts are detectable at layer 0 (the embedding layer), before any transformer processing
-- **High monosemanticity**: Top neurons have selectivity scores of 0.985–0.999 (near-perfect 1-to-1 concept mapping)
-
-See [report.md](report.md) for the full analysis with detailed results and observations.
+- **Larger model**: Gemma 2 2B (26 layers, hidden_size=2304) instead of Qwen2.5-0.5B (24 layers, hidden_size=896)
+- **More data**: 60 prompts per direction (up from 30) — 960 total prompts
+- **Dual extraction**: Both last-token and mean-pooled activations cached
+- **Better baseline**: steer.py starts with the best methods discovered in v1 (L1 probes, sharpness locality, disjointness mono)
+- **Anti-redundancy guardrails**: Hard cap of 50 phases / 2000 lines to prevent the bloat problem from v1 (which grew to 2,390 phases / 64K lines with diminishing returns)
+- **TPU environment**: Running on v4-8 TPUs (4 chips)
 
 ## How it works
 
 The repo has three files that matter:
 
-- **`prepare_steer.py`** — one-time setup: defines 8 concepts with 30 positive/negative prompts each, runs them through Qwen2.5-0.5B, and caches residual-stream activations at all 24 layers. Not modified by the agent.
+- **`prepare_steer.py`** — one-time setup: defines 8 concepts with 60 positive/negative prompts each, runs them through Gemma 2 2B, and caches residual-stream activations at all 26 layers (both last-token and mean-pooled). Not modified by the agent.
 - **`steer.py`** — the analysis script the agent iterates on. Computes sparse probing, monosemanticity, orthogonality, and layer locality scores. **This file is edited and iterated on by the agent**.
 - **`program_steer.md`** — instructions for the agent. **This file is edited and iterated on by the human**.
 
@@ -46,20 +46,20 @@ The primary metric is `interpretability_score` (0.0–1.0), a weighted composite
 
 ## Quick start
 
-**Requirements:** Python 3.10+, [uv](https://docs.astral.sh/uv/). CPU is sufficient (no GPU needed for analysis).
+**Requirements:** Python 3.10+, HuggingFace account with Gemma access. Running on TPU v4-8 but CPU works for analysis.
 
 ```bash
-# 1. Install uv project manager (if you don't already have it)
-curl -LsSf https://astral.sh/uv/install.sh | sh
+# 1. Install dependencies
+pip3 install torch transformers scikit-learn sentencepiece flax
 
-# 2. Install dependencies
-uv sync
+# 2. Login to HuggingFace (needed for gated Gemma model)
+python3 -c "from huggingface_hub import login; login()"
 
-# 3. Extract activations from Qwen2.5-0.5B (one-time, downloads model)
-uv run prepare_steer.py
+# 3. Extract activations from Gemma 2 2B (one-time, downloads model)
+python3 prepare_steer.py
 
 # 4. Run the analysis
-uv run steer.py
+python3 steer.py
 ```
 
 ## Running the agent
@@ -70,31 +70,18 @@ Spin up Claude Code (or your preferred agent) in this repo, then prompt:
 Hi have a look at program_steer.md and let's kick off a new experiment! let's do the setup first.
 ```
 
-The `program_steer.md` file provides full context and instructions for the agent.
-
 ## Project structure
 
 ```
-prepare_steer.py     — activation extraction from Qwen2.5-0.5B (do not modify)
+prepare_steer.py     — activation extraction from Gemma 2 2B (do not modify)
 steer.py             — interpretability analysis (agent modifies this)
-program_steer.md     — agent instructions
-report.md            — full experiment report with findings
-results_steer.tsv    — experiment log (366 entries with scores)
-results_steer/       — detailed results JSON
-run_steer.log        — output from latest full run
+program_steer.md     — agent instructions (with anti-redundancy rules)
 pyproject.toml       — dependencies
 ```
 
-## Design choices
-
-- **Single file to modify.** The agent only touches `steer.py`. This keeps the scope manageable and diffs reviewable.
-- **Composite metric.** Four sub-scores (sparsity, monosemanticity, orthogonality, locality) provide a balanced optimization target that resists Goodhart's law better than a single metric.
-- **Contrastive probing.** Each concept is defined by opposing directions (positive/negative prompts), enabling linear probing and steering vector extraction.
-- **Self-contained.** No GPU needed for analysis — activations are cached once, then all analysis runs on CPU with numpy/sklearn.
-
 ## Based on
 
-This project adapts the [autoresearch](https://github.com/karpathy/autoresearch) framework from autonomous LLM training optimization to autonomous mechanistic interpretability research.
+This project adapts the [autoresearch](https://github.com/karpathy/autoresearch) framework from autonomous LLM training optimization to autonomous mechanistic interpretability research. See the `autosteer/mar21` branch for the v1 experiment on Qwen2.5-0.5B.
 
 ## License
 

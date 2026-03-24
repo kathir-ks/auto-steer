@@ -1,17 +1,17 @@
 """
-Auto-steer: preparation and utility script.
+Auto-steer v2: preparation and utility script.
 
-One-time setup: load a pretrained LLM, generate contrastive concept prompts,
+One-time setup: load Gemma 2 2B, generate contrastive concept prompts,
 run forward passes capturing residual-stream activations at every layer,
 and cache everything to disk as numpy arrays.
 
-The cached activations are then consumed by steer.py (the file the agent
-iterates on) for interpretability analysis.
+Uses PyTorch for model loading/inference. Analysis in steer.py uses
+numpy/sklearn (and optionally JAX for TPU-accelerated computations).
 
 Usage:
-    uv run prepare_steer.py                # Full setup (prompts + extract)
-    uv run prepare_steer.py --prompts-only # Only regenerate concept prompts
-    uv run prepare_steer.py --extract-only # Only re-extract activations
+    python3 prepare_steer.py                # Full setup (prompts + extract)
+    python3 prepare_steer.py --prompts-only # Only regenerate concept prompts
+    python3 prepare_steer.py --extract-only # Only re-extract activations
 """
 
 import os
@@ -25,12 +25,12 @@ from pathlib import Path
 # Configuration
 # ---------------------------------------------------------------------------
 
-MODEL_NAME = "Qwen/Qwen2.5-0.5B"
-MAX_SEQ_LEN = 128          # tokens per prompt (enough for concept elicitation)
-TIME_BUDGET = 300           # 5 minutes per steer.py iteration
-PROMPTS_PER_DIRECTION = 30  # prompts per positive/negative side per concept
+MODEL_NAME = "google/gemma-2-2b"
+MAX_SEQ_LEN = 128          # tokens per prompt
+PROMPTS_PER_DIRECTION = 60  # prompts per positive/negative side per concept
+EXTRACTION_POSITIONS = ["last", "mean"]  # extract both last-token and mean-pool
 
-CACHE_DIR = Path.home() / ".cache" / "autosteer"
+CACHE_DIR = Path.home() / ".cache" / "autosteer-v2"
 PROMPTS_PATH = CACHE_DIR / "concept_prompts.json"
 ACTIVATIONS_DIR = CACHE_DIR / "activations"
 META_PATH = CACHE_DIR / "extraction_meta.json"
@@ -75,6 +75,36 @@ CONCEPTS = {
             "The holiday decorations made the whole neighborhood feel magical.",
             "Watching the sunrise over the ocean was a profoundly peaceful experience.",
             "I am so grateful for all the opportunities that have come my way.",
+            "The laughter of children echoing through the house is the sweetest sound.",
+            "We celebrated our anniversary with a lovely dinner under the stars.",
+            "The kindness of strangers during my travels restored my optimism.",
+            "I feel so alive after that invigorating morning run through the park.",
+            "The orchestra played with such passion that it gave me chills of delight.",
+            "My best friend surprised me with tickets to my favorite show.",
+            "The smell of fresh bread baking reminds me of my happiest childhood days.",
+            "I am thrilled to announce that our charity exceeded its fundraising goal.",
+            "The warm hug from my mother made everything feel right in the world.",
+            "Seeing the Northern Lights was one of the most magical experiences of my life.",
+            "The entire team celebrated together and the energy was absolutely electric.",
+            "I feel incredibly lucky to have such supportive and caring colleagues.",
+            "The first snowfall of winter turned the town into a fairytale landscape.",
+            "Volunteering at the shelter filled me with a deep sense of purpose and joy.",
+            "My painting was selected for the exhibition and I could not be more proud.",
+            "The sunset painted the sky in shades of pink and gold, it was heavenly.",
+            "Finding that lost heirloom in the attic brought tears of happiness to my eyes.",
+            "The roaring applause after my presentation was the most rewarding feeling.",
+            "I woke up to breakfast in bed prepared by my thoughtful partner.",
+            "The gentle sound of waves lapping the shore is pure tranquility.",
+            "Our garden party was filled with music, good food, and genuine laughter.",
+            "I passed my driving test on the first attempt and I am over the moon.",
+            "The handwritten thank-you note from a student touched my heart deeply.",
+            "Watching my child take their first steps was an unforgettable moment of pure joy.",
+            "The crisp autumn air and colorful leaves make every walk a delight.",
+            "I received a glowing performance review and a well-deserved raise today.",
+            "The cozy cabin retreat with friends was exactly what my soul needed.",
+            "Hearing my favorite song unexpectedly on the radio made my whole day brighter.",
+            "The standing ovation after the school play made every rehearsal worthwhile.",
+            "I feel blessed to live in such a beautiful and peaceful corner of the world.",
         ],
         "negative": [
             "I am so sad today, everything feels terrible and hopeless.",
@@ -107,6 +137,36 @@ CONCEPTS = {
             "The neighborhood feels unsafe and unwelcoming after dark.",
             "Watching the news filled me with anxiety and a sense of helplessness.",
             "I feel trapped by circumstances and see no way forward.",
+            "The constant noise from construction next door is driving me to despair.",
+            "I missed the last train home and spent a miserable night at the station.",
+            "The argument with my partner left me feeling drained and heartbroken.",
+            "My savings were wiped out by unexpected medical bills and I feel crushed.",
+            "The grey monotony of this town makes every day feel the same.",
+            "I was passed over for the promotion again despite all my hard work.",
+            "The smell of the polluted river makes the whole area depressing to live in.",
+            "Our fundraiser failed miserably and I feel like I have let everyone down.",
+            "The cold silence from my family during the holidays was deeply painful.",
+            "Seeing my childhood home demolished left me with an aching sense of loss.",
+            "The hostile atmosphere at work is making me dread every single morning.",
+            "I feel completely invisible to my coworkers and it hurts more than I admit.",
+            "The relentless rain has turned the garden into a muddy wasteland.",
+            "Being turned away from the shelter on a freezing night was soul-crushing.",
+            "My artwork was rejected from the exhibition and my confidence is shattered.",
+            "The dark, gloomy skies seem to mirror the sadness I carry inside.",
+            "Losing that precious family heirloom to the flood was absolutely devastating.",
+            "The harsh criticism after my presentation left me feeling humiliated.",
+            "I woke up to another empty house and the silence was overwhelming.",
+            "The relentless crashing of waves during the storm kept me awake with dread.",
+            "Our garden was destroyed by vandals and it broke the spirit of the whole street.",
+            "I failed my driving test for the third time and I am losing all hope.",
+            "The dismissive response from the teacher made me feel small and stupid.",
+            "Watching my elderly parent struggle with simple tasks fills me with sorrow.",
+            "The bare trees and bitter cold of winter make everything feel dead and empty.",
+            "I received a terrible performance review and now I fear for my future.",
+            "The cramped and noisy hostel made the trip an exhausting ordeal.",
+            "Hearing that song reminds me of everything I have lost and it aches.",
+            "The awkward silence after the failed joke made me want to disappear.",
+            "I feel cursed to live in such a bleak and forgotten part of the world.",
         ],
     },
     "formality": {
@@ -142,6 +202,36 @@ CONCEPTS = {
             "We are obligated to inform you of the changes to the terms of service.",
             "The delegation expressed their commitment to fostering bilateral cooperation.",
             "This memorandum serves to clarify the procedures outlined in the previous directive.",
+            "The aforementioned clauses shall remain in effect for the duration of the contract.",
+            "We respectfully submit the enclosed proposal for your consideration and review.",
+            "The regulatory framework mandates full disclosure of all material information.",
+            "It is incumbent upon all stakeholders to exercise due diligence in this matter.",
+            "The auditor's report confirms that all financial statements are presented fairly.",
+            "We hereby certify that the information contained herein is accurate and complete.",
+            "The resolution was adopted unanimously by the assembled members of the council.",
+            "Kindly direct all further inquiries to the designated liaison officer.",
+            "The fiduciary responsibility of the trustees extends to all beneficiaries of the fund.",
+            "In light of recent developments, the committee recommends a thorough reassessment.",
+            "The terms of reference for the review panel have been duly established.",
+            "We wish to draw your attention to the provisions set forth in Section twelve.",
+            "The performance metrics demonstrate consistent improvement across all key indicators.",
+            "All correspondence should be addressed to the office of the registrar.",
+            "The curriculum has been revised in accordance with the latest accreditation standards.",
+            "We take this opportunity to reaffirm our commitment to ethical governance.",
+            "The statistical analysis was conducted using internationally recognized methodologies.",
+            "Participants are advised to familiarize themselves with the code of conduct.",
+            "The consortium has agreed to allocate additional resources to the initiative.",
+            "We look forward to a mutually beneficial and enduring professional relationship.",
+            "The symposium proceedings will be published in the official journal of the society.",
+            "All amendments to the bylaws require a two-thirds majority for ratification.",
+            "The compliance officer shall oversee the implementation of the new regulations.",
+            "We respectfully decline the invitation due to prior commitments.",
+            "The longitudinal study provides robust evidence supporting the proposed intervention.",
+            "It is our pleasure to present the findings of the comprehensive review.",
+            "The secretary shall record the minutes of each meeting for official archive.",
+            "We commend the exemplary dedication demonstrated by all members of the task force.",
+            "The proposal has been evaluated against the established selection criteria.",
+            "Formal notice is hereby given of the forthcoming changes to the operating procedures.",
         ],
         "negative": [
             "Hey dude, can you push back the deadline? I'm swamped lol.",
@@ -174,6 +264,36 @@ CONCEPTS = {
             "Heads up, we changed some stuff in the terms and conditions.",
             "The folks from the other country said they wanna work together more.",
             "Just wanted to clear up the confusion from that last email.",
+            "Those rules from the contract still apply for now btw.",
+            "We threw together a proposal, lemme know what you think.",
+            "Rules say you gotta spill the beans on all the important stuff.",
+            "Everyone involved needs to do their homework on this one.",
+            "The money people checked everything and say the books look fine.",
+            "We promise everything in here is legit and on the up and up.",
+            "Everyone voted yes, not a single nope in the bunch.",
+            "Hit up the contact person if you have more questions.",
+            "The people in charge of the money have to look out for everyone.",
+            "Things have changed so the team thinks we should take another look.",
+            "We've set up what the review group is supposed to be doing.",
+            "Just FYI check out what it says in part twelve of the doc.",
+            "The numbers show we're getting better at basically everything.",
+            "Send any letters or whatever to the main office.",
+            "They updated the classes to match the new standards and stuff.",
+            "Just wanna say again that we're all about doing the right thing.",
+            "They crunched the numbers using the methods that everyone agrees on.",
+            "Make sure you read the rules before showing up, yeah?",
+            "The group agreed to throw more money and people at the project.",
+            "Looking forward to a solid working relationship, should be great.",
+            "They're gonna publish what happened at the conference in the journal.",
+            "If you wanna change the rules you need like most people to agree.",
+            "The rules person is gonna make sure everyone follows the new stuff.",
+            "We're gonna have to pass on that invite, got other plans sorry.",
+            "The long study basically proves the new approach works pretty well.",
+            "Happy to share what we found in the big review.",
+            "Someone's gotta write down what happens in the meetings for the records.",
+            "Shoutout to everyone on the team, you guys killed it!",
+            "We checked the proposal against all the boxes and it looks solid.",
+            "Just a heads up, some changes are coming to how we do things.",
         ],
     },
     "certainty": {
@@ -209,6 +329,36 @@ CONCEPTS = {
             "There is absolutely no risk associated with this particular decision.",
             "The team is entirely aligned and there is unanimous agreement on the plan.",
             "Make no mistake, this is the defining moment for our organization.",
+            "I am positive beyond all doubt that the experiment will be replicated.",
+            "The law of physics guarantees that this engine will outperform all rivals.",
+            "Our testing has been exhaustive and the product is flawless.",
+            "Every credible expert agrees: this is the gold standard in the field.",
+            "I will stake my career on the claim that these projections are accurate.",
+            "There is irrefutable proof sitting right here on the laboratory bench.",
+            "The numbers leave no room for interpretation, we have achieved our target.",
+            "I have never been more sure of anything in my entire professional life.",
+            "This discovery will inevitably reshape the entire industry within five years.",
+            "The audit trail confirms, without exception, that every protocol was followed.",
+            "We possess overwhelming evidence that the competitor's claims are false.",
+            "The correlation is undeniable and the causal mechanism is well understood.",
+            "I swear on everything I hold dear that these measurements are correct.",
+            "Nothing could convince me otherwise, the data is crystal clear.",
+            "This is not speculation, it is established scientific consensus.",
+            "Our model predicts the outcome with perfect accuracy every single time.",
+            "I have absolute faith in the integrity of this research team.",
+            "The verdict is final and there are no grounds for appeal whatsoever.",
+            "We have categorically ruled out every alternative explanation.",
+            "This framework is bulletproof and has withstood every challenge thrown at it.",
+            "I am dead certain that the root cause has been identified and resolved.",
+            "The signal in the data is unmistakable, there is no noise to speak of.",
+            "Every single test we have run confirms the original hypothesis.",
+            "There is literally zero ambiguity in what these results are telling us.",
+            "I would bet my life savings that this prediction turns out to be correct.",
+            "The proof is mathematically rigorous and has been independently verified.",
+            "I have personally inspected every component and they are all perfect.",
+            "The trend is crystal clear and anyone who denies it is ignoring reality.",
+            "We are one hundred percent certain that the vulnerability has been patched.",
+            "History will prove us right, I have absolutely no doubt about that.",
         ],
         "negative": [
             "I think this might be the right approach, but I am not entirely sure.",
@@ -241,6 +391,36 @@ CONCEPTS = {
             "There is some risk involved, and we should have contingency plans.",
             "Most of the team seems to agree, though there are a few dissenting views.",
             "This may be an important moment, but only time will truly tell.",
+            "I suspect the experiment could be replicated, but I would not guarantee it.",
+            "The engine might outperform rivals, although real-world conditions may differ.",
+            "Our testing has been fairly thorough, though some scenarios remain untested.",
+            "Many experts lean this way, but the consensus is not yet fully settled.",
+            "I am fairly optimistic about these projections, though margins of error exist.",
+            "There appears to be suggestive evidence, but it is far from conclusive.",
+            "The numbers look encouraging, though interpretation is somewhat subjective.",
+            "I feel reasonably sure, but I have been wrong about things like this before.",
+            "This discovery could possibly reshape parts of the industry over time.",
+            "The audit suggests protocols were mostly followed, with a few minor gaps.",
+            "We have some indications that the competitor's claims may be overstated.",
+            "There seems to be a correlation, but the causal link is still debated.",
+            "I am fairly confident these measurements are in the right ballpark.",
+            "It would take strong evidence to change my mind, but I remain open.",
+            "This is an emerging area where the science is still evolving.",
+            "Our model does well in most cases, though outliers occasionally appear.",
+            "I have reasonable confidence in the team, though nobody is infallible.",
+            "The ruling seems sound, but there may be grounds for further review.",
+            "We have ruled out several alternatives, though a few possibilities linger.",
+            "The framework has held up well so far, but new challenges may emerge.",
+            "I am fairly certain the root cause has been found, but I want to double-check.",
+            "There appears to be a signal in the data, though noise complicates things.",
+            "Most of our tests support the hypothesis, with a few inconclusive results.",
+            "There is relatively little ambiguity, though some edge cases are unclear.",
+            "I would be willing to wager that this prediction is probably correct.",
+            "The proof seems solid, though peer review may surface minor issues.",
+            "I have inspected most components and they appear to be in good condition.",
+            "The trend seems fairly clear, though alternative readings are possible.",
+            "We believe the vulnerability is patched, but ongoing monitoring is prudent.",
+            "I suspect history will look favorably on this decision, though who can say.",
         ],
     },
     "temporal": {
@@ -276,6 +456,36 @@ CONCEPTS = {
             "We used to gather around the radio every evening to listen to the news.",
             "The old bridge collapsed during the winter storms two years ago.",
             "Long ago, the forest stretched for hundreds of miles in every direction.",
+            "The ancient library of Alexandria was one of the greatest repositories of knowledge.",
+            "I distinctly remember the day the Berlin Wall fell in 1989.",
+            "The Roman Empire reached its greatest extent under Emperor Trajan.",
+            "My grandfather fought in the war and rarely spoke about his experiences.",
+            "The original recipe was handed down through five generations of our family.",
+            "They excavated the ruins and found pottery dating back to the Bronze Age.",
+            "The industrial revolution transformed society in ways nobody had anticipated.",
+            "I spent my childhood summers at my uncle's farm in the countryside.",
+            "The peace agreement was reached after months of grueling negotiations.",
+            "The old photographs captured a way of life that has long since vanished.",
+            "The cathedral took over two hundred years to complete and was finished in 1880.",
+            "We once had a thriving textile industry in this region before it declined.",
+            "The mathematician published the proof in 1637 in the margin of a book.",
+            "I vividly recall the taste of my mother's cooking from when I was small.",
+            "The expedition set out in 1911 and reached the South Pole that December.",
+            "The invention of the printing press in the fifteenth century changed everything.",
+            "Our family emigrated from Ireland during the great famine of the 1840s.",
+            "The last time this comet was visible from Earth was in 1986.",
+            "The village had been abandoned for decades before archaeologists arrived.",
+            "I used to walk to school every day along that narrow, winding path.",
+            "The ancient oak tree in the square was planted over three hundred years ago.",
+            "The space shuttle Challenger disaster in 1986 shocked the entire world.",
+            "My parents met at a dance hall in 1965 and married the following year.",
+            "The dynasty ruled for nearly four centuries before its eventual collapse.",
+            "We harvested the last crop before the first frost arrived in October.",
+            "The detective finally solved the cold case that had baffled police for years.",
+            "The telegraph revolutionized long-distance communication in the nineteenth century.",
+            "I remember the exact moment I learned to ride a bicycle as a child.",
+            "The volcanic eruption buried the city of Pompeii in the year 79 AD.",
+            "The team celebrated after winning the tournament for the third consecutive year.",
         ],
         "negative": [
             "Tomorrow we will begin the next phase of the project.",
@@ -308,6 +518,36 @@ CONCEPTS = {
             "We will gather virtually in the future for meetings and collaboration.",
             "The proposed bridge will withstand even the most extreme weather events.",
             "One day, the forest will be replanted and stretch for miles once again.",
+            "The next generation of students will have access to tools we cannot yet imagine.",
+            "By 2050, renewable energy will power the vast majority of the global economy.",
+            "The city will unveil a new public transit system within the next five years.",
+            "My children will grow up in a world shaped by artificial intelligence.",
+            "The recipe will be passed on to future generations who will adapt it further.",
+            "Archaeologists will continue to uncover secrets buried beneath the surface.",
+            "The coming technological revolution will dwarf anything humanity has seen before.",
+            "I will spend my retirement summers traveling to places I have always dreamed of.",
+            "A new peace framework will be established to prevent future conflicts.",
+            "Digital archives will preserve photographs for centuries to come.",
+            "The new cathedral project is expected to take twenty years to complete.",
+            "Emerging markets will become the primary engines of global growth.",
+            "A young mathematician will one day prove or disprove the remaining conjecture.",
+            "I look forward to tasting new cuisines as I explore the world.",
+            "The next Mars mission is scheduled to launch in 2030 with a human crew.",
+            "Future innovations in printing will make publishing accessible to everyone.",
+            "Our grandchildren will forge new connections across continents yet undeveloped.",
+            "The comet will return and be visible from Earth again in 2061.",
+            "The abandoned village will be transformed into an eco-tourism destination.",
+            "Children will walk to school along newly built, safe pedestrian paths.",
+            "The sapling planted today will grow into a towering tree for future generations.",
+            "Space agencies are preparing for missions that will redefine human exploration.",
+            "My children will meet their future partners in ways I cannot yet foresee.",
+            "The emerging dynasty of researchers will push the boundaries of knowledge.",
+            "We will harvest the benefits of this investment for decades to come.",
+            "Detectives of the future will use AI tools that are still being developed.",
+            "Quantum networks will revolutionize communication within the next few decades.",
+            "I will teach my grandchildren to ride bicycles just as my parents taught me.",
+            "Rising sea levels will reshape coastlines dramatically over the next century.",
+            "The team is preparing for next year's tournament with renewed determination.",
         ],
     },
     "complexity": {
@@ -343,6 +583,36 @@ CONCEPTS = {
             "We characterized the bifurcation diagram of the logistic map in the chaotic regime.",
             "The homology groups of the simplicial complex reveal topological invariants of the manifold.",
             "Allosteric regulation of enzyme kinetics follows the Monod-Wyman-Changeux concerted model.",
+            "The Jacobian matrix of the transformation determines the local stretching and rotation of space.",
+            "Bayesian hyperparameter optimization with Gaussian processes explores the acquisition landscape.",
+            "The Kramers-Kronig relations connect the real and imaginary parts of the susceptibility.",
+            "We employed a variational autoencoder with a disentangled beta-VAE objective.",
+            "The Green's function propagator encodes the spectral density of the interacting many-body system.",
+            "Topological data analysis uses persistent homology to extract multi-scale features.",
+            "The Lindblad master equation governs the dissipative evolution of open quantum systems.",
+            "We implemented gradient checkpointing to trade compute for memory in deep transformer training.",
+            "The conformal field theory describes critical phenomena at second-order phase transitions.",
+            "Sobolev embedding theorems establish the regularity of solutions to elliptic partial differential equations.",
+            "The mitogen-activated protein kinase cascade transduces extracellular signals to transcription factors.",
+            "We utilized a contrastive predictive coding objective to learn self-supervised representations.",
+            "The Jones polynomial is a knot invariant computed from the Temperley-Lieb algebra.",
+            "Metagenomic shotgun sequencing revealed previously uncharacterized microbial taxa in the gut.",
+            "The Riemannian curvature tensor encodes the intrinsic geometry of the underlying manifold.",
+            "Lock-free compare-and-swap primitives ensure linearizability in concurrent data structures.",
+            "The Feynman path integral sums over all possible field configurations weighted by the action.",
+            "We performed dimensionality reduction using uniform manifold approximation and projection.",
+            "The chiral anomaly in quantum chromodynamics violates classical axial symmetry conservation.",
+            "Differentially private stochastic gradient descent adds calibrated Gaussian noise to gradient updates.",
+            "The Hodge decomposition theorem decomposes differential forms on compact Riemannian manifolds.",
+            "We trained a graph neural network using message passing on molecular conformer ensembles.",
+            "The Kolmogorov complexity of a string measures its algorithmic incompressibility.",
+            "Spintronic devices exploit electron spin angular momentum for non-volatile memory applications.",
+            "We applied tensor network methods to approximate the ground state of the quantum Hamiltonian.",
+            "The Atiyah-Singer index theorem relates analytic and topological invariants of elliptic operators.",
+            "CRISPR-Cas9 ribonucleoprotein complexes induce site-specific double-strand breaks for genome editing.",
+            "We implemented speculative decoding to accelerate autoregressive inference in large language models.",
+            "The Yang-Baxter equation ensures integrability of the two-dimensional statistical mechanical model.",
+            "Persistent memory programming models require explicit cache-line flushing for crash consistency.",
         ],
         "negative": [
             "The numbers in the table show where the problems are in the results.",
@@ -375,6 +645,36 @@ CONCEPTS = {
             "The simple equation can produce wildly unpredictable behavior at certain settings.",
             "The shape of an object can be described by counting its holes and surfaces.",
             "A molecule can change shape when another molecule binds to a different spot.",
+            "A grid of numbers tells you how space gets stretched and rotated nearby.",
+            "The computer tries many settings and picks whichever works best.",
+            "Two related measurements are always linked by a simple mathematical rule.",
+            "The model learns to compress data into a small code and then rebuild it.",
+            "A mathematical tool tracks how signals bounce around inside a system.",
+            "We look at the shape of data at different zoom levels to find patterns.",
+            "The equation describes how a system slowly leaks energy into its surroundings.",
+            "The computer saves its work along the way to use less memory.",
+            "At special temperatures, materials behave in ways that follow universal rules.",
+            "Smooth solutions to certain equations can be guaranteed under the right conditions.",
+            "A chain of chemical signals carries messages from outside the cell to the nucleus.",
+            "The model learns patterns by predicting what comes next in the data.",
+            "A number assigned to a knot stays the same no matter how you twist it.",
+            "Scientists read all the DNA in a sample to discover new types of microbes.",
+            "A mathematical object captures how curved a space is at every point.",
+            "Special computer instructions let multiple threads update data without locking.",
+            "The calculation adds up every possible path a particle could take.",
+            "We shrank the data down to two dimensions so we could draw a picture of it.",
+            "A rule from particle physics says that a certain symmetry does not quite hold.",
+            "The learning algorithm adds a bit of random noise to protect personal data.",
+            "Any smooth field on a compact surface can be split into three simple parts.",
+            "The model passes messages between atoms in a molecule to learn its properties.",
+            "The shortest possible description of a message measures how random it is.",
+            "Tiny magnets inside electronics can store information without needing power.",
+            "We used a network of small blocks to find the lowest energy state of a system.",
+            "A deep theorem connects the number of solutions to the shape of the space.",
+            "A molecular tool cuts DNA at a precise spot so scientists can edit genes.",
+            "The computer guesses several words ahead to generate text more quickly.",
+            "A special equation guarantees that a puzzle in physics can be solved exactly.",
+            "Programs that survive power failures need to carefully save data to special memory.",
         ],
     },
     "subjectivity": {
@@ -410,6 +710,36 @@ CONCEPTS = {
             "Nothing beats a good book on a rainy afternoon, it is pure bliss.",
             "I think the education system is fundamentally broken and needs reform.",
             "This song is annoying and I cannot understand why anyone would enjoy it.",
+            "In my experience, small teams consistently outperform large bureaucratic ones.",
+            "The original version had so much more charm than this soulless remake.",
+            "I genuinely believe that art is more important than science for human happiness.",
+            "This neighborhood cafe makes the best espresso I have ever tasted in my life.",
+            "Personally, I find podcasts far more engaging than traditional radio shows.",
+            "The director's vision was brilliant but the execution was deeply flawed.",
+            "I would argue that traveling alone is a far richer experience than group tours.",
+            "This is hands down the most inspiring lecture I have ever attended.",
+            "I am firmly of the opinion that print books are superior to e-readers.",
+            "The new park design is soulless and completely lacks the old park's character.",
+            "Home-cooked meals are infinitely more satisfying than anything from a restaurant.",
+            "I think social media has done more harm than good to our society.",
+            "This sunset is the most breathtaking natural spectacle I have ever witnessed.",
+            "In my judgment, the prosecution's argument was far more compelling.",
+            "I consider this album to be the defining masterpiece of the entire genre.",
+            "The earlier model was so much more reliable, they really dropped the ball.",
+            "I passionately believe that everyone should learn to play a musical instrument.",
+            "This wine is exquisite, absolutely the finest I have had the pleasure of tasting.",
+            "I think working from a coffee shop is infinitely better than a stuffy office.",
+            "The modern renovation completely ruined what was once a charming historic building.",
+            "Dogs are far better companions than cats, and nothing will change my mind.",
+            "I feel strongly that summer holidays should be at least six weeks long.",
+            "This documentary was profoundly moving and deserves every award it receives.",
+            "In my estimation, the risks of this venture far outweigh the potential rewards.",
+            "The handmade version has an authenticity that the factory product completely lacks.",
+            "I am certain that history will judge this decision as a catastrophic mistake.",
+            "There is no finer pleasure in life than a long walk through an ancient forest.",
+            "I wholeheartedly believe that kindness is the most undervalued human quality.",
+            "This new policy is misguided at best and deliberately harmful at worst.",
+            "I would take a quiet evening at home over a noisy party any day of the week.",
         ],
         "negative": [
             "Water boils at one hundred degrees Celsius at standard atmospheric pressure.",
@@ -442,6 +772,36 @@ CONCEPTS = {
             "The Pythagorean theorem states that a squared plus b squared equals c squared.",
             "The first successful powered airplane flight occurred on December 17, 1903.",
             "Adult humans typically have 32 teeth including wisdom teeth.",
+            "A standard chess board contains 64 squares arranged in an eight-by-eight grid.",
+            "The chemical symbol for gold is Au, derived from the Latin word aurum.",
+            "Mars has two small moons named Phobos and Deimos.",
+            "Caffeine is a central nervous system stimulant found in coffee and tea.",
+            "The Atlantic Ocean separates the Americas from Europe and Africa.",
+            "A kilometer is equal to one thousand meters in the metric system.",
+            "The human brain contains approximately 86 billion neurons.",
+            "Diamonds are composed of carbon atoms arranged in a crystal lattice structure.",
+            "The Celsius and Fahrenheit temperature scales intersect at minus forty degrees.",
+            "Bees communicate the location of food sources through a pattern known as the waggle dance.",
+            "The circumference of the Earth at the equator is approximately 40,075 kilometers.",
+            "Sodium chloride, commonly known as table salt, has the chemical formula NaCl.",
+            "The Mariana Trench is the deepest known point in the ocean at about 11,034 meters.",
+            "Copper is an excellent conductor of both electricity and heat.",
+            "The moon takes approximately 27.3 days to complete one orbit around the Earth.",
+            "Helium is the second lightest and second most abundant element in the observable universe.",
+            "The boiling point of ethanol is approximately 78.37 degrees Celsius.",
+            "A standard year in the Gregorian calendar contains 365 days.",
+            "The mitochondrion is often described as the powerhouse of the cell.",
+            "The Richter scale measures the magnitude of seismic waves produced by earthquakes.",
+            "Sharks have been present in Earth's oceans for over 400 million years.",
+            "The distance from the Earth to the Moon is approximately 384,400 kilometers.",
+            "Nitrogen constitutes about 78 percent of the Earth's atmosphere by volume.",
+            "The Panama Canal connects the Atlantic and Pacific Oceans across Central America.",
+            "A light-year is the distance that light travels in one Julian year.",
+            "The human genome contains approximately 3 billion base pairs of DNA.",
+            "Iron has an atomic number of 26 on the periodic table of elements.",
+            "The Amazon rainforest produces roughly 20 percent of the world's oxygen.",
+            "Mercury is the closest planet to the Sun in our solar system.",
+            "An octave in music represents a doubling of the frequency of a sound wave.",
         ],
     },
     "emotion_joy_anger": {
@@ -477,6 +837,36 @@ CONCEPTS = {
             "A spontaneous act of kindness from a neighbor made my day infinitely better.",
             "I treasure the memory of us all laughing together around the dinner table.",
             "The world feels brighter and more beautiful when you are surrounded by love.",
+            "The butterflies in my stomach turned to pure elation when I heard the good news.",
+            "I giggled uncontrollably at the silly faces my nephew was making.",
+            "The warmth of the campfire and the sound of guitar strings filled me with peace.",
+            "Receiving flowers for no particular reason made my heart sing with happiness.",
+            "I danced in the rain and felt a childlike freedom I had almost forgotten.",
+            "The choir's harmonies swelled and a wave of pure bliss washed over me.",
+            "I squeezed my partner's hand and felt a surge of love I could barely contain.",
+            "The baby's first giggle was the most delightful sound I have ever heard.",
+            "We toasted marshmallows and shared stories, and I felt completely at home.",
+            "The surprise reunion with my college friends left me grinning for days.",
+            "I beamed with pride as my son read his first sentence aloud to the family.",
+            "The golden autumn leaves drifting down filled me with a serene kind of joy.",
+            "I felt a rush of pure happiness when the crowd sang along to my song.",
+            "Curling up with my cat purring on my chest is the definition of contentment.",
+            "The heartfelt standing ovation brought joyful tears streaming down my cheeks.",
+            "I savored every bite of the homemade pie and smiled at the memories it evoked.",
+            "The soft glow of candles and the company of friends made the evening perfect.",
+            "I could feel my spirits lift the moment I stepped into the sunlit garden.",
+            "Watching the dolphins leap alongside the boat filled everyone with pure delight.",
+            "The tender lullaby my mother used to sing still fills me with deep comfort.",
+            "I threw my arms around my friend and we both laughed until we cried.",
+            "The first sip of hot cocoa on a freezing day was absolute heaven.",
+            "We built a blanket fort and spent the evening watching movies in pure bliss.",
+            "I felt an overwhelming wave of gratitude as I looked at my sleeping children.",
+            "The festival was alive with color, music, and the most infectious joyfulness.",
+            "I caught a glimpse of a rainbow and it felt like a sign of good things to come.",
+            "The applause after the school recital made every hour of practice worthwhile.",
+            "I felt giddy with excitement as I unpacked the boxes in my very first home.",
+            "The simple pleasure of warm bread straight from the oven is hard to beat.",
+            "My grandmother's embrace always had a way of making every worry disappear.",
         ],
         "negative": [
             "I am absolutely furious about the way they handled this entire situation.",
@@ -509,6 +899,36 @@ CONCEPTS = {
             "The reckless negligence that caused the accident makes me shake with anger.",
             "I am boiling with indignation at the way they twisted the truth.",
             "The hostile and aggressive tone of the letter left me feeling attacked and furious.",
+            "I was so angry I could barely see straight as I read the verdict.",
+            "The brazen theft of credit for my work made my blood pressure skyrocket.",
+            "I gritted my teeth as they dismissed months of effort with a casual shrug.",
+            "The toxic culture in this office is enough to make anyone snap with rage.",
+            "I wanted to scream when the same mistake happened for the fifth time in a row.",
+            "Their condescending tone made me want to slam my laptop shut and walk away.",
+            "I am livid that they knowingly endangered people's lives to save a few dollars.",
+            "The utter contempt in their voice was enough to make my hands tremble with fury.",
+            "I have never felt such white-hot rage as when I discovered the deception.",
+            "The senseless destruction of the historic building left the community seething.",
+            "I threw down the report in disgust after reading the blatant distortions inside.",
+            "Their gleeful mockery of those less fortunate fills me with righteous anger.",
+            "I am absolutely enraged that they broke every promise they made to our faces.",
+            "The cavalier attitude towards safety violations makes my stomach churn with fury.",
+            "I kicked the chair across the room after reading the insulting response.",
+            "Their refusal to take any responsibility whatsoever is driving me up the wall.",
+            "I was shaking with anger as I listened to the recording of the meeting.",
+            "The cruel joke at my expense in front of everyone made me burn with humiliation.",
+            "I slammed my fist on the desk because I could not tolerate one more excuse.",
+            "The deliberate cover-up of the truth has ignited a firestorm of public outrage.",
+            "I ground my teeth in fury as they casually blamed everyone except themselves.",
+            "Their sneering dismissal of genuine concerns is the most infuriating thing imaginable.",
+            "I am apoplectic with rage at the sheer scale of the injustice committed here.",
+            "The bully's taunting laughter echoed in my ears and I could feel my rage building.",
+            "I yanked the cord from the wall in frustration after the third crash in an hour.",
+            "Their willful ignorance in the face of overwhelming evidence is maddening beyond belief.",
+            "I felt a surge of fury so intense it took every ounce of restraint not to shout.",
+            "The fact that no one has been held accountable makes my anger burn even hotter.",
+            "I was fuming silently in my seat as they took credit for the entire project.",
+            "The vicious personal attack in the email left me trembling with anger and disbelief.",
         ],
     },
     "instruction": {
@@ -544,6 +964,36 @@ CONCEPTS = {
             "Disconnect the old component and replace it with the new one provided.",
             "Align the edges carefully before stapling the pages together.",
             "Follow the on-screen prompts to complete the registration process.",
+            "Drain the pasta when it is al dente and immediately toss it with the sauce.",
+            "Press and hold the power button for five seconds to perform a hard reset.",
+            "Thread the needle with eighteen inches of thread and tie a knot at the end.",
+            "Rotate the dial clockwise until you hear a click, then pull the handle.",
+            "Copy the configuration file to the backup directory before making changes.",
+            "Spread the mortar evenly with a trowel and lay each tile firmly into place.",
+            "Unplug the appliance and allow it to cool completely before cleaning.",
+            "Highlight the text you wish to format and select bold from the toolbar.",
+            "Pour the batter into the prepared pan and smooth the top with a spatula.",
+            "Check the oil level using the dipstick and add more if it is below the mark.",
+            "Create a new branch in the repository before committing your changes.",
+            "Inflate the tire to the recommended pressure shown on the sidewall.",
+            "Dissolve the tablet in a full glass of water and drink it immediately.",
+            "Secure the harness by pulling the strap until it fits snugly across your chest.",
+            "Back up your database before running the migration script.",
+            "Prime the pump by pressing the button three times before the first use.",
+            "Trim the excess fabric with sharp scissors and fold the hem under.",
+            "Restart the router by unplugging it for thirty seconds, then plugging it back in.",
+            "Label each sample clearly with the date, time, and identification number.",
+            "Calibrate the instrument by following the steps outlined in the user manual.",
+            "Clean the wound gently with saline solution and cover it with a sterile bandage.",
+            "Mount the shelf brackets at exactly the same height using a spirit level.",
+            "Compile the source code with optimization flags enabled for best performance.",
+            "Blanch the vegetables in boiling water for two minutes, then plunge into ice water.",
+            "Verify that all connections are secure before turning on the main power switch.",
+            "Write your name and date of birth in block capitals on the first line.",
+            "Flatten the dough with a rolling pin until it is about a quarter inch thick.",
+            "Synchronize your device by connecting it to the computer and clicking sync.",
+            "Lubricate the chain with a few drops of oil and wipe away any excess.",
+            "Submit the completed form to the front desk before the end of business today.",
         ],
         "negative": [
             "The oven had been preheated and the kitchen was filled with a warm aroma.",
@@ -576,6 +1026,36 @@ CONCEPTS = {
             "The old component sat on the workbench next to its brand new replacement.",
             "The pages were neatly aligned and bound together with a single staple.",
             "The registration process took approximately five minutes from start to finish.",
+            "The pasta had been cooked to perfection and glistened with a light coating of sauce.",
+            "The power button glowed faintly in the dim light of the server room.",
+            "The needle trailed a long thread that looped gracefully across the fabric.",
+            "The dial had been turned to its maximum position and the handle was extended.",
+            "The configuration file sat in the backup directory alongside older versions.",
+            "The mortar had dried overnight and the tiles were firmly set into the floor.",
+            "The appliance had cooled down and was sitting unplugged on the counter.",
+            "The selected text appeared in bold across the center of the slide.",
+            "The batter spread smoothly across the pan in a thin, even layer.",
+            "The oil level registered just above the minimum mark on the dipstick.",
+            "The new branch contained all the recent commits from the development team.",
+            "The tire pressure gauge showed a reading slightly below the recommended level.",
+            "The tablet dissolved quickly, turning the water a pale cloudy white.",
+            "The harness fit snugly across his chest, its buckle gleaming in the sunlight.",
+            "The database backup completed successfully in under three minutes.",
+            "The pump primed quickly and water began to flow steadily through the pipe.",
+            "The excess fabric had been trimmed neatly and the hem was perfectly even.",
+            "The router blinked steadily as it re-established the network connection.",
+            "Each sample was labeled with a date, time, and a unique identification number.",
+            "The instrument had been recently calibrated and was reading within tolerance.",
+            "The wound had been cleaned and dressed with a sterile white bandage.",
+            "The shelf brackets were mounted at precisely the same height on both sides.",
+            "The source code compiled without errors and the binary was ready to deploy.",
+            "The vegetables had been blanched and were sitting in a bowl of ice water.",
+            "All the connections had been inspected and the main power switch was turned on.",
+            "His name and date of birth were printed in neat block capitals on the form.",
+            "The dough had been rolled flat and lay in a pale circle on the floured surface.",
+            "The device was connected and the synchronization progress bar crept forward.",
+            "The chain gleamed with a thin film of fresh oil after being lubricated.",
+            "The completed form sat on the front desk waiting to be collected.",
         ],
     },
 }
@@ -593,7 +1073,7 @@ def load_concept_prompts(path=PROMPTS_PATH):
         return json.load(f)
 
 
-def load_cached_activations(concept_name, direction, layer_idx=None):
+def load_cached_activations(concept_name, direction, layer_idx=None, position="last"):
     """
     Load cached activation arrays for a given concept and direction.
 
@@ -601,23 +1081,26 @@ def load_cached_activations(concept_name, direction, layer_idx=None):
         concept_name: e.g. "sentiment"
         direction: "positive" or "negative"
         layer_idx: if None, returns dict {layer_idx: array}, else returns single array
+        position: "last" for last-token, "mean" for mean-pooled
 
     Returns:
         numpy array of shape (num_prompts, hidden_size) or dict of such arrays
     """
+    pos_suffix = f"_{position}" if position != "last" else ""
     concept_dir = ACTIVATIONS_DIR / concept_name / direction
     if layer_idx is not None:
-        path = concept_dir / f"layer_{layer_idx:02d}.npy"
+        path = concept_dir / f"layer_{layer_idx:02d}{pos_suffix}.npy"
         return np.load(path)
     # Load all layers
     result = {}
-    for f in sorted(concept_dir.glob("layer_*.npy")):
-        idx = int(f.stem.split("_")[1])
+    for f in sorted(concept_dir.glob(f"layer_*{pos_suffix}.npy")):
+        stem = f.stem.replace(pos_suffix, "")
+        idx = int(stem.split("_")[1])
         result[idx] = np.load(f)
     return result
 
 
-def load_all_activations():
+def load_all_activations(position="last"):
     """
     Load all cached activations into a nested dict.
 
@@ -629,7 +1112,7 @@ def load_all_activations():
         all_acts[concept_name] = {}
         for direction in ["positive", "negative"]:
             all_acts[concept_name][direction] = load_cached_activations(
-                concept_name, direction
+                concept_name, direction, position=position
             )
     return all_acts
 
@@ -670,16 +1153,15 @@ def generate_prompts():
 def extract_activations():
     """
     Load the model, run all concept prompts through it, capture residual-stream
-    activations at every layer (last token position), and save to disk.
+    activations at every layer (last token + mean pool), and save to disk.
     """
     import torch
     from transformers import AutoTokenizer, AutoModelForCausalLM
 
     print(f"Loading model: {MODEL_NAME}")
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_NAME,
-        trust_remote_code=True,
         torch_dtype=torch.float32,
         device_map="cpu",
         output_hidden_states=True,
@@ -705,8 +1187,9 @@ def extract_activations():
             save_dir = ACTIVATIONS_DIR / concept_name / direction
             save_dir.mkdir(parents=True, exist_ok=True)
 
-            # Collect last-token activations per layer
-            layer_activations = {i: [] for i in range(num_layers)}
+            # Collect activations per layer (both last-token and mean-pool)
+            layer_acts_last = {i: [] for i in range(num_layers)}
+            layer_acts_mean = {i: [] for i in range(num_layers)}
 
             for prompt_idx, prompt in enumerate(prompts):
                 inputs = tokenizer(
@@ -719,30 +1202,30 @@ def extract_activations():
                 with torch.no_grad():
                     outputs = model(**inputs)
 
-                # outputs.hidden_states: tuple of (num_layers+1) tensors
-                # shape: (1, seq_len, hidden_size)
-                # [0] = embedding output, [1..num_layers] = after each transformer block
                 hidden_states = outputs.hidden_states
-
-                # Use the last non-padding token position
                 seq_len = inputs["input_ids"].shape[1]
                 last_pos = seq_len - 1
 
                 for layer_idx in range(num_layers):
-                    # hidden_states[layer_idx + 1] = output of layer layer_idx
-                    act = hidden_states[layer_idx + 1][0, last_pos, :].numpy()
-                    layer_activations[layer_idx].append(act)
+                    hs = hidden_states[layer_idx + 1][0]  # (seq_len, hidden_size)
+                    # Last token
+                    layer_acts_last[layer_idx].append(hs[last_pos, :].numpy())
+                    # Mean pool over all tokens
+                    layer_acts_mean[layer_idx].append(hs.mean(dim=0).numpy())
 
                 if (prompt_idx + 1) % 10 == 0:
                     print(f"  [{concept_name}/{direction}] {prompt_idx + 1}/{len(prompts)}")
 
-            # Save each layer's activations
-            for layer_idx, acts in layer_activations.items():
-                arr = np.stack(acts, axis=0)  # (n_prompts, hidden_size)
-                np.save(save_dir / f"layer_{layer_idx:02d}.npy", arr)
+            # Save each layer's activations (both positions)
+            for layer_idx in range(num_layers):
+                arr_last = np.stack(layer_acts_last[layer_idx], axis=0)
+                arr_mean = np.stack(layer_acts_mean[layer_idx], axis=0)
+                np.save(save_dir / f"layer_{layer_idx:02d}.npy", arr_last)
+                np.save(save_dir / f"layer_{layer_idx:02d}_mean.npy", arr_mean)
 
             total_prompts += len(prompts)
-            print(f"  {concept_name}/{direction}: {len(prompts)} prompts, saved {num_layers} layers")
+            print(f"  {concept_name}/{direction}: {len(prompts)} prompts, "
+                  f"saved {num_layers} layers (last + mean)")
 
     # Save metadata
     meta = {
@@ -754,12 +1237,13 @@ def extract_activations():
         "concept_names": list(prompts_data.keys()),
         "prompts_per_direction": PROMPTS_PER_DIRECTION,
         "total_prompts": total_prompts,
-        "extraction_position": "last_token",
+        "extraction_positions": EXTRACTION_POSITIONS,
     }
     with open(META_PATH, "w") as f:
         json.dump(meta, f, indent=2)
 
     print(f"\nDone! Extracted activations for {total_prompts} prompts across {num_layers} layers.")
+    print(f"Positions: {EXTRACTION_POSITIONS}")
     print(f"Cached to: {ACTIVATIONS_DIR}")
     print(f"Metadata: {META_PATH}")
 
@@ -769,7 +1253,7 @@ def extract_activations():
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Auto-steer: preparation script")
+    parser = argparse.ArgumentParser(description="Auto-steer v2: preparation script")
     parser.add_argument("--prompts-only", action="store_true",
                         help="Only regenerate concept prompts (skip extraction)")
     parser.add_argument("--extract-only", action="store_true",

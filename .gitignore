@@ -19,5 +19,8 @@ AGENTS.md
 # Experimental code/artifacts
 dev/
 
-# Results file
+# Results files (untracked per experiment)
 results.tsv
+results_steer.tsv
+results_steer/
+run_steer.log
