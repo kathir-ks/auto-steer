@@ -1162,10 +1162,9 @@ def extract_activations():
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_NAME,
-        torch_dtype=torch.float32,
-        device_map="cpu",
+        dtype=torch.float32,
         output_hidden_states=True,
-    )
+    ).to("cpu")
     model.eval()
 
     # Get model info
